@@ -5413,17 +5413,17 @@ int kvm_mmu_unprotect_page_virt(struct kvm_vcpu *vcpu, gva_t gva)
 }
 EXPORT_SYMBOL_GPL(kvm_mmu_unprotect_page_virt);
 
-int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
-		       void *insn, int insn_len)
+int __kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
+			 u64 error_code, int *emulation_type)
 {
-	int r, emulation_type = 0;
+	int r;
 	bool direct = vcpu->arch.mmu->direct_map;
 
 	if (WARN_ON(!VALID_PAGE(vcpu->arch.mmu->root_hpa)))
 		return RET_PF_RETRY;
 
 	/* With shadow page tables, fault_address contains a GVA or nGPA.  */
-	if (vcpu->arch.mmu->direct_map) {
+	if (direct) {
 		vcpu->arch.gpa_available = true;
 		vcpu->arch.gpa_val = cr2_or_gpa;
 	}
@@ -5432,7 +5432,7 @@ int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
 	if (unlikely(error_code & PFERR_RSVD_MASK)) {
 		r = handle_mmio_page_fault(vcpu, cr2_or_gpa, direct);
 		if (r == RET_PF_EMULATE)
-			goto emulate;
+			return 0;
 	}
 
 	if (r == RET_PF_INVALID) {
@@ -5454,7 +5454,7 @@ int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
 	 * paging in both guests. If true, we simply unprotect the page
 	 * and resume the guest.
 	 */
-	if (vcpu->arch.mmu->direct_map &&
+	if (direct &&
 	    (error_code & PFERR_NESTED_GUEST_PAGE) == PFERR_NESTED_GUEST_PAGE) {
 		kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(cr2_or_gpa));
 		return 1;
@@ -5472,8 +5472,21 @@ int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
 	 * for L1 isn't going to magically fix whatever issue cause L2 to fail.
 	 */
 	if (!mmio_info_in_cache(vcpu, cr2_or_gpa, direct) && !is_guest_mode(vcpu))
-		emulation_type = EMULTYPE_ALLOW_RETRY;
-emulate:
+		*emulation_type = EMULTYPE_ALLOW_RETRY;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(__kvm_mmu_page_fault);
+
+int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
+		       void *insn, int insn_len)
+{
+	int r, emulation_type = 0;
+
+	r = __kvm_mmu_page_fault(vcpu, cr2_or_gpa, error_code, &emulation_type);
+	if (r)
+		return r;
+
 	/*
 	 * On AMD platforms, under certain conditions insn_len may be zero on #NPF.
 	 * This can happen if a guest gets a page-fault on data access but the HW
