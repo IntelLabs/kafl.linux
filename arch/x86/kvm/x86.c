@@ -4280,6 +4280,10 @@ static int msr_io(struct kvm_vcpu *vcpu, struct kvm_msrs __user *user_msrs,
 	if (copy_from_user(&msrs, user_msrs, sizeof(msrs)))
 		goto out;
 
+	r = -EINVAL;
+	if (!writeback && msrs.nmsrs != 1 && vcpu->arch.guest_state_encrypted)
+		goto out;
+
 	r = -E2BIG;
 	if (msrs.nmsrs >= MAX_IO_MSRS)
 		goto out;
@@ -4904,6 +4908,9 @@ static int kvm_vcpu_ioctl_nmi(struct kvm_vcpu *vcpu)
 
 static int kvm_vcpu_ioctl_smi(struct kvm_vcpu *vcpu)
 {
+	if (vcpu->arch.guest_state_encrypted)
+		return -EINVAL;
+
 	kvm_make_request(KVM_REQ_SMI, vcpu);
 
 	return 0;
@@ -4990,6 +4997,9 @@ static int kvm_vcpu_ioctl_x86_set_mce(struct kvm_vcpu *vcpu,
 	u64 mcg_cap = vcpu->arch.mcg_cap;
 	unsigned bank_num = mcg_cap & 0xff;
 	u64 *banks = vcpu->arch.mce_banks;
+
+	if (vcpu->arch.guest_state_encrypted)
+		return -EINVAL;
 
 	if (mce->bank >= bank_num || !(mce->status & MCI_STATUS_VAL))
 		return -EINVAL;
@@ -5136,6 +5146,9 @@ static void kvm_smm_changed(struct kvm_vcpu *vcpu, bool entering_smm);
 static int kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
 					      struct kvm_vcpu_events *events)
 {
+	if (vcpu->arch.guest_state_encrypted)
+		return -EINVAL;
+
 	if (events->flags & ~(KVM_VCPUEVENT_VALID_NMI_PENDING
 			      | KVM_VCPUEVENT_VALID_SIPI_VECTOR
 			      | KVM_VCPUEVENT_VALID_SHADOW
@@ -5265,6 +5278,9 @@ static int kvm_vcpu_ioctl_x86_set_debugregs(struct kvm_vcpu *vcpu,
 	if (!kvm_dr7_valid(dbgregs->dr7))
 		return -EINVAL;
 
+	if (vcpu->arch.guest_state_encrypted)
+		return -EINVAL;
+
 	memcpy(vcpu->arch.db, dbgregs->db, sizeof(vcpu->arch.db));
 	kvm_update_dr0123(vcpu);
 	vcpu->arch.dr6 = dbgregs->dr6;
@@ -5301,6 +5317,8 @@ static int kvm_vcpu_ioctl_x86_set_xsave(struct kvm_vcpu *vcpu,
 {
 	if (fpstate_is_confidential(&vcpu->arch.guest_fpu))
 		return 0;
+	if (vcpu->arch.guest_state_encrypted)
+		return -EINVAL;
 
 	return fpu_copy_uabi_to_guest_fpstate(&vcpu->arch.guest_fpu,
 					      guest_xsave->region,
@@ -5326,6 +5344,9 @@ static int kvm_vcpu_ioctl_x86_set_xcrs(struct kvm_vcpu *vcpu,
 				       struct kvm_xcrs *guest_xcrs)
 {
 	int i, r = 0;
+
+	if (vcpu->arch.guest_state_encrypted)
+		return -EINVAL;
 
 	if (!boot_cpu_has(X86_FEATURE_XSAVE))
 		return -EINVAL;
@@ -9775,6 +9796,15 @@ static void post_kvm_run_save(struct kvm_vcpu *vcpu)
 {
 	struct kvm_run *kvm_run = vcpu->run;
 
+	if (vcpu->arch.guest_state_encrypted) {
+		kvm_run->if_flag = false;
+		kvm_run->flags = false;
+		kvm_run->cr8 = 0;
+		kvm_run->apic_base = kvm_get_apic_base(vcpu);
+		kvm_run->ready_for_interrupt_injection = false;
+		return;
+	}
+
 	kvm_run->if_flag = static_call(kvm_x86_get_if_flag)(vcpu);
 	kvm_run->cr8 = kvm_get_cr8(vcpu);
 	kvm_run->apic_base = kvm_get_apic_base(vcpu);
@@ -11285,6 +11315,9 @@ static void __set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 
 int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
+	if (vcpu->arch.guest_state_encrypted)
+		return -EINVAL;
+
 	vcpu_load(vcpu);
 	__set_regs(vcpu, regs);
 	vcpu_put(vcpu);
@@ -11620,6 +11653,9 @@ int kvm_arch_vcpu_ioctl_set_sregs(struct kvm_vcpu *vcpu,
 {
 	int ret;
 
+	if (vcpu->arch.guest_state_encrypted)
+		return -EINVAL;
+
 	vcpu_load(vcpu);
 	ret = __set_sregs(vcpu, sregs);
 	vcpu_put(vcpu);
@@ -11758,6 +11794,9 @@ int kvm_arch_vcpu_ioctl_get_fpu(struct kvm_vcpu *vcpu, struct kvm_fpu *fpu)
 int kvm_arch_vcpu_ioctl_set_fpu(struct kvm_vcpu *vcpu, struct kvm_fpu *fpu)
 {
 	struct fxregs_state *fxsave;
+
+	if (vcpu->arch.guest_state_encrypted)
+		return -EINVAL;
 
 	if (fpstate_is_confidential(&vcpu->arch.guest_fpu))
 		return 0;
