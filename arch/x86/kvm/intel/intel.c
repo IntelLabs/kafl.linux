@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/moduleparam.h>
 
+#ifdef CONFIG_KVM_INTEL_TDX
+static bool __read_mostly enable_tdx = 0;
+module_param_named(tdx, enable_tdx, bool, 0444);
+#else
+#define enable_tdx 0
+#endif
+
 #include "vmx.c"
+#include "tdx.c"
 
 static int __init intel_check_processor_compatibility(void)
 {
@@ -10,6 +18,21 @@ static int __init intel_check_processor_compatibility(void)
 	ret = vmx_check_processor_compat();
 	if (ret)
 		return ret;
+
+	if (enable_tdx) {
+		ret = tdx_check_processor_compatibility();
+
+		/*
+		 * Until concurrent VMs+TDs are allowed, @enable_tdx is defined
+		 * as enabling TDX and disabling VMX.  If TDX isn't supported,
+		 * reject the module load instead of falling back to VMX, which
+		 * is not what would be expected by the user.  In the future,
+		 * failure this will disable TDX instead of failing outright.
+		 * This applies to hardware setup and enabling as well.
+		 */
+		if (ret)
+			return ret;
+	}
 
 	return 0;
 }
@@ -21,6 +44,12 @@ static __init int intel_hardware_setup(void)
 	ret = hardware_setup();
 	if (ret)
 		return ret;
+
+	if (enable_tdx) {
+		ret = tdx_hardware_setup();
+		if (ret)
+			return ret;
+	}
 
 	return 0;
 }
@@ -37,46 +66,74 @@ static void intel_hardware_disable(void)
 
 static bool intel_is_vm_type_supported(unsigned long type)
 {
-       return type == KVM_X86_LEGACY_VM;
+	return type == KVM_X86_LEGACY_VM ||
+	       (type == KVM_X86_TDX_VM && enable_tdx);
 }
 
 static int intel_vm_init(struct kvm *kvm)
 {
+	/* TODO: Stop stuffing @vm_type once TDX and VMX can coexist. */
+	if (enable_tdx)
+		kvm->arch.vm_type = KVM_X86_TDX_VM;
+
+	if (kvm->arch.vm_type == KVM_X86_TDX_VM)
+		return tdx_vm_init(kvm);
+
 	return vmx_vm_init(kvm);
 }
 
 static struct kvm *intel_vm_alloc(void)
 {
-	return vmx_vm_alloc();
+	/* TODO: Plumb through @type to here. */
+	if (enable_tdx && !emulate_seam)
+		return tdx_vm_alloc();
+
+        return vmx_vm_alloc();
 }
 
 static void intel_vm_free(struct kvm *kvm)
 {
+	if (is_td(kvm) && !emulate_seam)
+		return tdx_vm_free(kvm);
+
 	vmx_vm_free(kvm);
 }
 
 static void intel_vm_destroy(struct kvm *kvm)
 {
-
+	if (is_td(kvm))
+		tdx_vm_destroy(kvm);
 }
 
 static int intel_vcpu_create(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu))
+		return tdx_vcpu_create(vcpu);
+
 	return vmx_create_vcpu(vcpu);
 }
 
 static void intel_vcpu_run(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu))
+		return tdx_vcpu_run(vcpu);
+
 	return vmx_vcpu_run(vcpu);
 }
 
 static void intel_vcpu_free(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu))
+		return tdx_vcpu_free(vcpu);
+
 	return vmx_free_vcpu(vcpu);
 }
 
 static void intel_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 {
+	if (is_td_vcpu(vcpu))
+		return tdx_vcpu_reset(vcpu, init_event);
+
 	return vmx_vcpu_reset(vcpu, init_event);
 }
 
@@ -93,32 +150,50 @@ static void intel_vcpu_put(struct kvm_vcpu *vcpu)
 static int intel_handle_exit(struct kvm_vcpu *vcpu,
 			     enum exit_fastpath_completion fastpath)
 {
+	if (is_td_vcpu(vcpu) && !emulate_seam)
+		return tdx_handle_exit(vcpu, fastpath);
+
 	return vmx_handle_exit(vcpu, fastpath);
 }
 
 static void intel_handle_exit_irqoff(struct kvm_vcpu *vcpu,
 				     enum exit_fastpath_completion *fastpath)
 {
+	if (is_td_vcpu(vcpu) && !emulate_seam)
+		return tdx_handle_exit_irqoff(vcpu);
+
 	vmx_handle_exit_irqoff(vcpu, fastpath);
 }
 
 static int intel_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 {
+	if (is_td_vcpu(vcpu))
+		return tdx_set_msr(vcpu, msr_info);
+
 	return vmx_set_msr(vcpu, msr_info);
 }
 
 static int intel_smi_allowed(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu))
+		return 0;
+
 	return vmx_smi_allowed(vcpu);
 }
 
 static int intel_pre_enter_smm(struct kvm_vcpu *vcpu, char *smstate)
 {
+	if (WARN_ON_ONCE(is_td_vcpu(vcpu)))
+		return 0;
+
 	return vmx_pre_enter_smm(vcpu, smstate);
 }
 
 static int intel_pre_leave_smm(struct kvm_vcpu *vcpu, const char *smstate)
 {
+	if (WARN_ON_ONCE(is_td_vcpu(vcpu)))
+		return 0;
+
 	return vmx_pre_leave_smm(vcpu, smstate);
 }
 
@@ -129,16 +204,26 @@ static int intel_enable_smi_window(struct kvm_vcpu *vcpu)
 
 static bool intel_umip_emulated(void)
 {
+	/* TODO: Handle this when VMs and TDs aren't mutually exclusive. */
+	if (enable_tdx)
+		return false;
+
 	return vmx_umip_emulated();
 }
 
 static bool intel_is_emulatable(struct kvm_vcpu *vcpu, void *insn, int insn_len)
 {
+	if (is_td_vcpu(vcpu))
+		return tdx_is_emulatable(vcpu, insn, insn_len);
+
 	return vmx_is_emulatable(vcpu, insn, insn_len);
 }
 
 static bool intel_apic_init_signal_blocked(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu))
+		return true;
+
 	return vmx_apic_init_signal_blocked(vcpu);
 }
 
@@ -192,6 +277,9 @@ static void intel_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector)
 
 static void intel_cpuid_update(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu) && !emulate_seam)
+		return;
+
 	return vmx_cpuid_update(vcpu);
 }
 
@@ -358,6 +446,9 @@ static int __init intel_init(void)
 	unsigned int vcpu_size = 0, vcpu_align = 0;
 	int r;
 
+	/* tdx_early_init must be called before vmx_early_init(). */
+	tdx_early_init(&vcpu_size, &vcpu_align);
+
 	vmx_early_init(&vcpu_size, &vcpu_align, &intel_x86_ops);
 
 	r = kvm_init(&intel_x86_ops, vcpu_size, vcpu_align, THIS_MODULE);
@@ -368,8 +459,14 @@ static int __init intel_init(void)
 	if (r)
 		goto err_kvm_exit;
 
+	r = tdx_init();
+	if (r)
+		goto err_vmx_exit;
+
 	return 0;
 
+err_vmx_exit:
+	vmx_exit();
 err_kvm_exit:
 	kvm_exit();
 err_vmx_late_exit:
@@ -380,6 +477,7 @@ module_init(intel_init);
 
 static void intel_exit(void)
 {
+	tdx_exit();
 	vmx_exit();
 	kvm_exit();
 	vmx_late_exit();

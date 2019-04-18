@@ -69,6 +69,13 @@ config KVM_INTEL
 	  To compile this as a module, choose M here: the module
 	  will be called kvm-intel.
 
+config KVM_INTEL_TDX
+	bool "Trusted Domain Extensions"
+	depends on KVM_INTEL && X86_64
+
+	help
+	  Extends KVM on Intel processors to support Trusted Domain Extensions.
+
 config KVM_AMD
 	tristate "KVM for AMD processors support"
 	depends on KVM
