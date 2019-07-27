@@ -7285,12 +7285,25 @@ failed:
 	return ret;
 }
 
-static bool svm_need_emulation_on_page_fault(struct kvm_vcpu *vcpu)
+static bool svm_is_emulatable(struct kvm_vcpu *vcpu, void *insn, int insn_len)
 {
-	unsigned long cr4 = kvm_read_cr4(vcpu);
-	bool smep = cr4 & X86_CR4_SMEP;
-	bool smap = cr4 & X86_CR4_SMAP;
-	bool is_user = svm_get_cpl(vcpu) == 3;
+	bool is_user, smap, smep;
+	unsigned long cr4;
+
+	/*
+	 * Under certain conditions insn_len may be zero on #NPF.  This can
+	 * happen if a guest gets a page-fault on data access but the HW table
+	 * walker is not able to read the instruction page (e.g instruction
+	 * page is not present in memory). In those cases we simply restart the
+	 * guest, with the exception of AMD Erratum 1096 which is unrecoverable.
+	 */
+	if (likely(!insn || insn_len))
+		return true;
+
+	cr4 = kvm_read_cr4(vcpu);
+	smep = cr4 & X86_CR4_SMEP;
+	smap = cr4 & X86_CR4_SMAP;
+	is_user = svm_get_cpl(vcpu) == 3;
 
 	/*
 	 * Detect and workaround Errata 1096 Fam_17h_00_0Fh.
@@ -7510,7 +7523,7 @@ static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.nested_enable_evmcs = NULL,
 	.nested_get_evmcs_version = NULL,
 
-	.need_emulation_on_page_fault = svm_need_emulation_on_page_fault,
+	.is_emulatable = svm_is_emulatable,
 
 	.apic_init_signal_blocked = svm_apic_init_signal_blocked,
 };
