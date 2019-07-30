@@ -6795,6 +6795,9 @@ static int vmx_vm_init(struct kvm *kvm)
 	if (!ple_gap)
 		kvm->arch.pause_in_guest = true;
 
+	if (enable_ept)
+		kvm->arch.shadow_mmio_value = VMX_EPT_MISCONFIG_WX_VALUE;
+
 	if (boot_cpu_has(X86_BUG_L1TF) && enable_ept) {
 		switch (l1tf_mitigation) {
 		case L1TF_MITIGATION_OFF:

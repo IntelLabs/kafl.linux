@@ -253,7 +253,6 @@ static u64 __read_mostly shadow_user_mask;
 static u64 __read_mostly shadow_accessed_mask;
 static u64 __read_mostly shadow_dirty_mask;
 static u64 __read_mostly shadow_mmio_mask;
-static u64 __read_mostly shadow_mmio_value;
 static u64 __read_mostly shadow_mmio_access_mask;
 static u64 __read_mostly shadow_mmio_masked_value;
 static u64 __read_mostly shadow_present_mask;
@@ -344,10 +343,10 @@ void kvm_mmu_set_mmio_spte_mask(u64 mmio_mask, u64 mmio_value, u64 access_mask)
 {
 	BUG_ON((u64)(unsigned)access_mask != access_mask);
 	BUG_ON((mmio_mask & mmio_value) != (mmio_mask & mmio_value));
-	shadow_mmio_value = mmio_value | SPTE_MMIO_MASK;
 	shadow_mmio_mask = mmio_mask | SPTE_SPECIAL_MASK;
 	shadow_mmio_access_mask = access_mask;
-	shadow_mmio_masked_value = shadow_mmio_value & shadow_mmio_mask;
+	shadow_mmio_masked_value = (mmio_value & shadow_mmio_mask) |
+				   SPTE_SPECIAL_MASK;
 }
 EXPORT_SYMBOL_GPL(kvm_mmu_set_mmio_spte_mask);
 
@@ -461,7 +460,7 @@ static u64 make_mmio_spte(struct kvm_vcpu *vcpu, u64 gfn, unsigned int access)
 	u64 gpa = gfn << PAGE_SHIFT;
 
 	access &= shadow_mmio_access_mask;
-	mask |= shadow_mmio_value | access;
+	mask |= vcpu->kvm->arch.shadow_mmio_value | SPTE_MMIO_MASK | access;
 	mask |= gpa | shadow_nonpresent_or_rsvd_mask;
 	mask |= (gpa & shadow_nonpresent_or_rsvd_mask)
 		<< shadow_nonpresent_or_rsvd_mask_len;
@@ -5827,6 +5826,34 @@ static void kvm_mmu_invalidate_zap_pages_in_memslot(struct kvm *kvm,
 	kvm_mmu_zap_all_fast(kvm);
 }
 
+static u64 kvm_get_default_mmio_spte_mask(void)
+{
+	u64 mask;
+
+	/*
+	 * Set the reserved bits and the present bit of an paging-structure
+	 * entry to generate page fault with PFER.RSV = 1.
+	 */
+
+	/*
+	 * Mask the uppermost physical address bit, which would be reserved as
+	 * long as the supported physical address width is less than 52.
+	 */
+	mask = 1ull << 51;
+
+	/* Set the present bit. */
+	mask |= 1ull;
+
+	/*
+	 * If reserved bit is not supported, clear the present bit to disable
+	 * mmio page fault.
+	 */
+	if (shadow_phys_bits == 52)
+		mask &= ~1ull;
+
+	return mask;
+}
+
 void kvm_mmu_init_vm(struct kvm *kvm)
 {
 	struct kvm_page_track_notifier_node *node = &kvm->arch.mmu_sp_tracker;
@@ -5834,6 +5861,8 @@ void kvm_mmu_init_vm(struct kvm *kvm)
 	node->track_write = kvm_mmu_pte_write;
 	node->track_flush_slot = kvm_mmu_invalidate_zap_pages_in_memslot;
 	kvm_page_track_register_notifier(kvm, node);
+
+	kvm->arch.shadow_mmio_value = kvm_get_default_mmio_spte_mask();
 }
 
 void kvm_mmu_uninit_vm(struct kvm *kvm)
@@ -6142,34 +6171,6 @@ static void mmu_destroy_caches(void)
 	kmem_cache_destroy(mmu_page_header_cache);
 }
 
-static void kvm_set_mmio_spte_mask(void)
-{
-	u64 mask;
-
-	/*
-	 * Set the reserved bits and the present bit of an paging-structure
-	 * entry to generate page fault with PFER.RSV = 1.
-	 */
-
-	/*
-	 * Mask the uppermost physical address bit, which would be reserved as
-	 * long as the supported physical address width is less than 52.
-	 */
-	mask = 1ull << 51;
-
-	/* Set the present bit. */
-	mask |= 1ull;
-
-	/*
-	 * If reserved bit is not supported, clear the present bit to disable
-	 * mmio page fault.
-	 */
-	if (shadow_phys_bits == 52)
-		mask &= ~1ull;
-
-	kvm_mmu_set_mmio_spte_mask(mask, mask, ACC_WRITE_MASK | ACC_USER_MASK);
-}
-
 static bool get_nx_auto_mode(void)
 {
 	/* Return true when CPU has the bug, and mitigations are ON */
@@ -6219,6 +6220,7 @@ static int set_nx_huge_pages(const char *val, const struct kernel_param *kp)
 int kvm_mmu_module_init(void)
 {
 	int ret = -ENOMEM;
+	u64 mmio_mask;
 
 	if (nx_huge_pages == -1)
 		__set_nx_huge_pages(get_nx_auto_mode());
@@ -6235,7 +6237,9 @@ int kvm_mmu_module_init(void)
 
 	kvm_mmu_reset_all_pte_masks();
 
-	kvm_set_mmio_spte_mask();
+	mmio_mask = kvm_get_default_mmio_spte_mask();
+	kvm_mmu_set_mmio_spte_mask(mmio_mask, mmio_mask,
+				   ACC_WRITE_MASK | ACC_USER_MASK);
 
 	pte_list_desc_cache = kmem_cache_create("pte_list_desc",
 					    sizeof(struct pte_list_desc),
