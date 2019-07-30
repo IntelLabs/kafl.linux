@@ -13,6 +13,8 @@
 #include "vmx.h"
 #include "x86.h"
 
+void ept_enable_tdp(void);
+
 static inline int ept_handle_ept_violation(struct kvm_vcpu *vcpu, gpa_t gpa,
                                            unsigned long exit_qualification)
 {

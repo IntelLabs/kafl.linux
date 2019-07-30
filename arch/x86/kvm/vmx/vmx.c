@@ -4125,16 +4125,6 @@ static void vmx_compute_secondary_exec_control(struct vcpu_vmx *vmx)
 	vmx->secondary_exec_control = exec_control;
 }
 
-static void ept_set_mmio_spte_mask(void)
-{
-	/*
-	 * EPT Misconfigurations can be generated if the value of bits 2:0
-	 * of an EPT paging-structure entry is 110b (write/execute).
-	 */
-	kvm_mmu_set_mmio_spte_mask(VMX_EPT_RWX_MASK,
-				   VMX_EPT_MISCONFIG_WX_VALUE, 0);
-}
-
 #define VMX_XSS_EXIT_BITMAP 0
 
 /*
@@ -5251,19 +5241,6 @@ static void wakeup_handler(void)
 			kvm_vcpu_kick(vcpu);
 	}
 	spin_unlock(&per_cpu(blocked_vcpu_on_cpu_lock, cpu));
-}
-
-static void vmx_enable_tdp(void)
-{
-	kvm_mmu_set_mask_ptes(VMX_EPT_READABLE_MASK,
-		enable_ept_ad_bits ? VMX_EPT_ACCESS_BIT : 0ull,
-		enable_ept_ad_bits ? VMX_EPT_DIRTY_BIT : 0ull,
-		0ull, VMX_EPT_EXECUTABLE_MASK,
-		cpu_has_vmx_ept_execute_only() ? 0ull : VMX_EPT_READABLE_MASK,
-		VMX_EPT_RWX_MASK, 0ull);
-
-	ept_set_mmio_spte_mask();
-	kvm_enable_tdp();
 }
 
 /*
@@ -7621,7 +7598,7 @@ static __init int hardware_setup(void)
 	set_bit(0, vmx_vpid_bitmap); /* 0 is reserved for host */
 
 	if (enable_ept)
-		vmx_enable_tdp();
+		ept_enable_tdp();
 	else
 		kvm_disable_tdp();
 
