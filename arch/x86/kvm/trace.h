@@ -662,6 +662,66 @@ TRACE_EVENT(kvm_tdvmcall,
 );
 
 /*
+ * Tracepoint for #VE injected into a TDX guest
+ */
+TRACE_EVENT(kvm_ve_injection,
+	TP_PROTO(__u64 rip, __u32 exit_reason, __u32 instr_len,
+		 __u32 instr_info, __u64 exit_qual),
+	TP_ARGS(rip, exit_reason, instr_len, instr_info, exit_qual),
+
+	TP_STRUCT__entry(
+		__field(	__u64,		rip		)
+		__field(	__u32,		exit_reason	)
+		__field(	__u32,		instr_len	)
+		__field(	__u32,		instr_info	)
+		__field(	__u64,		exit_qual	)
+	),
+
+	TP_fast_assign(
+		__entry->rip			= rip;
+		__entry->exit_reason		= exit_reason;
+		__entry->instr_len		= instr_len;
+		__entry->instr_info		= instr_info;
+		__entry->exit_qual		= exit_qual;
+	),
+
+	TP_printk("rip: %llx reason: %s len: %u info: 0x%08x qual: 0x%016llx",
+		  __entry->rip,
+		  __print_symbolic(__entry->exit_reason, VMX_EXIT_REASONS),
+		  __entry->instr_len, __entry->instr_info, __entry->exit_qual)
+);
+
+/*
+ * Tracepoint for retrieval of #VE info from a TDX guest
+ */
+TRACE_EVENT(kvm_get_ve_info,
+	TP_PROTO(__u64 rip, __u32 exit_reason, __u32 instr_len,
+		 __u32 instr_info, __u64 exit_qual),
+	TP_ARGS(rip, exit_reason, instr_len, instr_info, exit_qual),
+
+	TP_STRUCT__entry(
+		__field(	__u64,		rip		)
+		__field(	__u32,		exit_reason	)
+		__field(	__u32,		instr_len	)
+		__field(	__u32,		instr_info	)
+		__field(	__u64,		exit_qual	)
+	),
+
+	TP_fast_assign(
+		__entry->rip			= rip;
+		__entry->exit_reason		= exit_reason;
+		__entry->instr_len		= instr_len;
+		__entry->instr_info		= instr_info;
+		__entry->exit_qual		= exit_qual;
+	),
+
+	TP_printk("rip: %llx reason: %s len: %u info: 0x%08x qual: 0x%016llx",
+		  __entry->rip,
+		  __print_symbolic(__entry->exit_reason, VMX_EXIT_REASONS),
+		  __entry->instr_len, __entry->instr_info, __entry->exit_qual)
+);
+
+/*
  * Tracepoint for nested #vmexit because of interrupt pending
  */
 TRACE_EVENT(kvm_nested_intr_vmexit,

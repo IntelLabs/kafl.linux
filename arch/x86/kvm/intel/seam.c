@@ -347,6 +347,8 @@ static bool seam_inject_ve(struct kvm_vcpu *vcpu)
 		return false;
 
 	if (info->busy) {
+		trace_kvm_ve_injection(kvm_rip_read(vcpu), vmx->exit_reason,
+				       -1, -1, -1);
 		vmcs_write32(VM_ENTRY_INTR_INFO_FIELD,
 			     INTR_INFO_VALID_MASK |
 			     INTR_TYPE_HARD_EXCEPTION |
@@ -369,6 +371,9 @@ static bool seam_inject_ve(struct kvm_vcpu *vcpu)
 	vmcs_write32(VM_ENTRY_INTR_INFO_FIELD,
 		     INTR_INFO_VALID_MASK | INTR_TYPE_HARD_EXCEPTION | VE_VECTOR);
 
+	trace_kvm_ve_injection(kvm_rip_read(vcpu), info->exit_reason,
+		info->instr_len, info->instr_info, info->exit_qual);
+
 	return true;
 }
 
@@ -377,6 +382,8 @@ static void seam_get_ve_info(struct kvm_vcpu *vcpu)
 	struct tdx_ve_info *info = &to_seam(vcpu)->ve_info;
 
 	if (!info->busy) {
+		trace_kvm_get_ve_info(kvm_rip_read(vcpu), -1, -1, -1, -1);
+
 		kvm_rax_write(vcpu, -1);
 		return;
 	}
@@ -388,6 +395,9 @@ static void seam_get_ve_info(struct kvm_vcpu *vcpu)
 	kvm_r8_write(vcpu, info->gla);
 	kvm_r9_write(vcpu, info->gpa);
 	kvm_r10_write(vcpu, ((u64)(info->instr_info) << 32) | info->instr_len);
+
+	trace_kvm_get_ve_info(kvm_rip_read(vcpu), info->exit_reason,
+		info->instr_len, info->instr_info, info->exit_qual);
 }
 
 static void seam_get_tdinfo(struct kvm_vcpu *vcpu)
