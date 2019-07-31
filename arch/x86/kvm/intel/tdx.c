@@ -494,6 +494,10 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 
 	exit_reason = tdvmcall_exit_reason(vcpu);
 
+	trace_kvm_tdvmcall(vmcs_readl(GUEST_RIP), exit_reason,
+			   tdvmcall_p1_read(vcpu), tdvmcall_p2_read(vcpu),
+			   tdvmcall_p3_read(vcpu), tdvmcall_p4_read(vcpu));
+
 	switch (exit_reason) {
 	case EXIT_REASON_TRIPLE_FAULT:
 		ret = tdx_trace_tdvmcall(vcpu);

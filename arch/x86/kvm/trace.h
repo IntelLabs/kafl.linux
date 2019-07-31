@@ -630,6 +630,38 @@ TRACE_EVENT(kvm_nested_vmexit_inject,
 );
 
 /*
+ * Tracepoint for TDVMCALL from a TDX guest
+ */
+TRACE_EVENT(kvm_tdvmcall,
+	TP_PROTO(__u64 rip, __u32 exit_reason, __u64 p1, __u64 p2, __u64 p3,
+		 __u64 p4),
+	TP_ARGS(rip, exit_reason, p1, p2, p3, p4),
+
+	TP_STRUCT__entry(
+		__field(	__u64,		rip		)
+		__field(	__u32,		exit_reason	)
+		__field(	__u64,		p1		)
+		__field(	__u64,		p2		)
+		__field(	__u64,		p3		)
+		__field(	__u64,		p4		)
+	),
+
+	TP_fast_assign(
+		__entry->rip			= rip;
+		__entry->exit_reason		= exit_reason;
+		__entry->p1			= p1;
+		__entry->p2			= p2;
+		__entry->p3			= p3;
+		__entry->p4			= p4;
+	),
+
+	TP_printk("rip: %llx reason: %s p1: %llx p2: %llx p3: %llx p4: %llx",
+		  __entry->rip,
+		  __print_symbolic(__entry->exit_reason, VMX_EXIT_REASONS),
+		  __entry->p1, __entry->p2, __entry->p3, __entry->p4)
+);
+
+/*
  * Tracepoint for nested #vmexit because of interrupt pending
  */
 TRACE_EVENT(kvm_nested_intr_vmexit,
