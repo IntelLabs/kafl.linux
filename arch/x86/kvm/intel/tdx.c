@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
+#include <linux/cpu.h>
 #include <linux/jump_label.h>
 #include <linux/trace_events.h>
 
@@ -8,6 +9,7 @@
 #include "cpuid.h"
 #include "ept.h"
 #include "tdx.h"
+#include "tdx_ops.h"
 
 #include <trace/events/kvm.h>
 #include "trace.h"
@@ -24,6 +26,12 @@ module_param(emulate_seam, bool, 0444);
 
 static char *seam_module;
 module_param(seam_module, charp, 0444);
+
+/* Capabilities of KVM + TDX-SEAM. */
+struct tdx_capabilities tdx_capabilities;
+
+/* One CPU per TDCONFIGKEY package */
+static __ro_after_init cpumask_var_t tdx_package_leadcpus;
 
 /*
  * A handful of places call into KVM and need to use the vCPU seen by KVM.
@@ -91,7 +99,14 @@ static __always_inline void tdvmcall_set_return_val(struct kvm_vcpu *vcpu,
 
 static int tdx_vm_init(struct kvm *kvm)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	u8 i;
+
 	kvm->arch.shadow_mmio_value = 0;
+
+	kvm_tdx->tdr = INVALID_PAGE;
+	for (i = 0; i < tdx_capabilities.tdcs_nr_pages; i++)
+		kvm_tdx->tdcs[i] = INVALID_PAGE;
 
 	if (emulate_seam)
 		return seam_tdcreate(kvm);
@@ -138,14 +153,16 @@ static void tdx_vm_free(struct kvm *kvm)
 
 static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 {
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	u8 i;
+
 	if (emulate_seam)
 		return seam_tdcreatevp(vcpu);
 
-	/*
-	 * TODO:
-	 * SEAMCALL(TDCREATEVP)
-	 * SEAMCALL(TDADDVPX)
-	 */
+	tdx->tdvpr = INVALID_PAGE;
+	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++)
+		tdx->tdvpx[i] = INVALID_PAGE;
+
 	return 0;
 }
 
@@ -611,12 +628,427 @@ static int __init tdx_check_processor_compatibility(void)
 	return 0;
 }
 
+static inline bool is_td_vcpu_initialized(struct vcpu_tdx *vcpu_tdx)
+{
+	return vcpu_tdx->tdvpr != INVALID_PAGE;
+}
+
+static inline bool is_td_guest_initialized(struct kvm_tdx *kvm_tdx)
+{
+	return kvm_tdx->tdr != INVALID_PAGE;
+}
+
+static int tdx_td_vcpu_init(struct kvm *kvm,
+			    struct kvm_vcpu *vcpu,
+			    struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct vcpu_tdx *vcpu_tdx = to_tdx(vcpu);
+	struct tdx_ex_ret ex_ret;
+	unsigned long page;
+	long err;
+	int ret;
+	u8 i;
+
+	if (WARN_ON(is_td_vcpu_initialized(vcpu_tdx)))
+		return -EINVAL;
+
+	/* SEAMCALL(TDCREATEVP) */
+	page = __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!page)
+		return -ENOMEM;
+	vcpu_tdx->tdvpr = __pa(page);
+
+	err = tdcreatevp(kvm_tdx->tdr, vcpu_tdx->tdvpr);
+	if (err) {
+		pr_seamcall_error(TDCREATEVP, err);
+		cmd->error_type = SEAMCALL_ERROR;
+		cmd->error.seamcall_leaf = SEAMCALL_TDCREATEVP;
+		ret = -EIO;
+		goto free_tdvpr;
+	}
+
+	/* SEAMCALL(TDADDVPX) */
+	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
+		page = __get_free_page(GFP_KERNEL_ACCOUNT);
+		if (!page)
+			goto free_tdvpx;
+		else
+			vcpu_tdx->tdvpx[i] = __pa(page);
+	}
+
+	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
+		err = tdaddvpx(vcpu_tdx->tdvpr, vcpu_tdx->tdvpx[i]);
+		if (err) {
+			pr_seamcall_error(TDADDVPX, err);
+			cmd->error_type = SEAMCALL_ERROR;
+			cmd->error.seamcall_leaf = SEAMCALL_TDADDVPX;
+			ret = -EIO;
+			goto reclaim_tdvpx;
+		}
+	}
+
+	/* SEAMCALL(TDINITVP) */
+	/*
+	 * TODO: Plumb an ioctl() to allow userspace to define the initial
+	 *       RCX value for the vCPU.  For now, harcode it to zero.
+	 */
+	err = tdinitvp(vcpu_tdx->tdvpr, 0);
+	if (err) {
+		pr_seamcall_error(TDINITVP, err);
+		cmd->error_type = SEAMCALL_ERROR;
+		cmd->error.seamcall_leaf = SEAMCALL_TDINITVP;
+		ret = -EIO;
+		goto reclaim_tdvpx;
+	}
+
+	return 0;
+
+reclaim_tdvpx:
+	/* @i points at the TDVPX page that failed tdaddvpx().
+	 *
+	 * If tdaddvpx() succeeds, TDX-SEAM zeros out the TDVPX page contents
+	 * using direct writes(MOVDIR64B).  MOVDIR64B ensures no cache line is
+	 * valid for the TDVPX page, so there's no need for tdwbinvdpage().
+	 */
+	while (i--) {
+		if (vcpu_tdx->tdvpx[i] != INVALID_PAGE)
+			BUG_ON(tdreclaimpage(vcpu_tdx->tdvpx[i], &ex_ret));
+	}
+	BUG_ON(tdwbinvdpage(vcpu_tdx->tdvpr));
+free_tdvpx:
+	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
+		if (vcpu_tdx->tdvpx[i] != INVALID_PAGE) {
+			free_page((unsigned long)__va(vcpu_tdx->tdvpx[i]));
+			vcpu_tdx->tdvpx[i] = INVALID_PAGE;
+		}
+	}
+	BUG_ON(tdreclaimpage(vcpu_tdx->tdvpr, &ex_ret));
+free_tdvpr:
+	free_page((unsigned long)__va(vcpu_tdx->tdvpr));
+	vcpu_tdx->tdvpr = INVALID_PAGE;
+	return ret;
+}
+
+static void tdx_td_vcpu_uninit(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *vcpu_tdx = to_tdx(vcpu);
+	struct tdx_ex_ret ex_ret;
+	u8 i;
+
+	if (!is_td_vcpu_initialized(vcpu_tdx))
+		return;
+
+	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
+		if (vcpu_tdx->tdvpx[i] != INVALID_PAGE) {
+			BUG_ON(tdwbinvdpage(vcpu_tdx->tdvpx[i]));
+			BUG_ON(tdreclaimpage(vcpu_tdx->tdvpx[i], &ex_ret));
+			free_page((unsigned long)__va(vcpu_tdx->tdvpx[i]));
+			vcpu_tdx->tdvpx[i] = INVALID_PAGE;
+		}
+	}
+
+	BUG_ON(tdwbinvdpage(vcpu_tdx->tdvpr));
+	BUG_ON(tdreclaimpage(vcpu_tdx->tdvpr, &ex_ret));
+	free_page((unsigned long)__va(vcpu_tdx->tdvpr));
+	vcpu_tdx->tdvpr = INVALID_PAGE;
+}
+
+static int tdx_td_vcpu_init_all(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_vcpu *vcpu;
+	int i, ret;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		ret = tdx_td_vcpu_init(kvm, vcpu, cmd);
+		if (ret)
+			goto td_vcpu_uninit;
+	}
+	return 0;
+
+td_vcpu_uninit:
+	kvm_for_each_vcpu(i, vcpu, kvm)
+		tdx_td_vcpu_uninit(vcpu);
+
+	return ret;
+}
+
+static int __init init_package_bitmap(void)
+{
+	unsigned long *tdx_package_bitmap;
+	int cpu, target_id;
+
+	if (!zalloc_cpumask_var(&tdx_package_leadcpus, GFP_KERNEL))
+		return -ENOMEM;
+
+	tdx_package_bitmap = bitmap_zalloc(topology_max_packages(), GFP_KERNEL);
+	if (!tdx_package_bitmap) {
+		free_cpumask_var(tdx_package_leadcpus);
+		return -ENOMEM;
+	}
+
+	for_each_online_cpu(cpu) {
+		target_id = topology_physical_package_id(cpu);
+		if (!__test_and_set_bit(target_id, tdx_package_bitmap))
+			__cpumask_set_cpu(cpu, tdx_package_leadcpus);
+	}
+
+	bitmap_free(tdx_package_bitmap);
+
+	return 0;
+}
+
 static int __init tdx_hardware_setup(void)
 {
 	if (emulate_seam)
 		return seam_hardware_setup();
 
+	return init_package_bitmap();
+}
+
+struct tdx_tdconfigkey {
+	hpa_t tdr;
+	struct kvm_tdx_cmd *cmd;
+	int error_code;
+};
+
+static void tdx_do_tdconfigkey(void *data)
+{
+	struct tdx_tdconfigkey *configkey = data;
+	long err;
+
+	err = tdconfigkey(configkey->tdr);
+	if (err && cmpxchg(&configkey->error_code, 0, -EFAULT) == 0) {
+		pr_seamcall_error(TDCONFIGKEY, err);
+		configkey->cmd->error_type = SEAMCALL_ERROR;
+		configkey->cmd->error.seamcall_leaf = SEAMCALL_TDCONFIGKEY;
+	}
+}
+
+static inline void adjust_tdparams_member(u64 *result, u64 fixed0, u64 fixed1)
+{
+	*result &= fixed0;
+	*result |= fixed1;
+}
+
+static void setup_tdparams(struct td_params *td_params, u32 max_vcpus, u8 phys_bits)
+{
+	td_params->max_vcpus = max_vcpus;
+	td_params->eptp_controls = VMX_EPTP_MT_WB;
+
+	if (cpu_has_vmx_ept_5levels() && phys_bits > 48) {
+		td_params->eptp_controls |= VMX_EPTP_PWL_5;
+		td_params->exec_controls = 1;
+	} else {
+		td_params->eptp_controls |= VMX_EPTP_PWL_4;
+		td_params->exec_controls = 0;
+	}
+
+	/* TODO
+	 * We need to setup td_params->attributes; (TD Debug, KL & PERFMON)
+	 *		    td_params->xfam; (eXtended Features, same format like XCR0 and IA32_XSS)
+	 *		    td_params->cpuid_configs[]
+	 * based on tdx_capabilities->attributes_fixed0;
+	 *	    tdx_capabilities->attributes_fixed1;
+	 *	    tdx_capabilities->xfam_fixed0;
+	 *	    tdx_capabilities->xfam_fixed1;
+	 *	    tdx_capabilities->cpuid_configs[nr_cpuid_config];
+	 */
+	adjust_tdparams_member(&td_params->attributes,
+			       tdx_capabilities.attrs_fixed0,
+			       tdx_capabilities.attrs_fixed1);
+	adjust_tdparams_member(&td_params->xfam,
+			       tdx_capabilities.xfam_fixed0,
+			       tdx_capabilities.xfam_fixed1);
+
+	/* TODO
+	 * 1. TSC_FREQUENCY
+	 * 2. MRCONFIGID
+	 * 3. MROWNER
+	 * 4. MROWNERCONFIG
+	 */
+}
+
+ /*
+  * TODO: replace alloc_hkid() and free_hkid() with tdx_keyid_allo() and
+  *       tdx_keyid_free() when Kai's TDX keyID patches are merged.
+  */
+static int alloc_hkid(void)
+{
+	/*
+	 * TD guest's HKID should be allocated from
+	 * [MAX_ACTIVATED_MKTME_HKIDS, MAX_ACTIVATED_HKIDS - 1].
+	 */
 	return 0;
+}
+
+static void free_hkid(u16 hkid)
+{
+
+}
+
+static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_tdconfigkey configkey;
+	struct tdx_ex_ret ex_ret;
+	struct td_params *td_params;
+	unsigned long page;
+	int ret, hkid;
+	long err;
+	u8 i;
+
+	if (is_td_guest_initialized(kvm_tdx))
+		return -EINVAL;
+
+	hkid = alloc_hkid();
+	if (hkid < 0)
+		return -ENOKEY;
+
+	/* SEAMCALL(TDCREATE) */
+	page = __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!page) {
+		ret = -ENOMEM;
+		goto free_hkid;
+	}
+
+	kvm_tdx->tdr = __pa(page);
+	err = tdcreate(kvm_tdx->tdr, hkid);
+	if (unlikely(err)) {
+		pr_seamcall_error(TDCREATE, err);
+		cmd->error_type = SEAMCALL_ERROR;
+		cmd->error.seamcall_leaf = SEAMCALL_TDCREATE;
+		ret = -EIO;
+		goto free_tdr_page;
+	}
+
+	/* SEAMCALL(TDCONFIGKEY) */
+	configkey.tdr = kvm_tdx->tdr;
+	configkey.error_code = 0;
+	configkey.cmd = cmd;
+
+	preempt_disable();
+	on_each_cpu_mask(tdx_package_leadcpus, tdx_do_tdconfigkey, &configkey, 1);
+	preempt_enable();
+
+	if (configkey.error_code) {
+		ret = configkey.error_code;
+		goto reclaim_tdr;
+	}
+
+	/* SEAMCAL(TDADDCX) */
+	ret = -ENOMEM;
+	for (i = 0; i < tdx_capabilities.tdcs_nr_pages; i++) {
+		page = __get_free_page(GFP_KERNEL_ACCOUNT);
+		if (!page)
+			goto free_tdcs;
+		else
+			kvm_tdx->tdcs[i] = __pa(page);
+	}
+
+	for (i = 0; i < tdx_capabilities.tdcs_nr_pages; i++) {
+		err = tdaddcx(kvm_tdx->tdr, kvm_tdx->tdcs[i]);
+		if (unlikely(err)) {
+			pr_seamcall_error(TDADDCX, err);
+			cmd->error_type = SEAMCALL_ERROR;
+			cmd->error.seamcall_leaf = SEAMCALL_TDADDCX;
+			ret = -EIO;
+			goto reclaim_tdcs;
+		}
+	}
+
+	/* SEAMCALL(TDINIT) */
+	BUILD_BUG_ON(sizeof(struct td_params) != 1024);
+
+	td_params = kzalloc(sizeof(struct td_params), GFP_KERNEL_ACCOUNT);
+	if (!td_params)
+		goto reclaim_tdcs;
+
+	/*
+	 * TODO: snapshot the max PA head of time, it will be needed for
+	 *       calculating the locatin of the shared bit.
+	 */
+	setup_tdparams(td_params, atomic_read(&kvm->online_vcpus),
+		       cpuid_query_maxphyaddr(kvm_get_vcpu(kvm, 0)));
+
+	err = tdinit(kvm_tdx->tdr, __pa(td_params), &ex_ret);
+	kfree(td_params);
+	if (unlikely(err)) {
+		pr_seamcall_error(TDINIT, err);
+		cmd->error_type = SEAMCALL_ERROR;
+		cmd->error.seamcall_leaf = SEAMCALL_TDINIT;
+		goto reclaim_tdcs;
+	}
+
+	ret = tdx_td_vcpu_init_all(kvm, cmd);
+	if (ret)
+		goto reclaim_hkids;
+
+	return 0;
+
+reclaim_hkids:
+	BUG_ON(tdreclaimhkids(kvm_tdx->tdr));
+
+	/*
+	 * TODO: TDFLUSHVP, TDFLUSHVPDONE, TDWBCACHE (if necessary, there is no
+	 *       TD vCPU running at this point).
+	 */
+	BUG_ON(tdfreehkids(kvm_tdx->tdr));
+	BUG_ON(tdteardown(kvm_tdx->tdr));
+reclaim_tdcs:
+	/* @i points at the TDCS page that failed tdaddcx(). */
+	while (i--) {
+		if (kvm_tdx->tdcs[i]) {
+			BUG_ON(tdreclaimpage(kvm_tdx->tdcs[i], &ex_ret));
+			BUG_ON(tdwbinvdpage(kvm_tdx->tdcs[i]));
+		}
+	}
+free_tdcs:
+	for (i = 0; i < tdx_capabilities.tdcs_nr_pages; i++) {
+		if (kvm_tdx->tdcs[i] != INVALID_PAGE) {
+			free_page((unsigned long)__va(kvm_tdx->tdcs[i]));
+			kvm_tdx->tdcs[i] = INVALID_PAGE;
+		}
+	}
+reclaim_tdr:
+	BUG_ON(tdreclaimpage(kvm_tdx->tdr, &ex_ret));
+	BUG_ON(tdwbinvdpage(kvm_tdx->tdr));
+free_tdr_page:
+	free_page((unsigned long)__va(kvm_tdx->tdr));
+	kvm_tdx->tdr = INVALID_PAGE;
+free_hkid:
+	free_hkid(hkid);
+	return ret;
+}
+
+static int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
+{
+	struct kvm_tdx_cmd tdx_cmd;
+	int r;
+
+	if (copy_from_user(&tdx_cmd, argp, sizeof(struct kvm_tdx_cmd)))
+		return -EFAULT;
+
+	if (tdx_cmd.reserved)
+		return -EINVAL;
+
+	mutex_lock(&kvm->lock);
+
+	switch (tdx_cmd.id) {
+	case KVM_TDX_INIT:
+		r = tdx_guest_init(kvm, &tdx_cmd);
+		break;
+	default:
+		r = -EINVAL;
+		goto out;
+	}
+
+	if (copy_to_user(argp, &tdx_cmd, sizeof(struct kvm_tdx_cmd)))
+		r = -EFAULT;
+
+out:
+	mutex_unlock(&kvm->lock);
+	return r;
 }
 
 static void __init tdx_early_init(unsigned int *vcpu_size,
@@ -662,6 +1094,7 @@ static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 			   enum exit_fastpath_completion fastpath) { return 0; }
 static int tdx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info) { return 0; }
 static bool tdx_is_emulatable(struct kvm_vcpu *vcpu, void *insn, int insn_len) { return false; }
+static int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return 0; }
 static int __init tdx_check_processor_compatibility(void) { return 0; }
 static int __init tdx_hardware_setup(void) { return 0; }
 static void __init tdx_early_init(unsigned int *vcpu_size,

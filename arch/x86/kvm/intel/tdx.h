@@ -4,6 +4,8 @@
 
 #include <linux/kvm_host.h>
 
+#include "tdx_arch.h"
+
 extern bool __read_mostly emulate_seam;
 
 #ifdef CONFIG_KVM_INTEL_TDX
@@ -12,12 +14,26 @@ struct kvm_tdx {
 	struct kvm kvm;
 
 	hpa_t tdr;
+	hpa_t tdcs[NR_TDCX_PAGES];
+
+	u32 max_vcpus;
 };
 
 struct vcpu_tdx {
 	struct kvm_vcpu	vcpu;
 
 	hpa_t tdvpr;
+	hpa_t tdvpx[NR_TDVPX_PAGES];
+};
+
+struct tdx_capabilities {
+	u8 tdcs_nr_pages;
+	u8 tdvpx_nr_pages;
+
+	u64 attrs_fixed0;
+	u64 attrs_fixed1;
+	u64 xfam_fixed0;
+	u64 xfam_fixed1;
 };
 
 static inline bool is_td(struct kvm *kvm)

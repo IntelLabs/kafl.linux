@@ -233,7 +233,10 @@ static bool intel_apic_init_signal_blocked(struct kvm_vcpu *vcpu)
 
 static int intel_mem_enc_op(struct kvm *kvm, void __user *argp)
 {
-	return -ENOTTY;
+	if (!enable_tdx || !is_td(kvm) || emulate_seam)
+		return -ENOTTY;
+
+	return tdx_vm_ioctl(kvm, argp);
 }
 
 static void intel_set_virtual_apic_mode(struct kvm_vcpu *vcpu)
