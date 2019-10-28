@@ -2,6 +2,7 @@
 #include <linux/cpu.h>
 #include <linux/jump_label.h>
 #include <linux/trace_events.h>
+#include <linux/pagemap.h>
 
 #include <asm/kvm_boot.h>
 #include <asm/virtext.h>
@@ -1021,6 +1022,70 @@ free_hkid:
 	return ret;
 }
 
+static int tdx_init_mem_region(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct kvm_tdx_init_mem_region region;
+	struct tdx_ex_ret ex_ret;
+	hpa_t src_hpa, dest_hpa;
+	struct page *page;
+	long err;
+	int ret;
+
+	if (copy_from_user(&region, (void __user *)cmd->data, sizeof(region)))
+		return -EFAULT;
+
+	/* Sanity check */
+	if (!IS_ALIGNED(region.source_addr, PAGE_SIZE))
+		return -EINVAL;
+	if (!IS_ALIGNED(region.gpa, PAGE_SIZE))
+		return -EINVAL;
+	if (region.gpa + (region.nr_pages << PAGE_SHIFT) < region.gpa)
+		return -EINVAL;
+
+	ret = 0;
+	while (region.nr_pages) {
+		if (signal_pending(current)) {
+			ret = -ERESTARTSYS;
+			break;
+		}
+
+		if (need_resched())
+			cond_resched();
+
+		ret = get_user_pages_fast(region.source_addr, 1, 0, &page);
+		if (ret < 0)
+			break;
+
+		if (ret != 1) {
+			ret = -ENOMEM;
+			break;
+		}
+
+		dest_hpa = pfn_to_hpa(gfn_to_pfn(kvm, gpa_to_gfn(region.gpa)));
+		src_hpa = pfn_to_hpa(page_to_pfn(page));
+
+		err = tdaddpage(kvm_tdx->tdr, region.gpa, dest_hpa, src_hpa, &ex_ret);
+		put_page(page);
+		if (unlikely(err)) {
+			pr_seamcall_error(TDADDPAGE, err);
+			cmd->error_type = SEAMCALL_ERROR;
+			cmd->error.seamcall_leaf = SEAMCALL_TDADDPAGE;
+			ret = -EIO;
+			break;
+		}
+
+		region.source_addr += PAGE_SIZE;
+		region.gpa += PAGE_SIZE;
+		region.nr_pages--;
+	}
+
+	if (copy_to_user((void __user *)cmd->data, &region, sizeof(region)))
+		ret = -EFAULT;
+
+	return ret;
+}
+
 static int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_tdx_cmd tdx_cmd;
@@ -1037,6 +1102,9 @@ static int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 	switch (tdx_cmd.id) {
 	case KVM_TDX_INIT:
 		r = tdx_guest_init(kvm, &tdx_cmd);
+		break;
+	case KVM_TDX_INIT_MEM_REGION:
+		r = tdx_init_mem_region(kvm, &tdx_cmd);
 		break;
 	default:
 		r = -EINVAL;
