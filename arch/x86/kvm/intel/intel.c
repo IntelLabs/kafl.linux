@@ -35,6 +35,11 @@ static void intel_hardware_disable(void)
 	hardware_disable();
 }
 
+static bool intel_is_vm_type_supported(unsigned long type)
+{
+       return type == KVM_X86_LEGACY_VM;
+}
+
 static int intel_vm_init(struct kvm *kvm)
 {
 	return vmx_vm_init(kvm);
@@ -201,6 +206,7 @@ static struct kvm_x86_ops intel_x86_ops __ro_after_init = {
 	.cpu_has_accelerated_tpr = report_flexpriority,
 	.has_emulated_msr = vmx_has_emulated_msr,
 
+	.is_vm_type_supported = intel_is_vm_type_supported,
 	.vm_init = intel_vm_init,
 	.vm_alloc = intel_vm_alloc,
 	.vm_free = intel_vm_free,

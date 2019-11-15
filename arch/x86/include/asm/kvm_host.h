@@ -883,6 +883,7 @@ enum kvm_irqchip_mode {
 #define APICV_INHIBIT_REASON_PIT_REINJ  4
 
 struct kvm_arch {
+	unsigned long vm_type;
 	unsigned long n_used_mmu_pages;
 	unsigned long n_requested_mmu_pages;
 	unsigned long n_max_mmu_pages;
@@ -1056,6 +1057,7 @@ struct kvm_x86_ops {
 	bool (*has_emulated_msr)(int index);
 	void (*cpuid_update)(struct kvm_vcpu *vcpu);
 
+	bool (*is_vm_type_supported)(unsigned long vm_type);
 	struct kvm *(*vm_alloc)(void);
 	void (*vm_free)(struct kvm *);
 	int (*vm_init)(struct kvm *kvm);

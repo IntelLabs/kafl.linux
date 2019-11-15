@@ -776,6 +776,10 @@ struct kvm_ppc_resize_hpt {
 #define KVM_VM_MIPS_TE		0
 #define KVM_VM_MIPS_VZ		1
 
+#define KVM_X86_LEGACY_VM	0
+#define KVM_X86_SW_PROTECTED_VM	1
+#define KVM_X86_TDX_VM		2
+
 #define KVM_S390_SIE_PAGE_OFFSET 1
 
 /*
@@ -1010,6 +1014,8 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_ARM_NISV_TO_USER 177
 #define KVM_CAP_ARM_INJECT_EXT_DABT 178
 #define KVM_CAP_S390_VCPU_RESETS 179
+
+#define KVM_CAP_VM_TYPES 1000
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
