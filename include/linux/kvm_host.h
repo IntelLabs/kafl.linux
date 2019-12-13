@@ -159,6 +159,8 @@ static inline bool is_error_page(struct page *page)
 
 extern struct mutex kvm_lock;
 extern struct list_head vm_list;
+extern raw_spinlock_t kvm_count_lock;
+extern int kvm_usage_count;
 
 struct kvm_io_range {
 	gpa_t addr;
