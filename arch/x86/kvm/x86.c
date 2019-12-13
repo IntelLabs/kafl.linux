@@ -3515,6 +3515,29 @@ long kvm_arch_dev_ioctl(struct file *filp,
 		r = msr_io(NULL, argp, do_get_msr_feature, 1);
 		break;
 	}
+	case KVM_LOAD_SEAM: {
+		char __user *user_path = argp;
+		char *path;
+
+		r = -EINVAL;
+		if (!kvm_x86_ops->load_seam)
+			goto out;
+
+		r = -ENOMEM;
+		path = kzalloc(PATH_MAX, GFP_KERNEL_ACCOUNT);
+		if (!path)
+			goto out;
+
+		r = -EFAULT;
+		if (copy_from_user(path, user_path, PATH_MAX)) {
+			kfree(path);
+			goto out;
+		}
+
+		r = kvm_x86_ops->load_seam(path);
+		kfree(path);
+		break;
+	}
 	default:
 		r = -EINVAL;
 	}

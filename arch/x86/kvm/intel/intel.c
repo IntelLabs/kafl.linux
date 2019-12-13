@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/moduleparam.h>
 
+#include <asm/kvm_boot.h>
+
 #ifdef CONFIG_KVM_INTEL_TDX
 static bool __read_mostly enable_tdx = 0;
 module_param_named(tdx, enable_tdx, bool, 0444);
+
+static bool __read_mostly tdx_seam_sideloaded;
 #else
 #define enable_tdx 0
 #endif
@@ -283,6 +287,23 @@ static void intel_cpuid_update(struct kvm_vcpu *vcpu)
 	return vmx_cpuid_update(vcpu);
 }
 
+static int intel_load_seam(const char *path)
+{
+#ifdef CONFIG_KVM_INTEL_TDX
+	raw_spin_lock(&kvm_count_lock);
+	if (kvm_usage_count && enable_tdx) {
+		raw_spin_unlock(&kvm_count_lock);
+		return -EBUSY;
+	}
+	tdx_seam_sideloaded = true;
+	raw_spin_unlock(&kvm_count_lock);
+
+	return seam_load_module_from_path(path);
+#else
+	return -EINVAL;
+#endif
+}
+
 static struct kvm_x86_ops intel_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
@@ -439,6 +460,7 @@ static struct kvm_x86_ops intel_x86_ops __ro_after_init = {
 	.apic_init_signal_blocked = intel_apic_init_signal_blocked,
 
 	.mem_enc_op = intel_mem_enc_op,
+	.load_seam = intel_load_seam,
 };
 
 static int __init intel_init(void)
