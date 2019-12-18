@@ -2900,6 +2900,11 @@ static void kvm_s390_vcpu_setup_model(struct kvm_vcpu *vcpu)
 
 static int kvm_s390_vcpu_setup(struct kvm_vcpu *vcpu)
 {
+	return 0;
+}
+
+static int kvm_s390_vcpu_setup(struct kvm_vcpu *vcpu)
+{
 	int rc = 0;
 
 	atomic_set(&vcpu->arch.sie_block->cpuflags, CPUSTAT_ZARCH |
