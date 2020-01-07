@@ -24,6 +24,8 @@ struct vcpu_tdx {
 
 	hpa_t tdvpr;
 	hpa_t tdvpx[NR_TDVPX_PAGES];
+
+	int cpu;
 };
 
 struct tdx_capabilities {

@@ -143,11 +143,17 @@ static void intel_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 
 static void intel_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
+	if (is_td_vcpu(vcpu) && !emulate_seam)
+		return tdx_vcpu_load(vcpu, cpu);
+
 	return vmx_vcpu_load(vcpu, cpu);
 }
 
 static void intel_vcpu_put(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu) && !emulate_seam)
+		return tdx_vcpu_put(vcpu);
+
 	return vmx_vcpu_put(vcpu);
 }
 

@@ -10,6 +10,7 @@
 #include "cpuid.h"
 #include "ept.h"
 #include "tdx.h"
+#include "tdx_errno.h"
 #include "tdx_ops.h"
 
 #include <trace/events/kvm.h>
@@ -164,6 +165,8 @@ static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++)
 		tdx->tdvpx[i] = INVALID_PAGE;
 
+	tdx->cpu = -1;
+
 	return 0;
 }
 
@@ -202,6 +205,45 @@ static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		apic_base_msr.data |= MSR_IA32_APICBASE_BSP;
 	apic_base_msr.host_initiated = true;
 	WARN_ON(kvm_set_apic_base(vcpu, &apic_base_msr));
+}
+
+static void tdx_flush_vp(void *arg)
+{
+	struct vcpu_tdx *tdx = arg;
+	long err;
+
+	if (tdx->cpu != raw_smp_processor_id() ||
+	    WARN_ON_ONCE(tdx->tdvpr == INVALID_PAGE))
+		return;
+
+	err = tdflushvp(tdx->tdvpr);
+	if (WARN_ON_ONCE(err && err != TDX_VCPU_NOT_ASSOCIATED))
+		pr_seamcall_error(TDFLUSHVP, err);
+
+	tdx->cpu = -1;
+}
+
+static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (tdx->cpu != cpu && tdx->cpu != -1)
+		smp_call_function_single(tdx->cpu, tdx_flush_vp, tdx, 1);
+
+	tdx->cpu = cpu;
+
+	/*
+	 * TODO:
+	 * posted interrupt
+	 */
+}
+
+static void tdx_vcpu_put(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * TODO:
+	 * posted interrupt;
+	 */
 }
 
 static void tdx_vcpu_run(struct kvm_vcpu *vcpu)
@@ -1157,6 +1199,8 @@ static int tdx_vcpu_create(struct kvm_vcpu *vcpu) { return 0; }
 static void tdx_vcpu_free(struct kvm_vcpu *vcpu) {}
 static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event) {}
 static void tdx_vcpu_run(struct kvm_vcpu *vcpu) {}
+static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu) {}
+static void tdx_vcpu_put(struct kvm_vcpu *vcpu) {}
 static void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu) {}
 static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 			   enum exit_fastpath_completion fastpath) { return 0; }
