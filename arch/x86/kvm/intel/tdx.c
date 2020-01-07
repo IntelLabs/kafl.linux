@@ -36,6 +36,12 @@ struct tdx_capabilities tdx_capabilities;
 static __ro_after_init cpumask_var_t tdx_package_leadcpus;
 
 /*
+ * A per-CPU list of TD vCPUs associated with a given CPU.  Used when a CPU
+ * is brought down to invoke TDFLUSHVP on the approapriate TD vCPUS.
+ */
+static DEFINE_PER_CPU(struct list_head, associated_tdvcpus);
+
+/*
  * A handful of places call into KVM and need to use the vCPU seen by KVM.
  */
 static inline struct kvm_vcpu *to_kvm_vcpu(struct kvm_vcpu *vcpu)
@@ -220,6 +226,15 @@ static void tdx_flush_vp(void *arg)
 	if (WARN_ON_ONCE(err && err != TDX_VCPU_NOT_ASSOCIATED))
 		pr_seamcall_error(TDFLUSHVP, err);
 
+	list_del(&tdx->cpu_list);
+
+	/*
+	 * Ensure tdx->cpu_list is updated is before setting tdx->cpu to -1,
+	 * otherwise, a different CPU can see tdx->cpu = -1 and add the vCPU to
+	 * its list before its deleted from this CPUs list.
+	 */
+	smp_wmb();
+
 	tdx->cpu = -1;
 }
 
@@ -227,10 +242,20 @@ static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
-	if (tdx->cpu != cpu && tdx->cpu != -1)
-		smp_call_function_single(tdx->cpu, tdx_flush_vp, tdx, 1);
+	if (tdx->cpu != cpu) {
+		if (tdx->cpu != -1)
+			smp_call_function_single(tdx->cpu, tdx_flush_vp, tdx, 1);
 
-	tdx->cpu = cpu;
+		/*
+		 * Pairs with the smp_wmb() in tdx_flush_vp() to ensure
+		 * tdx->cpu is read before tdx->cpu_list.
+		 */
+		smp_rmb();
+
+		list_add(&tdx->cpu_list, &per_cpu(associated_tdvcpus, cpu));
+
+		tdx->cpu = cpu;
+	}
 
 	/*
 	 * TODO:
@@ -257,6 +282,24 @@ static void tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	 * TODO:
 	 * SEAMCALL(TDENTER)
 	 */
+}
+
+static int tdx_hardware_enable(void)
+{
+	INIT_LIST_HEAD(&per_cpu(associated_tdvcpus, raw_smp_processor_id()));
+
+	return 0;
+}
+
+static void tdx_hardware_disable(void)
+{
+	int cpu = raw_smp_processor_id();
+	struct list_head *tdvcpus = &per_cpu(associated_tdvcpus, cpu);
+	struct vcpu_tdx *tdx, *tmp;
+
+	/* Safe variant needed as tdx_flush_vp() deletes the entry. */
+	list_for_each_entry_safe(tdx, tmp, tdvcpus, cpu_list)
+		tdx_flush_vp(tdx);
 }
 
 static void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
@@ -1201,6 +1244,8 @@ static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event) {}
 static void tdx_vcpu_run(struct kvm_vcpu *vcpu) {}
 static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu) {}
 static void tdx_vcpu_put(struct kvm_vcpu *vcpu) {}
+static int tdx_hardware_enable(void) { return 0; }
+static void tdx_hardware_disable(void) {}
 static void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu) {}
 static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 			   enum exit_fastpath_completion fastpath) { return 0; }

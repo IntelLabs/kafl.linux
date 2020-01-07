@@ -10,6 +10,7 @@ module_param_named(tdx, enable_tdx, bool, 0444);
 static bool __read_mostly tdx_seam_sideloaded;
 #else
 #define enable_tdx 0
+#define tdx_seam_sideloaded 0
 #endif
 
 #include "vmx.c"
@@ -60,11 +61,30 @@ static __init int intel_hardware_setup(void)
 
 static int intel_hardware_enable(void)
 {
-	return hardware_enable();
+	int ret;
+
+	if (enable_tdx && tdx_seam_sideloaded)
+		return -EINVAL;
+
+	ret = hardware_enable();
+	if (ret)
+		return ret;
+
+	if (enable_tdx && !emulate_seam) {
+		ret = tdx_hardware_enable();
+		if (ret)
+			hardware_disable();
+	}
+
+	return ret;
 }
 
 static void intel_hardware_disable(void)
 {
+	/* Note, TDX *and* VMX need to be disabled if TDX is enabled. */
+	if (enable_tdx && !emulate_seam)
+		tdx_hardware_disable();
+
 	hardware_disable();
 }
 

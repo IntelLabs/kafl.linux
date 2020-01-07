@@ -2,6 +2,7 @@
 #ifndef __KVM_X86_TDX_H
 #define __KVM_X86_TDX_H
 
+#include <linux/list.h>
 #include <linux/kvm_host.h>
 
 #include "tdx_arch.h"
@@ -25,6 +26,7 @@ struct vcpu_tdx {
 	hpa_t tdvpr;
 	hpa_t tdvpx[NR_TDVPX_PAGES];
 
+	struct list_head cpu_list;
 	int cpu;
 };
 
