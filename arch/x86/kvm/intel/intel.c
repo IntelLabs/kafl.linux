@@ -267,6 +267,9 @@ static int intel_mem_enc_op(struct kvm *kvm, void __user *argp)
 
 static void intel_set_virtual_apic_mode(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu) && !emulate_seam)
+		return tdx_set_virtual_apic_mode(vcpu);
+
 	return vmx_set_virtual_apic_mode(vcpu);
 }
 

@@ -9,6 +9,7 @@
 
 #include "cpuid.h"
 #include "ept.h"
+#include "lapic.h"
 #include "tdx.h"
 #include "tdx_errno.h"
 #include "tdx_ops.h"
@@ -714,6 +715,11 @@ static int __init tdx_check_processor_compatibility(void)
 	return 0;
 }
 
+static void tdx_set_virtual_apic_mode(struct kvm_vcpu *vcpu)
+{
+	WARN_ON_ONCE(kvm_get_apic_mode(vcpu) != LAPIC_MODE_X2APIC);
+}
+
 static inline bool is_td_vcpu_initialized(struct vcpu_tdx *vcpu_tdx)
 {
 	return vcpu_tdx->tdvpr != INVALID_PAGE;
@@ -1252,6 +1258,7 @@ static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 static int tdx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info) { return 0; }
 static bool tdx_is_emulatable(struct kvm_vcpu *vcpu, void *insn, int insn_len) { return false; }
 static int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return 0; }
+static void tdx_set_virtual_apic_mode(struct kvm_vcpu *vcpu) {}
 static int __init tdx_check_processor_compatibility(void) { return 0; }
 static int __init tdx_hardware_setup(void) { return 0; }
 static void __init tdx_early_init(unsigned int *vcpu_size,
