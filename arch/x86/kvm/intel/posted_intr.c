@@ -6,6 +6,7 @@
 
 #include "lapic.h"
 #include "posted_intr.h"
+#include "tdx.h"
 #include "vmx.h"
 
 /*
@@ -17,6 +18,11 @@ static DEFINE_PER_CPU(spinlock_t, blocked_vcpu_on_cpu_lock);
 
 static inline struct pi_desc *vcpu_to_pi_desc(struct kvm_vcpu *vcpu)
 {
+#ifdef CONFIG_KVM_INTEL_TDX
+	if (is_td_vcpu(vcpu) && !emulate_seam)
+		return &(to_tdx(vcpu)->pi_desc);
+#endif
+
 	return &(to_vmx(vcpu)->pi_desc);
 }
 

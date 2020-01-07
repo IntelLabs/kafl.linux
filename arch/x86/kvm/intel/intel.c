@@ -275,6 +275,9 @@ static void intel_set_virtual_apic_mode(struct kvm_vcpu *vcpu)
 
 static void intel_apicv_post_state_restore(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu) && !emulate_seam)
+		return tdx_apicv_post_state_restore(vcpu);
+
 	return vmx_apicv_post_state_restore(vcpu);
 }
 
@@ -288,26 +291,41 @@ static bool intel_check_apicv_inhibit_reasons(ulong bit)
 
 static void intel_hwapic_irr_update(struct kvm_vcpu *vcpu, int max_irr)
 {
+	if (is_td_vcpu(vcpu) && !emulate_seam)
+		return;
+
 	return vmx_hwapic_irr_update(vcpu, max_irr);
 }
 
 static void intel_hwapic_isr_update(struct kvm_vcpu *vcpu, int max_isr)
 {
+	if (is_td_vcpu(vcpu) && !emulate_seam)
+		return;
+
 	return vmx_hwapic_isr_update(vcpu, max_isr);
 }
 
 static bool intel_guest_apic_has_interrupt(struct kvm_vcpu *vcpu)
 {
+	if (WARN_ON_ONCE(is_td_vcpu(vcpu) && !emulate_seam))
+		return false;
+
 	return vmx_guest_apic_has_interrupt(vcpu);
 }
 
 static int intel_sync_pir_to_irr(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu) && !emulate_seam)
+		return tdx_sync_pir_to_irr(vcpu);
+
 	return vmx_sync_pir_to_irr(vcpu);
 }
 
 static void intel_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector)
 {
+	if (is_td_vcpu(vcpu) && !emulate_seam)
+		return tdx_deliver_posted_interrupt(vcpu, vector);
+
 	return vmx_deliver_posted_interrupt(vcpu, vector);
 }
 

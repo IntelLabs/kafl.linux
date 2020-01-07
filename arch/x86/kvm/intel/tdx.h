@@ -6,6 +6,8 @@
 #include <linux/kvm_host.h>
 
 #include "tdx_arch.h"
+#include "tdx_errno.h"
+#include "posted_intr.h"
 
 extern bool __read_mostly emulate_seam;
 
@@ -28,6 +30,9 @@ struct vcpu_tdx {
 
 	struct list_head cpu_list;
 	int cpu;
+
+	/* Posted interrupt descriptor */
+	struct pi_desc pi_desc;
 };
 
 struct tdx_capabilities {

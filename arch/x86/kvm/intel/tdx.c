@@ -120,6 +120,8 @@ static int tdx_vm_init(struct kvm *kvm)
 	if (emulate_seam)
 		return seam_tdcreate(kvm);
 
+	kvm_apicv_init(kvm, true);
+
 	/*
 	 * TODO:
 	 * SEAMCALL(TDCREATE)
@@ -173,6 +175,9 @@ static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 		tdx->tdvpx[i] = INVALID_PAGE;
 
 	tdx->cpu = -1;
+
+	tdx->pi_desc.nv = POSTED_INTR_VECTOR;
+	tdx->pi_desc.sn = 1;
 
 	return 0;
 }
@@ -258,18 +263,12 @@ static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		tdx->cpu = cpu;
 	}
 
-	/*
-	 * TODO:
-	 * posted interrupt
-	 */
+	vmx_vcpu_pi_load(vcpu, cpu);
 }
 
 static void tdx_vcpu_put(struct kvm_vcpu *vcpu)
 {
-	/*
-	 * TODO:
-	 * posted interrupt;
-	 */
+	vmx_vcpu_pi_put(vcpu);
 }
 
 static void tdx_vcpu_run(struct kvm_vcpu *vcpu)
@@ -720,6 +719,49 @@ static void tdx_set_virtual_apic_mode(struct kvm_vcpu *vcpu)
 	WARN_ON_ONCE(kvm_get_apic_mode(vcpu) != LAPIC_MODE_X2APIC);
 }
 
+static void tdx_apicv_post_state_restore(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	pi_clear_on(&tdx->pi_desc);
+	memset(tdx->pi_desc.pir, 0, sizeof(tdx->pi_desc.pir));
+}
+
+static int tdx_sync_pir_to_irr(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * TODO:
+	 * KVM-TDX cannot access irr, it should be done by TDX-SEAM module.
+	 * On the other hand, this function is called in
+	 *	apic_has_interrupt_for_ppr()
+	 * and it's supposed to return the highest irr. I'm not sure whether
+	 * it will go to this path in TDX.
+	 */
+	return -1;
+}
+
+/*
+ * Send interrupt to vcpu via posted interrupt way.
+ * 1. If target vcpu is running(non-root mode), send posted interrupt
+ * notification to vcpu and hardware will sync PIR to vIRR atomically.
+ * 2. If target vcpu isn't running(root mode), kick it to pick up the
+ * interrupt from PIR in next vmentry.
+ */
+static void tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (pi_test_and_set_pir(vector, &tdx->pi_desc))
+		return;
+
+	/* If a previous notification has sent the IPI, nothing to do. */
+	if (pi_test_and_set_on(&tdx->pi_desc))
+		return;
+
+	if (!kvm_vcpu_trigger_posted_interrupt(vcpu, false))
+		kvm_vcpu_kick(vcpu);
+}
+
 static inline bool is_td_vcpu_initialized(struct vcpu_tdx *vcpu_tdx)
 {
 	return vcpu_tdx->tdvpr != INVALID_PAGE;
@@ -794,6 +836,7 @@ static int tdx_td_vcpu_init(struct kvm *kvm,
 		goto reclaim_tdvpx;
 	}
 
+	/* TODO: Configure posted interrupts in TDVPS. */
 	return 0;
 
 reclaim_tdvpx:
@@ -1259,6 +1302,9 @@ static int tdx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info) { retur
 static bool tdx_is_emulatable(struct kvm_vcpu *vcpu, void *insn, int insn_len) { return false; }
 static int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return 0; }
 static void tdx_set_virtual_apic_mode(struct kvm_vcpu *vcpu) {}
+static void tdx_apicv_post_state_restore(struct kvm_vcpu *vcpu) {}
+static int tdx_sync_pir_to_irr(struct kvm_vcpu *vcpu) { return 0; }
+static void tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector) {}
 static int __init tdx_check_processor_compatibility(void) { return 0; }
 static int __init tdx_hardware_setup(void) { return 0; }
 static void __init tdx_early_init(unsigned int *vcpu_size,
