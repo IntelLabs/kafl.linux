@@ -21,6 +21,7 @@
 #include <linux/smp.h>
 #include <linux/io.h>
 #include <linux/syscore_ops.h>
+#include <linux/firmware.h>
 
 #include <asm/stackprotector.h>
 #include <asm/perf_event.h>
@@ -76,6 +77,9 @@ EXPORT_SYMBOL(smp_num_siblings);
 /* Last level cache ID of each logical CPU */
 DEFINE_PER_CPU_READ_MOSTLY(u16, cpu_llc_id) = BAD_APICID;
 
+extern struct builtin_fw __start_builtin_fw[];
+extern struct builtin_fw __end_builtin_fw[];
+
 /* correctly size the local cpu masks */
 void __init setup_cpu_local_masks(void)
 {
@@ -84,6 +88,26 @@ void __init setup_cpu_local_masks(void)
 	alloc_bootmem_cpumask_var(&cpu_callout_mask);
 	alloc_bootmem_cpumask_var(&cpu_sibling_setup_mask);
 }
+
+#if defined(CONFIG_MICROCODE) || defined(CONFIG_KVM_INTEL_TDX)
+bool get_builtin_firmware(struct cpio_data *cd, const char *name)
+{
+	struct builtin_fw *b_fw;
+
+#ifndef CONFIG_FW_LOADER
+	BUILD_BUG_ON(1);
+#endif
+
+	for (b_fw = __start_builtin_fw; b_fw != __end_builtin_fw; b_fw++) {
+		if (!strcmp(name, b_fw->name)) {
+			cd->size = b_fw->size;
+			cd->data = b_fw->data;
+			return true;
+		}
+	}
+	return false;
+}
+#endif
 
 static void default_init(struct cpuinfo_x86 *c)
 {
