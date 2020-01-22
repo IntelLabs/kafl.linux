@@ -8,8 +8,8 @@
 #include <asm/intel_pt.h>
 
 #include "capabilities.h"
-#include "ops.h"
 #include "vmcs.h"
+#include "vmx_ops.h"
 
 extern const u32 vmx_msr_index[];
 extern u64 host_efer;

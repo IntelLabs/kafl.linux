@@ -8,7 +8,6 @@
 #include <asm/vmx.h>
 
 #include "mmu.h"
-#include "ops.h"
 #include "trace.h"
 #include "vmx.h"
 #include "x86.h"
