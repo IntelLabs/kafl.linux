@@ -12,7 +12,9 @@ kvm-y			+= x86.o emulate.o i8259.o irq.o lapic.o \
 			   i8254.o ioapic.o irq_comm.o cpuid.o pmu.o mtrr.o \
 			   hyperv.o debugfs.o mmu/mmu.o mmu/page_track.o
 
-kvm-intel-y		+= vmx/vmx.o vmx/vmenter.o vmx/pmu_intel.o vmx/vmcs12.o vmx/evmcs.o vmx/nested.o vmx/ept.o
+kvm-intel-y		+= intel/vmx.o intel/vmenter.o intel/pmu_intel.o \
+			   intel/vmcs12.o intel/evmcs.o intel/nested.o   \
+			   intel/ept.o
 kvm-amd-y		+= svm.o pmu_amd.o
 
 obj-$(CONFIG_KVM)	+= kvm.o
