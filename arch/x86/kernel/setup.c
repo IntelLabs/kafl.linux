@@ -33,6 +33,7 @@
 #include <asm/io_apic.h>
 #include <asm/kasan.h>
 #include <asm/kaslr.h>
+#include <asm/kvm_boot.h>
 #include <asm/mce.h>
 #include <asm/mtrr.h>
 #include <asm/realmode.h>
@@ -1182,6 +1183,8 @@ void __init setup_arch(char **cmdline_p)
 	sync_initial_page_table();
 
 	tboot_probe();
+
+	tdx_seam_init();
 
 	map_vsyscall();
 
