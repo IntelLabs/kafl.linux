@@ -2,6 +2,7 @@
 #include <linux/jump_label.h>
 #include <linux/trace_events.h>
 
+#include <asm/kvm_boot.h>
 #include <asm/virtext.h>
 
 #include "cpuid.h"
@@ -20,6 +21,9 @@
 
 bool __read_mostly emulate_seam = 1;
 module_param(emulate_seam, bool, 0444);
+
+static char *seam_module;
+module_param(seam_module, charp, 0444);
 
 /*
  * A handful of places call into KVM and need to use the vCPU seen by KVM.
@@ -632,6 +636,9 @@ static void __init tdx_early_init(unsigned int *vcpu_size,
 
 static int __init tdx_init(void)
 {
+	if (seam_module)
+		return seam_load_module_from_path(seam_module);
+
 	return 0;
 }
 
