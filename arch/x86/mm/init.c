@@ -21,6 +21,7 @@
 #include <asm/dma.h>		/* for MAX_DMA_PFN */
 #include <asm/microcode.h>
 #include <asm/kaslr.h>
+#include <asm/kvm_boot.h>
 #include <asm/hypervisor.h>
 #include <asm/cpufeature.h>
 #include <asm/pti.h>
@@ -685,6 +686,10 @@ void __init init_mem_mapping(void)
 	} else {
 		memory_map_top_down(ISA_END_ADDRESS, end);
 	}
+
+#ifdef CONFIG_KVM_INTEL_TDX
+	seam_map_seamrr(kernel_physical_mapping_init);
+#endif
 
 #ifdef CONFIG_X86_64
 	if (max_pfn > max_low_pfn) {
