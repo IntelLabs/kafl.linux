@@ -1184,8 +1184,6 @@ void __init setup_arch(char **cmdline_p)
 
 	tboot_probe();
 
-	tdx_seam_init();
-
 	map_vsyscall();
 
 	generic_apic_probe();
@@ -1211,6 +1209,8 @@ void __init setup_arch(char **cmdline_p)
 	init_apic_mappings();
 
 	prefill_possible_map();
+
+	tdx_seam_init();
 
 	init_cpu_to_node();
 
