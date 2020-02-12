@@ -834,6 +834,11 @@ static int tdx_td_vcpu_init(struct kvm *kvm,
 	}
 
 	/* TODO: Configure posted interrupts in TDVPS. */
+	td_vmcs_write16(vcpu_tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
+	td_vmcs_write64(vcpu_tdx, POSTED_INTR_DESC_ADDR,
+			__pa(&vcpu_tdx->pi_desc));
+	td_vmcs_setbit16(vcpu_tdx, PIN_BASED_VM_EXEC_CONTROL,
+			 PIN_BASED_POSTED_INTR);
 	return 0;
 
 reclaim_tdvpx:

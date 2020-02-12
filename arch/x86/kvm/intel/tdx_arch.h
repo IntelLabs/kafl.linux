@@ -54,6 +54,44 @@
 #define SEAMCALL_TDSYSSHUTDOWNLP	44
 #define SEAMCALL_TDSYSCONFIG		45
 
+/* TDX control structure (TDR/TDCS/TDVPS) field access codes */
+#define TDX_CLASS_SHIFT		56
+#define TDX_FIELD_MASK		GENMASK_ULL(31, 0)
+
+#define BUILD_TDX_FIELD(class, field)	\
+	(((u64)(class) << TDX_CLASS_SHIFT) | ((u64)(field) & TDX_FIELD_MASK))
+
+/* @field is the VMCS field encoding */
+#define TDVPS_VMCS(field)	BUILD_TDX_FIELD(0, (field))
+
+/*
+ * @offset is the offset (in bytes) from the beginning of the architectural
+ * virtual APIC page.
+ */
+#define TDVPS_APIC(offset)	BUILD_TDX_FIELD(1, (offset))
+
+/* @gpr is the index of a general purpose register, e.g. eax=0 */
+#define TDVPS_GPR(gpr)		BUILD_TDX_FIELD(16, (gpr))
+
+#define TDVPS_DR(dr)		BUILD_TDX_FIELD(17, (0 + (dr)))
+
+enum tdx_guest_other_state {
+	TD_VCPU_XCR0 = 32,
+	TD_VCPU_IWK_ENCKEY0 = 64,
+	TD_VCPU_IWK_ENCKEY1,
+	TD_VCPU_IWK_ENCKEY2,
+	TD_VCPU_IWK_ENCKEY3,
+	TD_VCPU_IWK_INTKEY0 = 68,
+	TD_VCPU_IWK_INTKEY1,
+	TD_VCPU_IWK_FLAGS = 70,
+};
+
+/* @field is any of enum tdx_guest_other_state */
+#define TDVPS_STATE(field)	BUILD_TDX_FIELD(17, (field))
+
+/* @msr is the MSR index */
+#define TDVPS_MSR(msr)		BUILD_TDX_FIELD(19, (msr))
+
 #define TDX1_NR_TDCX_PAGES		4
 #define TDX1_NR_TDVPX_PAGES		5
 
