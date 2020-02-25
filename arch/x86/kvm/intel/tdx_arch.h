@@ -16,17 +16,15 @@ struct td_params {
 	u32 max_vcpus;
 	u32 reserved0;
 
-	u16 eptp_controls;
-	u8  reserved1[6];
-
+	u64 eptp_controls;
 	u64 exec_controls;
 	u16 tsc_frequency;
-	u8  reserved2[38];
+	u8  reserved1[38];
 
 	u64 mrconfigid[6];
 	u64 mrowner[6];
 	u64 mrownerconfig[6];
-	u64 reserved3[4];
+	u64 reserved2[4];
 
 	union {
 		struct {
@@ -35,7 +33,7 @@ struct td_params {
 			u32 ecx;
 			u32 edx;
 		} cpuid_configs[0];
-		u8 reserved4[768];
+		u8 reserved3[768];
 	};
 } __packed;
 
