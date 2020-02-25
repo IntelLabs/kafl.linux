@@ -3,6 +3,7 @@
 #include <linux/fs.h>
 #include <linux/percpu.h>
 #include <linux/memblock.h>
+#include <linux/idr.h>
 
 #include <asm/cpu.h>
 #include <asm/kvm_boot.h>
@@ -43,6 +44,9 @@ static bool tdx_sysprof;
 /* KeyID range reserved to TDX by BIOS */
 static u32 tdx_keyids_start;
 static u32 tdx_nr_keyids;
+
+/* TDX keyID pool */
+static DEFINE_IDA(tdx_keyid_pool);
 
 /* CPU mask for TDSYSCONFIGKEY/TDCONFIGKEY -- one cpu per package. */
 static struct cpumask __tdx_package_leadcpus __ro_after_init;
@@ -922,3 +926,27 @@ struct tdsysinfo_struct *tdx_get_sysinfo(void)
 	return NULL;
 }
 EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
+
+int tdx_keyid_alloc(void)
+{
+	if (!boot_cpu_has(X86_FEATURE_TDX))
+		return -EINVAL;
+
+	if (WARN_ON_ONCE(!tdx_keyids_start || !tdx_nr_keyids))
+		return -EINVAL;
+
+	/* The first keyID is reserved for the global key. */
+	return ida_alloc_range(&tdx_keyid_pool, tdx_keyids_start + 1,
+			       tdx_keyids_start + tdx_nr_keyids - 2,
+			       GFP_KERNEL);
+}
+EXPORT_SYMBOL_GPL(tdx_keyid_alloc);
+
+void tdx_keyid_free(int keyid)
+{
+	if (!keyid || keyid < 0)
+		return;
+
+	ida_free(&tdx_keyid_pool, keyid);
+}
+EXPORT_SYMBOL_GPL(tdx_keyid_free);
