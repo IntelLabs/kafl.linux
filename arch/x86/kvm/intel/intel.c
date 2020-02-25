@@ -16,6 +16,22 @@ static bool __read_mostly tdx_seam_sideloaded;
 #include "vmx.c"
 #include "tdx.c"
 
+static int __init intel_cpu_has_kvm_support(void)
+{
+	if (!cpu_has_kvm_support())
+		return 0;
+
+	/*
+	 * Currently, @enable_tdx is defined as enabling TDX and disabling VMX.
+	 * If TDX isn't supported, reject the module load instead of falling
+	 * back to VMX.
+	 */
+	if (enable_tdx && !(emulate_seam || boot_cpu_has(X86_FEATURE_TDX)))
+		return 0;
+
+	return 1;
+}
+
 static int __init intel_check_processor_compatibility(void)
 {
 	int ret;
@@ -355,7 +371,7 @@ static int intel_load_seam(const char *path)
 }
 
 static struct kvm_x86_ops intel_x86_ops __ro_after_init = {
-	.cpu_has_kvm_support = cpu_has_kvm_support,
+	.cpu_has_kvm_support = intel_cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
 	.check_processor_compatibility = intel_check_processor_compatibility,
 	.hardware_setup = intel_hardware_setup,
