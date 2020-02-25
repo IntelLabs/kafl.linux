@@ -976,24 +976,6 @@ static void setup_tdparams(struct td_params *td_params, u32 max_vcpus, u8 phys_b
 	 */
 }
 
- /*
-  * TODO: replace alloc_hkid() and free_hkid() with tdx_keyid_allo() and
-  *       tdx_keyid_free() when Kai's TDX keyID patches are merged.
-  */
-static int alloc_hkid(void)
-{
-	/*
-	 * TD guest's HKID should be allocated from
-	 * [MAX_ACTIVATED_MKTME_HKIDS, MAX_ACTIVATED_HKIDS - 1].
-	 */
-	return 0;
-}
-
-static void free_hkid(u16 hkid)
-{
-
-}
-
 static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
@@ -1008,7 +990,7 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	if (is_td_guest_initialized(kvm_tdx))
 		return -EINVAL;
 
-	hkid = alloc_hkid();
+	hkid = tdx_keyid_alloc();
 	if (hkid < 0)
 		return -ENOKEY;
 
@@ -1124,7 +1106,7 @@ free_tdr_page:
 	free_page((unsigned long)__va(kvm_tdx->tdr));
 	kvm_tdx->tdr = INVALID_PAGE;
 free_hkid:
-	free_hkid(hkid);
+	tdx_keyid_free(hkid);
 	return ret;
 }
 
