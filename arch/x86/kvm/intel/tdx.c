@@ -965,10 +965,13 @@ static void tdx_do_tdconfigkey(void *data)
 	}
 }
 
-static inline void adjust_tdparams_member(u64 *result, u64 fixed0, u64 fixed1)
+/*
+ * TDX-SEAM definitions for fixed{0,1} are inverted relative to VMX.  The TDX
+ * definitions are sane, the VMX definitions are backwards.
+*/
+static inline bool tdx_fixed_bits_valid(u64 val, u64 fixed0, u64 fixed1)
 {
-	*result &= fixed0;
-	*result |= fixed1;
+	return ((val & fixed0) | fixed1) == val;
 }
 
 static int setup_tdparams(struct kvm *kvm, struct td_params *td_params)
@@ -993,18 +996,21 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 
 	/* TODO
 	 * We need to setup td_params->attributes; (TD Debug, KL & PERFMON)
-	 *		    td_params->xfam; (eXtended Features, same format like XCR0 and IA32_XSS)
 	 * based on tdx_capabilities->attributes_fixed0;
 	 *	    tdx_capabilities->attributes_fixed1;
-	 *	    tdx_capabilities->xfam_fixed0;
-	 *	    tdx_capabilities->xfam_fixed1;
 	 */
-	adjust_tdparams_member(&td_params->attributes,
-			       tdx_capabilities.attrs_fixed0,
-			       tdx_capabilities.attrs_fixed1);
-	adjust_tdparams_member(&td_params->xfam,
-			       tdx_capabilities.xfam_fixed0,
-			       tdx_capabilities.xfam_fixed1);
+	if (!tdx_fixed_bits_valid(td_params->attributes,
+				  tdx_capabilities.attrs_fixed0,
+				  tdx_capabilities.attrs_fixed1))
+		return -EINVAL;
+
+	/* Setup td_params.xfam */
+	td_params->xfam = vcpu->arch.guest_supported_xcr0 |
+			  vcpu->arch.guest_supported_xss;
+	if (!tdx_fixed_bits_valid(td_params->xfam,
+				  tdx_capabilities.xfam_fixed0,
+				  tdx_capabilities.xfam_fixed1))
+		return -EINVAL;
 
 	/* Setup td_params.cpuid_values */
 	for (i = 0; i < tdx_capabilities.nr_cpuid_configs; i++) {
