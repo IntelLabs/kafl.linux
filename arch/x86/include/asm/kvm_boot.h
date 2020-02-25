@@ -17,6 +17,12 @@ void __init tdx_seam_init(void);
 void tdx_init_cpu(struct cpuinfo_x86 *c);
 /* TDX CPU mask for TDSYSCONFIGKEY/TDCONFIGKEY -- one cpu per package */
 extern const struct cpumask *tdx_package_leadcpus;
+/*
+ * Return pointer to TDX system info (TDSYSINFO_STRUCT) if TDX has been
+ * successfully initialized, or NULL.
+ */
+struct tdsysinfo_struct;
+struct tdsysinfo_struct *tdx_get_sysinfo(void);
 #else
 static inline void __init tdx_seam_init(void) {}
 static inline void tdx_init_cpu(struct cpuinfo_x86 *c) {}
