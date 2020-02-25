@@ -43,6 +43,11 @@ static bool tdx_sysprof;
 static u32 tdx_keyids_start;
 static u32 tdx_nr_keyids;
 
+/* CPU mask for TDSYSCONFIGKEY/TDCONFIGKEY -- one cpu per package. */
+static struct cpumask __tdx_package_leadcpus __ro_after_init;
+const struct cpumask *tdx_package_leadcpus = &__tdx_package_leadcpus;
+EXPORT_SYMBOL_GPL(tdx_package_leadcpus);
+
 /*
  * TDX system information returned by TDSYSINFO.
  */
@@ -232,3 +237,52 @@ void __init tdx_seam_init(void)
 	 */
 	memblock_free(__pa(vmcs), PAGE_SIZE);
 }
+
+/*
+ * Setup one-cpu-per-pkg cpumask. TDSYSCONFIGKEY is per-pkg and needs to be
+ * done on all pkgs. The cpumask is also exposed for KVM since TDCONFIGKEY
+ * is also per-pkg and needs it.
+ */
+static int __init init_package_cpumask(void)
+{
+
+	unsigned long *tdx_package_bitmap;
+	int cpu, target_id;
+
+	cpumask_clear(&__tdx_package_leadcpus);
+
+	tdx_package_bitmap = bitmap_zalloc(topology_max_packages(), GFP_KERNEL);
+	if (!tdx_package_bitmap)
+		return -ENOMEM;
+
+	for_each_online_cpu(cpu) {
+		target_id = topology_physical_package_id(cpu);
+		if (!__test_and_set_bit(target_id, tdx_package_bitmap))
+			__cpumask_set_cpu(cpu, &__tdx_package_leadcpus);
+	}
+
+	bitmap_free(tdx_package_bitmap);
+
+	return 0;
+}
+
+static int __init tdx_init(void)
+{
+	int ret;
+
+	if (!boot_cpu_has(X86_FEATURE_TDX))
+		return -ENOTSUPP;
+
+	ret = init_package_cpumask();
+	if (ret)
+		goto err;
+
+	pr_info("TDX initialized.\n");
+
+	return 0;
+
+err:
+	clear_cpu_cap(&boot_cpu_data, X86_FEATURE_TDX);
+	return ret;
+}
+arch_initcall(tdx_init);

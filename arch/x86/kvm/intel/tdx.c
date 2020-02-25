@@ -33,9 +33,6 @@ module_param(seam_module, charp, 0444);
 /* Capabilities of KVM + TDX-SEAM. */
 struct tdx_capabilities tdx_capabilities;
 
-/* One CPU per TDCONFIGKEY package */
-static __ro_after_init cpumask_var_t tdx_package_leadcpus;
-
 /*
  * A per-CPU list of TD vCPUs associated with a given CPU.  Used when a CPU
  * is brought down to invoke TDFLUSHVP on the approapriate TD vCPUS.
@@ -908,37 +905,12 @@ td_vcpu_uninit:
 	return ret;
 }
 
-static int __init init_package_bitmap(void)
-{
-	unsigned long *tdx_package_bitmap;
-	int cpu, target_id;
-
-	if (!zalloc_cpumask_var(&tdx_package_leadcpus, GFP_KERNEL))
-		return -ENOMEM;
-
-	tdx_package_bitmap = bitmap_zalloc(topology_max_packages(), GFP_KERNEL);
-	if (!tdx_package_bitmap) {
-		free_cpumask_var(tdx_package_leadcpus);
-		return -ENOMEM;
-	}
-
-	for_each_online_cpu(cpu) {
-		target_id = topology_physical_package_id(cpu);
-		if (!__test_and_set_bit(target_id, tdx_package_bitmap))
-			__cpumask_set_cpu(cpu, tdx_package_leadcpus);
-	}
-
-	bitmap_free(tdx_package_bitmap);
-
-	return 0;
-}
-
 static int __init tdx_hardware_setup(void)
 {
 	if (emulate_seam)
 		return seam_hardware_setup();
 
-	return init_package_bitmap();
+	return 0;
 }
 
 struct tdx_tdconfigkey {
