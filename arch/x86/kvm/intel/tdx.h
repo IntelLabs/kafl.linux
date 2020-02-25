@@ -43,6 +43,9 @@ struct tdx_capabilities {
 	u64 attrs_fixed1;
 	u64 xfam_fixed0;
 	u64 xfam_fixed1;
+
+	u32 nr_cpuid_configs;
+	struct tdx_cpuid_config cpuid_configs[TDX1_MAX_NR_CPUID_CONFIGS];
 };
 
 static inline bool is_td(struct kvm *kvm)

@@ -7,6 +7,17 @@
 #define NR_TDCX_PAGES   4 /* For TDX 1.O, the number of TDCX is 4 */
 #define NR_TDVPX_PAGES  5 /* For TDX 1.0, the number of TDVPX is 5 (6-1) */
 
+#define TDX1_MAX_NR_CPUID_CONFIGS 6
+
+struct tdx_cpuid_config {
+	u32 leaf;
+	u32 sub_leaf;
+	u32 eax;
+	u32 ebx;
+	u32 ecx;
+	u32 edx;
+} __packed;
+
 /*
  * TD_PARAMS is provided as an input to TDINIT, the size of which is 1024B.
  */
@@ -87,14 +98,7 @@ struct tdsysinfo_struct {
 	u8 reserved4[32];
 	u32 num_cpuid_config;
 	union {
-		struct {
-			u32 leaf;
-			u32 sub_leaf;
-			u32 eax;
-			u32 ebx;
-			u32 ecx;
-			u32 edx;
-		} cpuid_configs[0];
+		struct tdx_cpuid_config cpuid_configs[0];
 		u8 reserved5[892];
 	};
 } __packed __aligned(1024);
