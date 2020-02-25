@@ -8,6 +8,23 @@
 #undef pr_fmt
 #define pr_fmt(fmt) "tdx: " fmt
 
+/*
+ * Define __seamcall used by boot code to override the default in tdx_ops.h.
+ * The default BUG()s on faults, which is undesirable during boot, and calls
+ * kvm_spurious_fault(), which isn't linkable if KVM is built as a module.
+ * RAX contains '0' on success, TDX-SEAM errno on failure, vector on fault.
+ */
+#define seamcall ".byte 0x66,0x0f,0x01,0xcf"
+
+#define __seamcall			\
+	"1:" seamcall "\n\t"		\
+	"2: \n\t"			\
+	_ASM_EXTABLE_FAULT(1b, 2b)
+
+#include "intel/tdx_arch.h"
+#include "intel/tdx_ops.h"
+#include "intel/tdx_errno.h"
+
 void __init tdx_seam_init(void)
 {
 	const char *sigstruct_name = "intel-seam/libtdx.so.sigstruct";

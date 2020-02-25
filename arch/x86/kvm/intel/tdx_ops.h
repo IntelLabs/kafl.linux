@@ -134,6 +134,8 @@ struct tdx_ex_ret {
 
 #define tdenter(args...)		({ 0; })
 
+#ifndef	__seamcall
+
 #define seamcall ".byte 0x66,0x0f,0x01,0xcf"
 
 #define __seamcall							\
@@ -142,6 +144,8 @@ struct tdx_ex_ret {
 	"2: call kvm_spurious_fault\n\t"				\
 	"3:\n\t"							\
 	_ASM_EXTABLE(1b, 2b)
+
+#endif
 
 #define seamcall_N(fn, inputs...)					\
 do {									\
