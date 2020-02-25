@@ -31,6 +31,8 @@
 #include <asm/apic.h>
 #endif
 
+#include <asm/kvm_boot.h>
+
 /*
  * Processors which have self-snooping capability can handle conflicting
  * memory type across CPUs by snooping its own cache. However, there exists
@@ -677,6 +679,9 @@ static void init_intel(struct cpuinfo_x86 *c)
 
 	if (cpu_has(c, X86_FEATURE_TME))
 		detect_tme(c);
+
+	if (cpu_has(c, X86_FEATURE_TDX))
+		tdx_init_cpu(c);
 
 	init_intel_misc_features(c);
 
