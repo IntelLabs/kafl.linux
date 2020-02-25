@@ -18,6 +18,12 @@ struct tdx_cpuid_config {
 	u32 edx;
 } __packed;
 
+struct tdx_cpuid_value {
+	u32 eax;
+	u32 ebx;
+	u32 ecx;
+	u32 edx;
+} __packed;
 /*
  * TD_PARAMS is provided as an input to TDINIT, the size of which is 1024B.
  */
@@ -38,12 +44,7 @@ struct td_params {
 	u64 reserved2[4];
 
 	union {
-		struct {
-			u32 eax;
-			u32 ebx;
-			u32 ecx;
-			u32 edx;
-		} cpuid_configs[0];
+		struct tdx_cpuid_value cpuid_values[0];
 		u8 reserved3[768];
 	};
 } __packed;

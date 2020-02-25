@@ -971,9 +971,13 @@ static inline void adjust_tdparams_member(u64 *result, u64 fixed0, u64 fixed1)
 	*result |= fixed1;
 }
 
-static void setup_tdparams(struct kvm *kvm, struct td_params *td_params)
+static int setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 {
 	struct kvm_vcpu *vcpu = kvm_get_vcpu(kvm, 0);
+	struct tdx_cpuid_config *config;
+	struct kvm_cpuid_entry2 *entry;
+	struct tdx_cpuid_value *value;
+	int i;
 
 	td_params->max_vcpus = atomic_read(&kvm->online_vcpus);
 	td_params->eptp_controls = VMX_EPTP_MT_WB;
@@ -990,12 +994,10 @@ static void setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 	/* TODO
 	 * We need to setup td_params->attributes; (TD Debug, KL & PERFMON)
 	 *		    td_params->xfam; (eXtended Features, same format like XCR0 and IA32_XSS)
-	 *		    td_params->cpuid_configs[]
 	 * based on tdx_capabilities->attributes_fixed0;
 	 *	    tdx_capabilities->attributes_fixed1;
 	 *	    tdx_capabilities->xfam_fixed0;
 	 *	    tdx_capabilities->xfam_fixed1;
-	 *	    tdx_capabilities->cpuid_configs[nr_cpuid_config];
 	 */
 	adjust_tdparams_member(&td_params->attributes,
 			       tdx_capabilities.attrs_fixed0,
@@ -1004,12 +1006,33 @@ static void setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 			       tdx_capabilities.xfam_fixed0,
 			       tdx_capabilities.xfam_fixed1);
 
+	/* Setup td_params.cpuid_values */
+	for (i = 0; i < tdx_capabilities.nr_cpuid_configs; i++) {
+		config = &tdx_capabilities.cpuid_configs[i];
+
+		entry = kvm_find_cpuid_entry(vcpu, config->leaf,
+					     config->sub_leaf);
+		if (!entry)
+			continue;
+
+		/*
+		 * Non-configurable bits must be '0', even if they are fixed to
+		 * '1' by TDX-SEAM, i.e. mask off non-configurable bits.
+		 */
+		value = &td_params->cpuid_values[i];
+		value->eax = entry->eax & config->eax;
+		value->ebx = entry->ebx & config->ebx;
+		value->ecx = entry->ecx & config->ecx;
+		value->edx = entry->edx & config->edx;
+	}
+
 	/* TODO
 	 * 1. TSC_FREQUENCY
 	 * 2. MRCONFIGID
 	 * 3. MROWNER
 	 * 4. MROWNERCONFIG
 	 */
+	return 0;
 }
 
 static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
@@ -1089,21 +1112,23 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	if (!td_params)
 		goto reclaim_tdcs;
 
-	setup_tdparams(kvm, td_params);
+	ret = setup_tdparams(kvm, td_params);
+	if (ret)
+		goto free_tdparams;
 
 	err = tdinit(kvm_tdx->tdr, __pa(td_params), &ex_ret);
-	kfree(td_params);
 	if (unlikely(err)) {
 		pr_seamcall_error(TDINIT, err);
 		cmd->error_type = SEAMCALL_ERROR;
 		cmd->error.seamcall_leaf = SEAMCALL_TDINIT;
-		goto reclaim_tdcs;
+		goto free_tdparams;
 	}
 
 	ret = tdx_td_vcpu_init_all(kvm, cmd);
 	if (ret)
 		goto reclaim_hkids;
 
+	kfree(td_params);
 	return 0;
 
 reclaim_hkids:
@@ -1115,6 +1140,8 @@ reclaim_hkids:
 	 */
 	BUG_ON(tdfreehkids(kvm_tdx->tdr));
 	BUG_ON(tdteardown(kvm_tdx->tdr));
+free_tdparams:
+	kfree(td_params);
 reclaim_tdcs:
 	/* @i points at the TDCS page that failed tdaddcx(). */
 	while (i--) {
