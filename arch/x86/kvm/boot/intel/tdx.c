@@ -39,6 +39,10 @@
  */
 static bool tdx_sysprof;
 
+/* KeyID range reserved to TDX by BIOS */
+static u32 tdx_keyids_start;
+static u32 tdx_nr_keyids;
+
 /*
  * TDX system information returned by TDSYSINFO.
  */
@@ -104,8 +108,23 @@ static inline int tdx_vmxon(struct vmcs *vmcs)
 static long __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
 {
 	bool is_bsp = (c == &boot_cpu_data);
+	u32 mktme_keyids, tdx_keyids;
 	struct tdx_ex_ret ex_ret;
 	long ret;
+
+	/*
+	 * Detect HKID for TDX if initialization was successful.
+	 *
+	 * TDX provides core-scoped MSR for us to simply read out TDX start
+	 * keyID and number of keyIDs. It seems we don't need to calculate
+	 * manually from MSR_IA32_TME_ACTIVATE.
+	 *
+	 * Because it is core-scoped, we'd better read out for each core,
+	 * and disable TDX if value mismatches between any two cores.
+	 */
+	rdmsr(MSR_IA32_MKTME_KEYID_PART, mktme_keyids, tdx_keyids);
+	if (!mktme_keyids || (tdx_keyids < 2))
+		return -ENOTSUPP;
 
 	ret = tdx_vmxon((void *)vmcs);
 	if (ret)
@@ -113,9 +132,17 @@ static long __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
 
 	/* For BSP, call TDSYSINIT first for platform-level initialization. */
 	if (is_bsp) {
+		tdx_keyids_start = mktme_keyids;
+		tdx_nr_keyids = tdx_keyids;
+
 		ret = tdsysinit(tdx_sysprof ? BIT(0) : 0, &ex_ret);
 		if (ret)
 			goto out;
+	} else if (mktme_keyids != tdx_keyids_start ||
+		   tdx_keyids != tdx_nr_keyids) {
+		pr_err("MSR_IA32_MKTME_KEYID_PART value inconsistent among cpus.\n");
+		ret = -EINVAL;
+		goto out;
 	}
 
 	/* Call TDSYSINITLP for per-cpu initialization */
