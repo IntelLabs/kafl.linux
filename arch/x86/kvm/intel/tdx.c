@@ -905,12 +905,45 @@ td_vcpu_uninit:
 	return ret;
 }
 
+static int __init setup_tdx_capabilities(struct tdx_capabilities *tdx_caps)
+{
+	struct tdsysinfo_struct *tdsysinfo = tdx_get_sysinfo();
+
+	if (tdsysinfo == NULL) {
+		pr_err("TDX-SEAM module havsn't been loaded or initialized!\n");
+		return -ENODEV;
+	}
+
+	tdx_caps->tdcs_nr_pages = tdsysinfo->tdcs_base_size / PAGE_SIZE;
+	if (tdx_caps->tdcs_nr_pages != NR_TDCX_PAGES)
+		return -EIO;
+
+	tdx_caps->tdvpx_nr_pages = tdsysinfo->tdvps_base_size / PAGE_SIZE - 1;
+	if (tdx_caps->tdvpx_nr_pages != NR_TDVPX_PAGES)
+		return -EIO;
+
+	tdx_caps->attrs_fixed0 = tdsysinfo->attributes_fixed0;
+	tdx_caps->attrs_fixed1 = tdsysinfo->attributes_fixed1;
+	tdx_caps->xfam_fixed0 =	tdsysinfo->xfam_fixed0;
+	tdx_caps->xfam_fixed1 = tdsysinfo->xfam_fixed1;
+
+	tdx_caps->nr_cpuid_configs = tdsysinfo->num_cpuid_config;
+	if (tdx_caps->nr_cpuid_configs > TDX1_MAX_NR_CPUID_CONFIGS)
+		return -EIO;
+
+	if (!memcpy(tdx_caps->cpuid_configs, tdsysinfo->cpuid_configs,
+		    tdsysinfo->num_cpuid_config * sizeof(struct tdx_cpuid_config)))
+		return -EIO;
+
+	return 0;
+}
+
 static int __init tdx_hardware_setup(void)
 {
 	if (emulate_seam)
 		return seam_hardware_setup();
 
-	return 0;
+	return setup_tdx_capabilities(&tdx_capabilities);
 }
 
 struct tdx_tdconfigkey {
