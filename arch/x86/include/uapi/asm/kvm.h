@@ -446,4 +446,19 @@ struct kvm_pmu_event_filter {
 #define KVM_PMU_EVENT_ALLOW 0
 #define KVM_PMU_EVENT_DENY 1
 
+/* For KVM SEAMCALL */
+struct kvm_seamcall_regs {
+	__u64 rax;
+	__u64 rcx;
+	__u64 rdx;
+	__u64 r8;
+	__u64 r9;
+	__u64 r10;
+};
+
+struct kvm_seamcall {
+	struct kvm_seamcall_regs in;
+	struct kvm_seamcall_regs out;
+};
+
 #endif /* _ASM_X86_KVM_H */

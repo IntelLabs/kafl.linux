@@ -1264,6 +1264,7 @@ struct kvm_x86_ops {
 	int (*enable_direct_tlbflush)(struct kvm_vcpu *vcpu);
 
 	int (*load_seam)(const char *path);
+	void (*call_seam)(struct kvm_seamcall *call);
 };
 
 struct kvm_arch_async_pf {

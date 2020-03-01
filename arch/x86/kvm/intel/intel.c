@@ -71,7 +71,14 @@ static __init int intel_hardware_setup(void)
 		if (ret)
 			return ret;
 	}
-
+#ifdef CONFIG_KVM_INTEL_TDX
+	/*
+	 * Not a typo, direct SEAMCALL is only allowed when it won't interfere
+	 * with TDs created and managed by KVM.
+	 */
+	if (!enable_tdx)
+		kvm_x86_ops->call_seam = tdx_call_seam;
+#endif
 	return 0;
 }
 

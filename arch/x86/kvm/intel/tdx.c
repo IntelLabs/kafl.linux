@@ -1301,6 +1301,11 @@ static void tdx_exit(void)
 
 }
 
+static void tdx_call_seam(struct kvm_seamcall *call)
+{
+
+}
+
 #else /* CONFIG_KVM_INTEL_TDX */
 
 static int tdx_vm_init(struct kvm *kvm) { return 0; }
