@@ -1301,9 +1301,23 @@ static void tdx_exit(void)
 
 }
 
+static long seamcall_direct(struct kvm_seamcall_regs *regs,
+			    struct tdx_ex_ret *ex)
+{
+	seamcall_5_5(regs->rax, regs->rcx, regs->rdx, regs->r8, regs->r9,
+		     regs->r10, ex);
+};
+
 static void tdx_call_seam(struct kvm_seamcall *call)
 {
+	struct tdx_ex_ret ex;
 
+	call->out.rax = seamcall_direct(&call->in, &ex);
+	call->out.rcx = ex.rcx;
+	call->out.rdx = ex.rdx;
+	call->out.r8  = ex.r8;
+	call->out.r9  = ex.r9;
+	call->out.r10 = ex.r10;
 }
 
 #else /* CONFIG_KVM_INTEL_TDX */

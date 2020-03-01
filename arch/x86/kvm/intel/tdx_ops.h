@@ -268,6 +268,14 @@ do {									\
 									\
 	seamcall_N_5(fn, ex, "c"(rcx), "d"(rdx), "r"(r8), "r"(r9));	\
 } while (0)
+#define seamcall_5_5(fn, rcx, rdx, __r8, __r9, __r10, ex)		\
+do {									\
+	register long r8 asm("r8") = __r8;				\
+	register long r9 asm("r9") = __r9;				\
+	register long r10 asm("r10") = __r10;				\
+									\
+	seamcall_N_5(fn, ex, "c"(rcx), "d"(rdx), "r"(r8), "r"(r9), "r"(r10)); \
+} while (0)
 
 static inline long tdaddcx(hpa_t tdr, hpa_t addr)
 {
