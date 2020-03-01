@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * TDX_SEAM_test
+ * TDX_load_SEAM_test
  *
  * Copyright (C) 2019, Intel.
  *
