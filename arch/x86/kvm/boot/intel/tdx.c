@@ -5,6 +5,9 @@
 #include <asm/cpu.h>
 #include <asm/kvm_boot.h>
 
+#undef pr_fmt
+#define pr_fmt(fmt) "tdx: " fmt
+
 void __init tdx_seam_init(void)
 {
 	const char *sigstruct_name = "intel-seam/libtdx.so.sigstruct";
