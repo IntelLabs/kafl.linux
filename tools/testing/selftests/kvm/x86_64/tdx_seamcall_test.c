@@ -10,11 +10,12 @@
  *   Zhang Chen <chen.zhang@intel.com>
  *
  */
+#include <linux/bits.h>
+#include <linux/kvm.h>
 
 #include <fcntl.h>
 #include <limits.h>
 #include <kvm_util.h>
-#include <linux/kvm.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,6 +36,33 @@
 #define PAGE_SIZE	4096
 
 #include "../../../../../arch/x86/kvm/intel/tdx_arch.h"
+
+static u8 x86_phys_bits;
+static bool verbose;
+
+static inline void cpuid(unsigned int *eax, unsigned int *ebx,
+			 unsigned int *ecx, unsigned int *edx)
+{
+	/* ecx is often an input as well as an output. */
+	asm volatile("cpuid"
+	    : "=a" (*eax),
+	      "=b" (*ebx),
+	      "=c" (*ecx),
+	      "=d" (*edx)
+	    : "0" (*eax), "2" (*ecx)
+	    : "memory");
+}
+
+static inline unsigned int cpuid_eax(unsigned int leaf)
+{
+	unsigned int eax, ebx, ecx, edx;
+
+	eax = leaf;
+	ecx = 0;
+	cpuid(&eax, &ebx, &ecx, &edx);
+
+	return eax;
+}
 
 static inline u8 __rand_u8(u8 mask)
 {
@@ -74,6 +102,31 @@ static inline u64 __rand_u64(u64 mask)
 static inline u64 rand_u64(void)
 {
 	return __rand_u64(-1ull);
+}
+
+static inline u64 rand_pa(void)
+{
+	return __rand_u64(GENMASK_ULL(x86_phys_bits - 1, 12));
+}
+
+static inline bool rand_bool(void)
+{
+	return rand_u32() < 0x80000000u;
+}
+
+static inline bool rand_bool_p(int percentage)
+{
+	if (percentage >= 100)
+		return true;
+
+	return rand_u32() < ((-1u / 100) * percentage);
+}
+
+static inline u64 rand_pa_or_u64(void)
+{
+	if (rand_bool())
+		return rand_pa();
+	return rand_u64();
 }
 
 static unsigned int parse_seed(int argc, char **argv)
@@ -137,6 +190,10 @@ static inline u64 seamcall(int fd, u64 rax, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	ret = ioctl(fd, KVM_SEAMCALL, &seamcall);
 	TEST_ASSERT(!ret, "KVM_SEAMCALL failed, ret: %ld, errno: %d", ret, errno);
 
+	if (verbose)
+		printf("SEAMCALL[%lu] out = 0x%llx, 0x%llx, 0x%llx, 0x%llx, 0x%llx, 0x%llx\n",
+		       rax, seamcall.out.rax, seamcall.out.rcx, seamcall.out.rdx,
+		       seamcall.out.r8, seamcall.out.r9, seamcall.out.r10);
 	return seamcall.out.rax;
 }
 
@@ -161,6 +218,36 @@ static inline u64 seamcall1(int fd, u64 rax)
 	return seamcall2(fd, rax, rand_u64());
 }
 
+static void do_random_seamcalls(int fd)
+{
+	u64 leaf, rcx, rdx, r8, r9, r10;
+	long ret;
+	int i;
+
+	for (i = 0; i < 1000; i++) {
+		/* Generate a valid(ish) leaf most of the time. */
+		if (rand_bool_p(90))
+			leaf = __rand_u8(64);
+		else
+			leaf = rand_u64();
+
+		rcx = rand_pa_or_u64();
+		rdx = rand_pa_or_u64();
+		r8  = rand_pa_or_u64();
+		r9  = rand_pa_or_u64();
+		r10 = rand_pa_or_u64();
+
+		if (verbose)
+			printf("SEAMCALL[%lu](0x%lx, 0x%lx, 0x%lx, 0x%lx, 0x%lx)\n",
+			       leaf, rcx, rdx, r8, r9, r10);
+
+		ret = seamcall(fd, leaf, rcx, rdx, r8, r9, r10);
+		TEST_ASSERT(ret,
+			    "SEAMCALL[%lu](0x%lx, 0x%lx, 0x%lx, 0x%lx, 0x%lx) succeeded",
+			    leaf, rcx, rdx, r8, r9, r10);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	struct kvm_vm *vm;
@@ -170,6 +257,8 @@ int main(int argc, char **argv)
 	fd = open(KVM_DEV_PATH, O_RDWR);
 	TEST_ASSERT(fd >= 0, "failed to open /dev/kvm fd: %i errno: %i",
 		    fd, errno);
+
+	x86_phys_bits = cpuid_eax(0x80000008) & 0xff;
 
 	init_random_seed(argc, argv);
 
@@ -181,6 +270,8 @@ int main(int argc, char **argv)
 
 	ret = seamcall1(fd, SEAMCALL_TDSYSINITLP);
 	TEST_ASSERT(!ret, "TDSYSINITLP failed, error code: 0x%llx", ret);
+
+	do_random_seamcalls(fd);
 
 	close(fd);
 	kvm_vm_free(vm);
