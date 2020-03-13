@@ -759,9 +759,9 @@ static void tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector)
 		kvm_vcpu_kick(vcpu);
 }
 
-static inline bool is_td_vcpu_initialized(struct vcpu_tdx *vcpu_tdx)
+static inline bool is_td_vcpu_initialized(struct vcpu_tdx *tdx)
 {
-	return vcpu_tdx->tdvpr != INVALID_PAGE;
+	return tdx->tdvpr != INVALID_PAGE;
 }
 
 static inline bool is_td_guest_initialized(struct kvm_tdx *kvm_tdx)
@@ -769,28 +769,27 @@ static inline bool is_td_guest_initialized(struct kvm_tdx *kvm_tdx)
 	return kvm_tdx->tdr != INVALID_PAGE;
 }
 
-static int tdx_td_vcpu_init(struct kvm *kvm,
-			    struct kvm_vcpu *vcpu,
+static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu,
 			    struct kvm_tdx_cmd *cmd)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
-	struct vcpu_tdx *vcpu_tdx = to_tdx(vcpu);
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	struct tdx_ex_ret ex_ret;
 	unsigned long page;
 	long err;
 	int ret;
 	u8 i;
 
-	if (WARN_ON(is_td_vcpu_initialized(vcpu_tdx)))
+	if (WARN_ON(is_td_vcpu_initialized(tdx)))
 		return -EINVAL;
 
 	/* SEAMCALL(TDCREATEVP) */
 	page = __get_free_page(GFP_KERNEL_ACCOUNT);
 	if (!page)
 		return -ENOMEM;
-	vcpu_tdx->tdvpr = __pa(page);
+	tdx->tdvpr = __pa(page);
 
-	err = tdcreatevp(kvm_tdx->tdr, vcpu_tdx->tdvpr);
+	err = tdcreatevp(kvm_tdx->tdr, tdx->tdvpr);
 	if (err) {
 		pr_seamcall_error(TDCREATEVP, err);
 		cmd->error_type = SEAMCALL_ERROR;
@@ -805,11 +804,11 @@ static int tdx_td_vcpu_init(struct kvm *kvm,
 		if (!page)
 			goto free_tdvpx;
 		else
-			vcpu_tdx->tdvpx[i] = __pa(page);
+			tdx->tdvpx[i] = __pa(page);
 	}
 
 	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
-		err = tdaddvpx(vcpu_tdx->tdvpr, vcpu_tdx->tdvpx[i]);
+		err = tdaddvpx(tdx->tdvpr, tdx->tdvpx[i]);
 		if (err) {
 			pr_seamcall_error(TDADDVPX, err);
 			cmd->error_type = SEAMCALL_ERROR;
@@ -824,7 +823,7 @@ static int tdx_td_vcpu_init(struct kvm *kvm,
 	 * TODO: Plumb an ioctl() to allow userspace to define the initial
 	 *       RCX value for the vCPU.  For now, harcode it to zero.
 	 */
-	err = tdinitvp(vcpu_tdx->tdvpr, 0);
+	err = tdinitvp(tdx->tdvpr, 0);
 	if (err) {
 		pr_seamcall_error(TDINITVP, err);
 		cmd->error_type = SEAMCALL_ERROR;
@@ -834,11 +833,9 @@ static int tdx_td_vcpu_init(struct kvm *kvm,
 	}
 
 	/* TODO: Configure posted interrupts in TDVPS. */
-	td_vmcs_write16(vcpu_tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
-	td_vmcs_write64(vcpu_tdx, POSTED_INTR_DESC_ADDR,
-			__pa(&vcpu_tdx->pi_desc));
-	td_vmcs_setbit16(vcpu_tdx, PIN_BASED_VM_EXEC_CONTROL,
-			 PIN_BASED_POSTED_INTR);
+	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
+	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->pi_desc));
+	td_vmcs_setbit16(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
 	return 0;
 
 reclaim_tdvpx:
@@ -849,46 +846,46 @@ reclaim_tdvpx:
 	 * valid for the TDVPX page, so there's no need for tdwbinvdpage().
 	 */
 	while (i--) {
-		if (vcpu_tdx->tdvpx[i] != INVALID_PAGE)
-			BUG_ON(tdreclaimpage(vcpu_tdx->tdvpx[i], &ex_ret));
+		if (tdx->tdvpx[i] != INVALID_PAGE)
+			BUG_ON(tdreclaimpage(tdx->tdvpx[i], &ex_ret));
 	}
-	BUG_ON(tdwbinvdpage(vcpu_tdx->tdvpr));
+	BUG_ON(tdwbinvdpage(tdx->tdvpr));
 free_tdvpx:
 	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
-		if (vcpu_tdx->tdvpx[i] != INVALID_PAGE) {
-			free_page((unsigned long)__va(vcpu_tdx->tdvpx[i]));
-			vcpu_tdx->tdvpx[i] = INVALID_PAGE;
+		if (tdx->tdvpx[i] != INVALID_PAGE) {
+			free_page((unsigned long)__va(tdx->tdvpx[i]));
+			tdx->tdvpx[i] = INVALID_PAGE;
 		}
 	}
-	BUG_ON(tdreclaimpage(vcpu_tdx->tdvpr, &ex_ret));
+	BUG_ON(tdreclaimpage(tdx->tdvpr, &ex_ret));
 free_tdvpr:
-	free_page((unsigned long)__va(vcpu_tdx->tdvpr));
-	vcpu_tdx->tdvpr = INVALID_PAGE;
+	free_page((unsigned long)__va(tdx->tdvpr));
+	tdx->tdvpr = INVALID_PAGE;
 	return ret;
 }
 
 static void tdx_td_vcpu_uninit(struct kvm_vcpu *vcpu)
 {
-	struct vcpu_tdx *vcpu_tdx = to_tdx(vcpu);
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	struct tdx_ex_ret ex_ret;
 	u8 i;
 
-	if (!is_td_vcpu_initialized(vcpu_tdx))
+	if (!is_td_vcpu_initialized(tdx))
 		return;
 
 	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
-		if (vcpu_tdx->tdvpx[i] != INVALID_PAGE) {
-			BUG_ON(tdwbinvdpage(vcpu_tdx->tdvpx[i]));
-			BUG_ON(tdreclaimpage(vcpu_tdx->tdvpx[i], &ex_ret));
-			free_page((unsigned long)__va(vcpu_tdx->tdvpx[i]));
-			vcpu_tdx->tdvpx[i] = INVALID_PAGE;
+		if (tdx->tdvpx[i] != INVALID_PAGE) {
+			BUG_ON(tdwbinvdpage(tdx->tdvpx[i]));
+			BUG_ON(tdreclaimpage(tdx->tdvpx[i], &ex_ret));
+			free_page((unsigned long)__va(tdx->tdvpx[i]));
+			tdx->tdvpx[i] = INVALID_PAGE;
 		}
 	}
 
-	BUG_ON(tdwbinvdpage(vcpu_tdx->tdvpr));
-	BUG_ON(tdreclaimpage(vcpu_tdx->tdvpr, &ex_ret));
-	free_page((unsigned long)__va(vcpu_tdx->tdvpr));
-	vcpu_tdx->tdvpr = INVALID_PAGE;
+	BUG_ON(tdwbinvdpage(tdx->tdvpr));
+	BUG_ON(tdreclaimpage(tdx->tdvpr, &ex_ret));
+	free_page((unsigned long)__va(tdx->tdvpr));
+	tdx->tdvpr = INVALID_PAGE;
 }
 
 static int tdx_td_vcpu_init_all(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
