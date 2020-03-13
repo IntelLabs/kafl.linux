@@ -971,12 +971,15 @@ static inline void adjust_tdparams_member(u64 *result, u64 fixed0, u64 fixed1)
 	*result |= fixed1;
 }
 
-static void setup_tdparams(struct td_params *td_params, u32 max_vcpus, u8 phys_bits)
+static void setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 {
-	td_params->max_vcpus = max_vcpus;
+	struct kvm_vcpu *vcpu = kvm_get_vcpu(kvm, 0);
+
+	td_params->max_vcpus = atomic_read(&kvm->online_vcpus);
 	td_params->eptp_controls = VMX_EPTP_MT_WB;
 
-	if (cpu_has_vmx_ept_5levels() && phys_bits > 48) {
+	/* TODO: Make max PA a property of the TD and enforce it for each vCPU. */
+	if (cpu_has_vmx_ept_5levels() && vcpu->arch.maxphyaddr > 48) {
 		td_params->eptp_controls |= VMX_EPTP_PWL_5;
 		td_params->exec_controls = 1;
 	} else {
@@ -1086,12 +1089,7 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	if (!td_params)
 		goto reclaim_tdcs;
 
-	/*
-	 * TODO: snapshot the max PA head of time, it will be needed for
-	 *       calculating the locatin of the shared bit.
-	 */
-	setup_tdparams(td_params, atomic_read(&kvm->online_vcpus),
-		       cpuid_query_maxphyaddr(kvm_get_vcpu(kvm, 0)));
+	setup_tdparams(kvm, td_params);
 
 	err = tdinit(kvm_tdx->tdr, __pa(td_params), &ex_ret);
 	kfree(td_params);
