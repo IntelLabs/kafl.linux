@@ -17,7 +17,7 @@ struct kvm_tdx {
 	struct kvm kvm;
 
 	hpa_t tdr;
-	hpa_t tdcs[NR_TDCX_PAGES];
+	hpa_t tdcs[TDX1_NR_TDCX_PAGES];
 
 	u32 max_vcpus;
 };
@@ -26,7 +26,7 @@ struct vcpu_tdx {
 	struct kvm_vcpu	vcpu;
 
 	hpa_t tdvpr;
-	hpa_t tdvpx[NR_TDVPX_PAGES];
+	hpa_t tdvpx[TDX1_NR_TDVPX_PAGES];
 
 	struct list_head cpu_list;
 	int cpu;

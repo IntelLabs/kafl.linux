@@ -54,10 +54,10 @@
 #define SEAMCALL_TDSYSSHUTDOWNLP	44
 #define SEAMCALL_TDSYSCONFIG		45
 
-#define NR_TDCX_PAGES   4 /* For TDX 1.O, the number of TDCX is 4 */
-#define NR_TDVPX_PAGES  5 /* For TDX 1.0, the number of TDVPX is 5 (6-1) */
+#define TDX1_NR_TDCX_PAGES		4
+#define TDX1_NR_TDVPX_PAGES		5
 
-#define TDX1_MAX_NR_CPUID_CONFIGS 6
+#define TDX1_MAX_NR_CPUID_CONFIGS	6
 
 struct tdx_cpuid_config {
 	u32 leaf;
