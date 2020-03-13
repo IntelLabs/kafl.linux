@@ -30,6 +30,8 @@ typedef uint64_t vm_vaddr_t; /* Virtual Machine (Guest) virtual address */
 #define DEBUG(...)
 #endif
 
+#define KVM_DEV_PATH		"/dev/kvm"
+
 /* Minimum allocated guest virtual and physical addresses */
 #define KVM_UTIL_MIN_VADDR		0x2000
 

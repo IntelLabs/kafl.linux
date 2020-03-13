@@ -10,8 +10,6 @@
 
 #include "sparsebit.h"
 
-#define KVM_DEV_PATH		"/dev/kvm"
-
 #ifndef BITS_PER_BYTE
 #define BITS_PER_BYTE		8
 #endif
