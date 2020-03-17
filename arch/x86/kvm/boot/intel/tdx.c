@@ -737,6 +737,12 @@ void __init tdx_seam_init(void)
 	struct cpio_data module, sigstruct, seamldr;
 	void *vmcs;
 
+	/* The VMM may have preloaded a module when running as a VM. */
+	if (boot_cpu_has(X86_FEATURE_HYPERVISOR) && is_seam_module_loaded()) {
+		pr_info("using preloaded SEAM module\n");
+		goto init_seam;
+	}
+
         if (!get_builtin_firmware(&module, module_name))
                 return;
 
@@ -754,6 +760,7 @@ void __init tdx_seam_init(void)
 		/* TODO: invoke GETSEC to run real SEAMLDR. */
 	}
 
+init_seam:
 	vmcs = memblock_alloc(PAGE_SIZE, PAGE_SIZE);
 	if (!vmcs)
 		return;

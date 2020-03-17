@@ -415,6 +415,16 @@ void __init seam_map_seamrr(unsigned long (*map) (unsigned long start,
 	seam_va = __va(seam_base);
 }
 
+bool is_seam_module_loaded(void)
+{
+	struct seam_sysinfo *sysinfo = seam_va;
+
+	if (!sysinfo || !sysinfo->nr_lps)
+		return false;
+
+	return !WARN_ON(sysinfo->nr_lps != num_possible_cpus());
+}
+
 int seam_load_module(const char *name, void *data, u64 size)
 {
 	u64 img_size, data_size;

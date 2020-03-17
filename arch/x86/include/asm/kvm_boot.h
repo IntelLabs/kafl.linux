@@ -10,6 +10,7 @@
 void __init seam_map_seamrr(unsigned long (*map) (unsigned long start,
 						  unsigned long end,
 						  unsigned long ps_mask));
+bool is_seam_module_loaded(void);
 int seam_load_module(const char *name, void *data, u64 size);
 int seam_load_module_from_path(const char *seam_module);
 
