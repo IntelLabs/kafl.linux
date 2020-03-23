@@ -39,6 +39,7 @@
 
 static u8 x86_phys_bits;
 static bool verbose;
+static int kvm_fd;
 
 static inline void cpuid(unsigned int *eax, unsigned int *ebx,
 			 unsigned int *ecx, unsigned int *edx)
@@ -172,8 +173,7 @@ init_srand:
 	srand(seed);
 }
 
-static inline u64 seamcall(int fd, u64 rax, u64 rcx, u64 rdx, u64 r8, u64 r9,
-			   u64 r10)
+static inline u64 seamcall(u64 rax, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10)
 {
 	struct kvm_seamcall seamcall;
 	long ret;
@@ -187,7 +187,7 @@ static inline u64 seamcall(int fd, u64 rax, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	seamcall.in.r9  = r9;
 	seamcall.in.r10 = r10;
 
-	ret = ioctl(fd, KVM_SEAMCALL, &seamcall);
+	ret = ioctl(kvm_fd, KVM_SEAMCALL, &seamcall);
 	TEST_ASSERT(!ret, "KVM_SEAMCALL failed, ret: %ld, errno: %d", ret, errno);
 
 	if (verbose)
@@ -197,28 +197,28 @@ static inline u64 seamcall(int fd, u64 rax, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	return seamcall.out.rax;
 }
 
-static inline u64 seamcall5(int fd, u64 rax, u64 rcx, u64 rdx, u64 r8, u64 r9)
+static inline u64 seamcall5(u64 rax, u64 rcx, u64 rdx, u64 r8, u64 r9)
 {
-	return seamcall(fd, rax, rcx, rdx, r8, r9, rand_u64());
+	return seamcall(rax, rcx, rdx, r8, r9, rand_u64());
 }
-static inline u64 seamcall4(int fd, u64 rax, u64 rcx, u64 rdx, u64 r8)
+static inline u64 seamcall4(u64 rax, u64 rcx, u64 rdx, u64 r8)
 {
-	return seamcall5(fd, rax, rcx, rdx, r8, rand_u64());
+	return seamcall5(rax, rcx, rdx, r8, rand_u64());
 }
-static inline u64 seamcall3(int fd, u64 rax, u64 rcx, u64 rdx)
+static inline u64 seamcall3(u64 rax, u64 rcx, u64 rdx)
 {
-	return seamcall4(fd, rax, rcx, rdx, rand_u64());
+	return seamcall4(rax, rcx, rdx, rand_u64());
 }
-static inline u64 seamcall2(int fd, u64 rax, u64 rcx)
+static inline u64 seamcall2(u64 rax, u64 rcx)
 {
-	return seamcall3(fd, rax, rcx, rand_u64());
+	return seamcall3(rax, rcx, rand_u64());
 }
-static inline u64 seamcall1(int fd, u64 rax)
+static inline u64 seamcall1(u64 rax)
 {
-	return seamcall2(fd, rax, rand_u64());
+	return seamcall2(rax, rand_u64());
 }
 
-static void do_random_seamcalls(int fd)
+static void do_random_seamcalls(void)
 {
 	u64 leaf, rcx, rdx, r8, r9, r10;
 	long ret;
@@ -241,7 +241,7 @@ static void do_random_seamcalls(int fd)
 			printf("SEAMCALL[%lu](0x%lx, 0x%lx, 0x%lx, 0x%lx, 0x%lx)\n",
 			       leaf, rcx, rdx, r8, r9, r10);
 
-		ret = seamcall(fd, leaf, rcx, rdx, r8, r9, r10);
+		ret = seamcall(leaf, rcx, rdx, r8, r9, r10);
 		TEST_ASSERT(ret,
 			    "SEAMCALL[%lu](0x%lx, 0x%lx, 0x%lx, 0x%lx, 0x%lx) succeeded",
 			    leaf, rcx, rdx, r8, r9, r10);
@@ -252,11 +252,10 @@ int main(int argc, char **argv)
 {
 	struct kvm_vm *vm;
 	u64 ret;
-	int fd;
 
-	fd = open(KVM_DEV_PATH, O_RDWR);
-	TEST_ASSERT(fd >= 0, "failed to open /dev/kvm fd: %i errno: %i",
-		    fd, errno);
+	kvm_fd = open(KVM_DEV_PATH, O_RDWR);
+	TEST_ASSERT(kvm_fd >= 0, "failed to open /dev/kvm kvm_fd: %i errno: %i",
+		    kvm_fd, errno);
 
 	x86_phys_bits = cpuid_eax(0x80000008) & 0xff;
 
@@ -265,15 +264,15 @@ int main(int argc, char **argv)
 	/* Create a dummy VM to coerce KVM into doing VMXON. */
 	vm = vm_create_default(0, 0, NULL);
 
-	ret = seamcall2(fd, SEAMCALL_TDSYSINIT, 0);
+	ret = seamcall2(SEAMCALL_TDSYSINIT, 0);
 	TEST_ASSERT(!ret, "TDSYSINIT failed, error code: 0x%llx", ret);
 
-	ret = seamcall1(fd, SEAMCALL_TDSYSINITLP);
+	ret = seamcall1(SEAMCALL_TDSYSINITLP);
 	TEST_ASSERT(!ret, "TDSYSINITLP failed, error code: 0x%llx", ret);
 
-	do_random_seamcalls(fd);
+	do_random_seamcalls();
 
-	close(fd);
+	close(kvm_fd);
 	kvm_vm_free(vm);
 	return 0;
 }
