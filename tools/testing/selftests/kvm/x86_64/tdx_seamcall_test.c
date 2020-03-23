@@ -34,6 +34,7 @@
 #endif
 
 #define PAGE_SIZE	4096
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 #include "../../../../../arch/x86/kvm/intel/tdx_arch.h"
 
@@ -248,8 +249,22 @@ static void do_random_seamcalls(void)
 	}
 }
 
+static inline u64 __pa(void *va)
+{
+	struct kvm_va_to_pa addr;
+	long ret;
+
+	addr.va = (u64)va;
+
+	ret = ioctl(kvm_fd, KVM_TRANSLATE_VA_TO_PA, &addr);
+	TEST_ASSERT(!ret, "VA_TO_PA failed, ret: %ld, errno: %d", ret, errno);
+	return addr.pa;
+}
+
 int main(int argc, char **argv)
 {
+	struct cmr_info cmrs[TDX1_MAX_NR_CMRS];
+	struct tdsysinfo_struct sysinfo;
 	struct kvm_vm *vm;
 	u64 ret;
 
@@ -269,6 +284,12 @@ int main(int argc, char **argv)
 
 	ret = seamcall1(SEAMCALL_TDSYSINITLP);
 	TEST_ASSERT(!ret, "TDSYSINITLP failed, error code: 0x%llx", ret);
+
+	ret = seamcall5(SEAMCALL_TDSYSINFO, __pa(&sysinfo), sizeof(sysinfo),
+			__pa(&cmrs), ARRAY_SIZE(cmrs));
+	TEST_ASSERT(!ret, "TDSYSINFO failed, error code: 0x%llx", ret);
+	TEST_ASSERT(sysinfo.vendor_id == 0x8086, "Bad vendor_id: %ld",
+		    sysinfo.vendor_id);
 
 	do_random_seamcalls();
 
