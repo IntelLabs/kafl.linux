@@ -641,12 +641,13 @@ static inline int tdx_vmxon(struct vmcs *vmcs)
 	return 0;
 }
 
-static long __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
+static int __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
 {
 	bool is_bsp = (c == &boot_cpu_data);
 	u32 mktme_keyids, tdx_keyids;
 	struct tdx_ex_ret ex_ret;
-	long ret;
+	u64 err;
+	int ret;
 
 	/*
 	 * Detect HKID for TDX if initialization was successful.
@@ -671,9 +672,11 @@ static long __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
 		tdx_keyids_start = mktme_keyids;
 		tdx_nr_keyids = tdx_keyids;
 
-		ret = tdsysinit(tdx_sysprof ? BIT(0) : 0, &ex_ret);
-		if (ret)
+		err = tdsysinit(tdx_sysprof ? BIT(0) : 0, &ex_ret);
+		if (err) {
+			ret = -EIO;
 			goto out;
+		}
 	} else if (mktme_keyids != tdx_keyids_start ||
 		   tdx_keyids != tdx_nr_keyids) {
 		pr_err("MSR_IA32_MKTME_KEYID_PART value inconsistent among cpus.\n");
@@ -682,9 +685,11 @@ static long __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
 	}
 
 	/* Call TDSYSINITLP for per-cpu initialization */
-	ret = tdsysinitlp(&ex_ret);
-	if (ret)
+	err = tdsysinitlp(&ex_ret);
+	if (err) {
+		ret = -EIO;
 		goto out;
+	}
 
 	/*
 	 * Call TDSYSINFO right after TDSYSINITTLP on BSP, since constructing
@@ -694,10 +699,12 @@ static long __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
 	 * reserving PAMT requires info returned by TDSYSINFO.
 	 */
 	if (is_bsp) {
-		ret = tdsysinfo(__pa(&tdx_tdsysinfo), sizeof(tdx_tdsysinfo),
+		err = tdsysinfo(__pa(&tdx_tdsysinfo), sizeof(tdx_tdsysinfo),
 				__pa(tdx_cmrs), MAX_NR_CMRS, &ex_ret);
-		if (ret)
+		if (err) {
+			ret = -EIO;
 			goto out;
+		}
 
 		tdx_nr_cmrs = ex_ret.nr_cmr_entries;
 	}
@@ -817,7 +824,7 @@ static int __init __do_tdsysconfigkey(void)
 {
 	bool need_vmxon = !(cr4_read_shadow() & X86_CR4_VMXE);
 	unsigned long uninitialized_var(vmcs);
-	int ret;
+	u64 err;
 
 	if (need_vmxon) {
 		vmcs = __get_free_page(GFP_KERNEL);
@@ -826,14 +833,14 @@ static int __init __do_tdsysconfigkey(void)
 		tdx_vmxon((void *)vmcs);
 	}
 
-	ret = tdsysconfigkey();
+	err = tdsysconfigkey();
 
 	if (need_vmxon) {
 		cpu_vmxoff();
 		free_page(vmcs);
 	}
 
-	return ret;
+	return err ? -EIO : 0;
 }
 
 static void __init do_tdsysconfigkey(void *err)
@@ -848,17 +855,17 @@ static int __init tdx_init_tdmr(void)
 {
 	u64 tdmr_base, tdmr_size;
 	struct tdx_ex_ret ex_ret;
-	int i, ret;
+	u64 err;
+	int i;
 
 	for (i = 0; i < tdx_nr_tdmrs; i++) {
 		tdmr_base = tdx_tdmrs[i].base;
 		tdmr_size = tdx_tdmrs[i].size;
 
 		do {
-			ret = tdsysinittdmr(tdmr_base, &ex_ret);
-			if (ret)
-				return ret;
-
+			err = tdsysinittdmr(tdmr_base, &ex_ret);
+			if (err)
+				return -EIO;
 		/*
 		 * Note, "next" is simply an indicator, tdmr_base is passed to
 		 * TDSYSINTTDMR on every iteration.
@@ -873,6 +880,7 @@ static int __init tdx_init(void)
 {
 	unsigned long vmcs;
 	int ret, i;
+	u64 err;
 
 	if (!boot_cpu_has(X86_FEATURE_TDX))
 		return -ENOTSUPP;
@@ -895,9 +903,11 @@ static int __init tdx_init(void)
 		tdx_tdmr_addrs[i] = __pa(&tdx_tdmrs[i]);
 
 	/* Use the first keyID as TDX-SEAM's global key. */
-	ret = tdsysconfig(__pa(tdx_tdmr_addrs), tdx_nr_tdmrs, tdx_keyids_start);
-	if (ret)
+	err = tdsysconfig(__pa(tdx_tdmr_addrs), tdx_nr_tdmrs, tdx_keyids_start);
+	if (err) {
+		ret = -EIO;
 		goto vmxoff;
+	}
 
 	on_each_cpu_mask(tdx_package_leadcpus, do_tdsysconfigkey, &ret, true);
 	if (ret)
