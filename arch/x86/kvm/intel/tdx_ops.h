@@ -82,6 +82,15 @@ struct tdx_ex_ret {
 	pr_err("SEAMCALL[" #op "] failed: 0x%llx (cpu %d)\n",	\
 	       SEAMCALL_##op ? (err) : (err), smp_processor_id());
 
+#define TDX_ERR(err, op)			\
+({						\
+	int __ret_warn_on = WARN_ON_ONCE(err);	\
+						\
+	if (unlikely(__ret_warn_on))		\
+		pr_seamcall_error(op, err);	\
+	__ret_warn_on;				\
+})
+
 #define tdenter(args...)		({ 0; })
 
 #ifndef	__seamcall

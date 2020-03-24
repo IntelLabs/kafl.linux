@@ -673,7 +673,7 @@ static int __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
 		tdx_nr_keyids = tdx_keyids;
 
 		err = tdsysinit(tdx_sysprof ? BIT(0) : 0, &ex_ret);
-		if (err) {
+		if (TDX_ERR(err, TDSYSINIT)) {
 			ret = -EIO;
 			goto out;
 		}
@@ -686,7 +686,7 @@ static int __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
 
 	/* Call TDSYSINITLP for per-cpu initialization */
 	err = tdsysinitlp(&ex_ret);
-	if (err) {
+	if (TDX_ERR(err, TDSYSINITLP)) {
 		ret = -EIO;
 		goto out;
 	}
@@ -701,7 +701,7 @@ static int __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
 	if (is_bsp) {
 		err = tdsysinfo(__pa(&tdx_tdsysinfo), sizeof(tdx_tdsysinfo),
 				__pa(tdx_cmrs), MAX_NR_CMRS, &ex_ret);
-		if (err) {
+		if (TDX_ERR(err, TDSYSINFO)) {
 			ret = -EIO;
 			goto out;
 		}
@@ -834,6 +834,7 @@ static int __init __do_tdsysconfigkey(void)
 	}
 
 	err = tdsysconfigkey();
+	TDX_ERR(err, TDSYSCONFIGKEY);
 
 	if (need_vmxon) {
 		cpu_vmxoff();
@@ -864,7 +865,7 @@ static int __init tdx_init_tdmr(void)
 
 		do {
 			err = tdsysinittdmr(tdmr_base, &ex_ret);
-			if (err)
+			if (TDX_ERR(err, TDSYSINITTDMR))
 				return -EIO;
 		/*
 		 * Note, "next" is simply an indicator, tdmr_base is passed to
@@ -904,7 +905,7 @@ static int __init tdx_init(void)
 
 	/* Use the first keyID as TDX-SEAM's global key. */
 	err = tdsysconfig(__pa(tdx_tdmr_addrs), tdx_nr_tdmrs, tdx_keyids_start);
-	if (err) {
+	if (TDX_ERR(err, TDSYSCONFIG)) {
 		ret = -EIO;
 		goto vmxoff;
 	}
