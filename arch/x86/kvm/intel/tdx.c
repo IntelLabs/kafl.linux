@@ -219,7 +219,7 @@ static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 static void tdx_flush_vp(void *arg)
 {
 	struct vcpu_tdx *tdx = arg;
-	long err;
+	u64 err;
 
 	if (tdx->cpu != raw_smp_processor_id() ||
 	    WARN_ON_ONCE(tdx->tdvpr == INVALID_PAGE))
@@ -776,7 +776,7 @@ static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu,
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	struct tdx_ex_ret ex_ret;
 	unsigned long page;
-	long err;
+	u64 err;
 	int ret;
 	u8 i;
 
@@ -957,7 +957,7 @@ struct tdx_tdconfigkey {
 static void tdx_do_tdconfigkey(void *data)
 {
 	struct tdx_tdconfigkey *configkey = data;
-	long err;
+	u64 err;
 
 	err = tdconfigkey(configkey->tdr);
 	if (err && cmpxchg(&configkey->error_code, 0, -EFAULT) == 0) {
@@ -1051,7 +1051,7 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	struct td_params *td_params;
 	unsigned long page;
 	int ret, hkid;
-	long err;
+	u64 err;
 	u8 i;
 
 	if (is_td_guest_initialized(kvm_tdx))
@@ -1183,7 +1183,7 @@ static int tdx_init_mem_region(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	struct tdx_ex_ret ex_ret;
 	hpa_t src_hpa, dest_hpa;
 	struct page *page;
-	long err;
+	u64 err;
 	int ret;
 
 	if (copy_from_user(&region, (void __user *)cmd->data, sizeof(region)))
