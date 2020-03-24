@@ -268,8 +268,12 @@ static void tdx_vcpu_put(struct kvm_vcpu *vcpu)
 	vmx_vcpu_pi_put(vcpu);
 }
 
+u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
+
 static void tdx_vcpu_run(struct kvm_vcpu *vcpu)
 {
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
 	if (emulate_seam) {
 		seam_tdenter(vcpu);
 		return;
@@ -277,7 +281,23 @@ static void tdx_vcpu_run(struct kvm_vcpu *vcpu)
 
 	/*
 	 * TODO:
-	 * SEAMCALL(TDENTER)
+	 * prepare before TDENTER
+	 */
+
+	tdx->exit_reason.full = __tdx_vcpu_run(tdx->tdvpr, vcpu->arch.regs,
+					       tdx->tdvmcall.regs_mask);
+
+	if (tdx->exit_reason.error || tdx->exit_reason.non_recoverable)
+		return;
+
+	if (tdx->exit_reason.basic == EXIT_REASON_TDCALL)
+		tdx->tdvmcall.rcx = vcpu->arch.regs[VCPU_REGS_RCX];
+	else
+		tdx->tdvmcall.rcx = 0;
+
+	/*
+	 * TODO:
+	 * after TDENTER
 	 */
 }
 
@@ -588,7 +608,11 @@ static int tdx_trace_tdvmcall(struct kvm_vcpu *vcpu)
 
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	unsigned long exit_reason;
+
+	if (unlikely(tdx->tdvmcall.xmm_mask))
+		goto unsupported;
 
 	if (tdvmcall_exit_type(vcpu))
 		return tdx_emulate_vmcall(vcpu);
@@ -625,6 +649,7 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		break;
 	}
 
+unsupported:
 	tdvmcall_set_return_code(vcpu, -EOPNOTSUPP);
 	return 1;
 }
