@@ -201,11 +201,31 @@ static int tdx_vm_init(struct kvm *kvm)
 
 static void tdx_vm_teardown(struct kvm *kvm)
 {
-	/*
-	 * TODO:
-	 * SEAMCALL(TDFREEHKIDS);
-	 * SEAMCALL(TDTEARDOWN)
-	 */
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	u64 err;
+
+	/* Already in TEARDOWN state if the HKID has been freed. */
+	if (kvm_tdx->hkid < 0)
+		return;
+
+	err = tdreclaimhkids(kvm_tdx->tdr);
+	if (TDX_ERR(err, TDRECLAIMHKIDS))
+		return;
+
+	err = tdflushvpdone(kvm_tdx->tdr);
+	if (TDX_ERR(err, TDFLUSHVPDONE))
+		return;
+
+	err = tdwbcache(kvm_tdx->tdr);
+	if (TDX_ERR(err, TDWBCACHE))
+		return;
+
+	err = tdfreehkids(kvm_tdx->tdr);
+	if (TDX_ERR(err, TDFREEHKIDS))
+		return;
+
+	tdx_keyid_free(kvm_tdx->hkid);
+	kvm_tdx->hkid = -1;
 }
 
 static struct kvm *tdx_vm_alloc(void)
@@ -1120,24 +1140,13 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 
 	ret = tdx_td_vcpu_init_all(kvm);
 	if (ret)
-		goto reclaim_hkids;
+		goto teardown;
 
 	kfree(td_params);
 	return 0;
 
-reclaim_hkids:
-	err = tdreclaimhkids(kvm_tdx->tdr);
-	if (TDX_ERR(err, TDRECLAIMHKIDS))
-		return -EIO;
-
-	/*
-	 * TODO: TDFLUSHVP, TDFLUSHVPDONE, TDWBCACHE (if necessary, there is no
-	 *       TD vCPU running at this point).
-	 */
-	err = tdfreehkids(kvm_tdx->tdr);
-	if (TDX_ERR(err, TDFREEHKIDS))
-		return -EIO;
-
+teardown:
+	tdx_vm_teardown(kvm);
 free_tdparams:
 	kfree(td_params);
 reclaim_tdcs:
