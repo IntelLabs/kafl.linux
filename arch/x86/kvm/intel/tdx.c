@@ -226,8 +226,8 @@ static void tdx_flush_vp(void *arg)
 		return;
 
 	err = tdflushvp(tdx->tdvpr);
-	if (WARN_ON_ONCE(err && err != TDX_VCPU_NOT_ASSOCIATED))
-		pr_seamcall_error(TDFLUSHVP, err);
+	if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED))
+		TDX_ERR(err, TDFLUSHVP);
 
 	list_del(&tdx->cpu_list);
 
@@ -784,8 +784,7 @@ static inline bool is_td_guest_initialized(struct kvm_tdx *kvm_tdx)
 	return kvm_tdx->tdr != INVALID_PAGE;
 }
 
-static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu,
-			    struct kvm_tdx_cmd *cmd)
+static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
@@ -802,13 +801,9 @@ static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu,
 	page = __get_free_page(GFP_KERNEL_ACCOUNT);
 	if (!page)
 		return -ENOMEM;
-	tdx->tdvpr = __pa(page);
 
 	err = tdcreatevp(kvm_tdx->tdr, tdx->tdvpr);
-	if (err) {
-		pr_seamcall_error(TDCREATEVP, err);
-		cmd->error_type = SEAMCALL_ERROR;
-		cmd->error.seamcall_leaf = SEAMCALL_TDCREATEVP;
+	if (TDX_ERR(err, TDCREATEVP)) {
 		ret = -EIO;
 		goto free_tdvpr;
 	}
@@ -824,10 +819,7 @@ static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu,
 
 	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
 		err = tdaddvpx(tdx->tdvpr, tdx->tdvpx[i]);
-		if (err) {
-			pr_seamcall_error(TDADDVPX, err);
-			cmd->error_type = SEAMCALL_ERROR;
-			cmd->error.seamcall_leaf = SEAMCALL_TDADDVPX;
+		if (TDX_ERR(err, TDADDVPX)) {
 			ret = -EIO;
 			goto reclaim_tdvpx;
 		}
@@ -839,10 +831,7 @@ static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu,
 	 *       RCX value for the vCPU.  For now, harcode it to zero.
 	 */
 	err = tdinitvp(tdx->tdvpr, 0);
-	if (err) {
-		pr_seamcall_error(TDINITVP, err);
-		cmd->error_type = SEAMCALL_ERROR;
-		cmd->error.seamcall_leaf = SEAMCALL_TDINITVP;
+	if (TDX_ERR(err, TDINITVP)) {
 		ret = -EIO;
 		goto reclaim_tdvpx;
 	}
@@ -903,13 +892,13 @@ static void tdx_td_vcpu_uninit(struct kvm_vcpu *vcpu)
 	tdx->tdvpr = INVALID_PAGE;
 }
 
-static int tdx_td_vcpu_init_all(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
+static int tdx_td_vcpu_init_all(struct kvm *kvm)
 {
 	struct kvm_vcpu *vcpu;
 	int i, ret;
 
 	kvm_for_each_vcpu(i, vcpu, kvm) {
-		ret = tdx_td_vcpu_init(kvm, vcpu, cmd);
+		ret = tdx_td_vcpu_init(kvm, vcpu);
 		if (ret)
 			goto td_vcpu_uninit;
 	}
@@ -965,7 +954,6 @@ static int __init tdx_hardware_setup(void)
 
 struct tdx_tdconfigkey {
 	hpa_t tdr;
-	struct kvm_tdx_cmd *cmd;
 	int error_code;
 };
 
@@ -975,11 +963,8 @@ static void tdx_do_tdconfigkey(void *data)
 	u64 err;
 
 	err = tdconfigkey(configkey->tdr);
-	if (err && cmpxchg(&configkey->error_code, 0, -EFAULT) == 0) {
-		pr_seamcall_error(TDCONFIGKEY, err);
-		configkey->cmd->error_type = SEAMCALL_ERROR;
-		configkey->cmd->error.seamcall_leaf = SEAMCALL_TDCONFIGKEY;
-	}
+	if (err && cmpxchg(&configkey->error_code, 0, -EFAULT) == 0)
+		TDX_ERR(err, TDCONFIGKEY);
 }
 
 /*
@@ -1085,10 +1070,7 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 
 	kvm_tdx->tdr = __pa(page);
 	err = tdcreate(kvm_tdx->tdr, hkid);
-	if (unlikely(err)) {
-		pr_seamcall_error(TDCREATE, err);
-		cmd->error_type = SEAMCALL_ERROR;
-		cmd->error.seamcall_leaf = SEAMCALL_TDCREATE;
+	if (TDX_ERR(err, TDCREATE)) {
 		ret = -EIO;
 		goto free_tdr_page;
 	}
@@ -1096,7 +1078,6 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	/* SEAMCALL(TDCONFIGKEY) */
 	configkey.tdr = kvm_tdx->tdr;
 	configkey.error_code = 0;
-	configkey.cmd = cmd;
 
 	preempt_disable();
 	on_each_cpu_mask(tdx_package_leadcpus, tdx_do_tdconfigkey, &configkey, 1);
@@ -1119,10 +1100,7 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 
 	for (i = 0; i < tdx_capabilities.tdcs_nr_pages; i++) {
 		err = tdaddcx(kvm_tdx->tdr, kvm_tdx->tdcs[i]);
-		if (unlikely(err)) {
-			pr_seamcall_error(TDADDCX, err);
-			cmd->error_type = SEAMCALL_ERROR;
-			cmd->error.seamcall_leaf = SEAMCALL_TDADDCX;
+		if (TDX_ERR(err, TDADDCX)) {
 			ret = -EIO;
 			goto reclaim_tdcs;
 		}
@@ -1140,14 +1118,12 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 		goto free_tdparams;
 
 	err = tdinit(kvm_tdx->tdr, __pa(td_params), &ex_ret);
-	if (unlikely(err)) {
-		pr_seamcall_error(TDINIT, err);
-		cmd->error_type = SEAMCALL_ERROR;
-		cmd->error.seamcall_leaf = SEAMCALL_TDINIT;
+	if (TDX_ERR(err, TDINIT)) {
+		ret = -EIO;
 		goto free_tdparams;
 	}
 
-	ret = tdx_td_vcpu_init_all(kvm, cmd);
+	ret = tdx_td_vcpu_init_all(kvm);
 	if (ret)
 		goto reclaim_hkids;
 
@@ -1155,14 +1131,18 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	return 0;
 
 reclaim_hkids:
-	BUG_ON(tdreclaimhkids(kvm_tdx->tdr));
+	err = tdreclaimhkids(kvm_tdx->tdr);
+	if (TDX_ERR(err, TDRECLAIMHKIDS))
+		return -EIO;
 
 	/*
 	 * TODO: TDFLUSHVP, TDFLUSHVPDONE, TDWBCACHE (if necessary, there is no
 	 *       TD vCPU running at this point).
 	 */
-	BUG_ON(tdfreehkids(kvm_tdx->tdr));
-	BUG_ON(tdteardown(kvm_tdx->tdr));
+	err = tdfreehkids(kvm_tdx->tdr);
+	if (TDX_ERR(err, TDFREEHKIDS))
+		return -EIO;
+
 free_tdparams:
 	kfree(td_params);
 reclaim_tdcs:
@@ -1236,10 +1216,7 @@ static int tdx_init_mem_region(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 
 		err = tdaddpage(kvm_tdx->tdr, region.gpa, dest_hpa, src_hpa, &ex_ret);
 		put_page(page);
-		if (unlikely(err)) {
-			pr_seamcall_error(TDADDPAGE, err);
-			cmd->error_type = SEAMCALL_ERROR;
-			cmd->error.seamcall_leaf = SEAMCALL_TDADDPAGE;
+		if (TDX_ERR(err, TDADDPAGE)) {
 			ret = -EIO;
 			break;
 		}

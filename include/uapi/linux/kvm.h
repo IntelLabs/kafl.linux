@@ -1577,19 +1577,10 @@ enum tdx_cmd_id {
 	KVM_TDX_CMD_NR_MAX,
 };
 
-enum tdx_cmd_error_type {
-	NO_ERROR = 0,
-	SEAMCALL_ERROR,
-};
-
 struct kvm_tdx_cmd {
 	__u32 id;
 	__u32 reserved;
 	__u64 data;
-	__u32 error_type;
-	union {
-		__u32 seamcall_leaf; /* for error_type SEAMCALL_ERROR */
-	} error;
 };
 
 struct kvm_tdx_init_mem_region {
