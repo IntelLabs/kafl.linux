@@ -1265,6 +1265,7 @@ struct kvm_x86_ops {
 
 	int (*load_seam)(const char *path);
 	void (*do_seamcall)(struct kvm_seamcall *call);
+	void (*do_tdenter)(struct kvm_tdenter *tdenter);
 };
 
 struct kvm_arch_async_pf {
