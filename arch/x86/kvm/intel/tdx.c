@@ -52,17 +52,17 @@ static __always_inline unsigned long tdexit_exit_qual(struct kvm_vcpu *vcpu)
 {
 	return kvm_rcx_read(vcpu);
 }
+static __always_inline unsigned long tdexit_ext_exit_qual(struct kvm_vcpu *vcpu)
+{
+	return kvm_rdx_read(vcpu);
+}
 static __always_inline unsigned long tdexit_gpa(struct kvm_vcpu *vcpu)
 {
 	return kvm_r8_read(vcpu);
 }
-static __always_inline unsigned long tdexit_sept_hpa(struct kvm_vcpu *vcpu)
-{
-	return kvm_r9_read(vcpu);
-}
 static __always_inline unsigned long tdexit_intr_info(struct kvm_vcpu *vcpu)
 {
-	return kvm_r10_read(vcpu);
+	return kvm_r9_read(vcpu);
 }
 
 #define BUILD_TDVMCALL_ACCESSORS(param, gpr)				    \
