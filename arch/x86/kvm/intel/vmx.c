@@ -6007,13 +6007,11 @@ static void vmx_apicv_post_state_restore(struct kvm_vcpu *vcpu)
 
 void vmx_handle_exception_nmi_irqoff(struct kvm_vcpu *vcpu, u32 exit_intr_info)
 {
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
-
-	vmx->exit_intr_info = exit_intr_info;
+	to_vmx(vcpu)->exit_intr_info = exit_intr_info;
 
 	/* if exit due to PF check for async PF */
-	if (is_page_fault(vmx->exit_intr_info))
-		vmx->vcpu.arch.apf.host_apf_reason = kvm_read_and_reset_pf_reason();
+	if (is_page_fault(exit_intr_info))
+		vcpu->arch.apf.host_apf_reason = kvm_read_and_reset_pf_reason();
 
 	intel_handle_exception_nmi_irqoff(vcpu, exit_intr_info);
 }
