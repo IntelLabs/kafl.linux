@@ -589,12 +589,9 @@ static int tdx_trace_tdvmcall(struct kvm_vcpu *vcpu)
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
 	unsigned long exit_reason;
-	int ret;
 
-	if (tdvmcall_exit_type(vcpu)) {
-		ret = tdx_emulate_vmcall(vcpu);
-		return 1;
-	}
+	if (tdvmcall_exit_type(vcpu))
+		return tdx_emulate_vmcall(vcpu);
 
 	exit_reason = tdvmcall_exit_reason(vcpu);
 
@@ -604,14 +601,11 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 
 	switch (exit_reason) {
 	case EXIT_REASON_TRIPLE_FAULT:
-		ret = tdx_trace_tdvmcall(vcpu);
-		break;
+		return tdx_trace_tdvmcall(vcpu);
 	case EXIT_REASON_CPUID:
-		ret = tdx_emulate_cpuid(vcpu);
-		break;
+		return tdx_emulate_cpuid(vcpu);
 	case EXIT_REASON_HLT:
-		ret = tdx_emulate_hlt(vcpu);
-		break;
+		return tdx_emulate_hlt(vcpu);
 	// case EXIT_REASON_RDPMC:
 	// 	ret = tdx_emulate_rdpmc(vcpu);
 	// 	break;
@@ -619,24 +613,20 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 	// 	
 	// 	break;
 	case EXIT_REASON_IO_INSTRUCTION:
-		ret = tdx_emulate_io(vcpu);
-		break;
+		return tdx_emulate_io(vcpu);
 	case EXIT_REASON_MSR_READ:
-		ret = tdx_emulate_rdmsr(vcpu);
+		return tdx_emulate_rdmsr(vcpu);
 		break;
 	case EXIT_REASON_MSR_WRITE:
-		ret = tdx_emulate_wrmsr(vcpu);
-		break;
+		return tdx_emulate_wrmsr(vcpu);
 	case EXIT_REASON_EPT_VIOLATION:
-		ret = tdx_emulate_mmio(vcpu);
-		break;
+		return tdx_emulate_mmio(vcpu);
 	default:
-		tdvmcall_set_return_code(vcpu, -EOPNOTSUPP);
-		ret = 1;
 		break;
 	}
 
-	return ret;
+	tdvmcall_set_return_code(vcpu, -EOPNOTSUPP);
+	return 1;
 }
 
 static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
