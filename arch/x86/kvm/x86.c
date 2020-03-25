@@ -3543,14 +3543,14 @@ long kvm_arch_dev_ioctl(struct file *filp,
 		struct kvm_seamcall seamcall;
 
 		r = -EINVAL;
-		if (!kvm_x86_ops->call_seam)
+		if (!kvm_x86_ops->do_seamcall)
 			goto out;
 
 		r = -EFAULT;
 		if (copy_from_user(&seamcall, user_seamcall, sizeof(seamcall)))
 			goto out;
 
-		kvm_x86_ops->call_seam(&seamcall);
+		kvm_x86_ops->do_seamcall(&seamcall);
 
 		if (copy_to_user(user_seamcall, &seamcall, sizeof(seamcall)))
 			goto out;

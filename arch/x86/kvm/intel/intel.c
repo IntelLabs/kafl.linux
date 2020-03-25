@@ -77,7 +77,7 @@ static __init int intel_hardware_setup(void)
 	 * with TDs created and managed by KVM.
 	 */
 	if (!enable_tdx)
-		kvm_x86_ops->call_seam = tdx_call_seam;
+		kvm_x86_ops->do_seamcall = tdx_do_seamcall;
 #endif
 	return 0;
 }

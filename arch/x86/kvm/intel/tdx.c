@@ -1298,7 +1298,7 @@ static long seamcall_direct(struct kvm_seamcall_regs *regs,
 		     regs->r10, ex);
 };
 
-static void tdx_call_seam(struct kvm_seamcall *call)
+static void tdx_do_seamcall(struct kvm_seamcall *call)
 {
 	struct tdx_ex_ret ex;
 
