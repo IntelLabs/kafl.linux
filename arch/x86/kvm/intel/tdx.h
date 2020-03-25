@@ -20,6 +20,8 @@ struct kvm_tdx {
 	hpa_t tdr;
 	hpa_t tdcs[TDX1_NR_TDCX_PAGES];
 
+	int hkid;
+
 	u32 max_vcpus;
 };
 

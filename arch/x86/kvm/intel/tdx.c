@@ -1050,15 +1050,19 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	struct tdx_tdconfigkey configkey;
 	struct tdx_ex_ret ex_ret;
 	struct td_params *td_params;
-	int ret, hkid, i;
+	int ret, i;
 	u64 err;
 
 	if (is_td_guest_initialized(kvm_tdx))
 		return -EINVAL;
 
-	hkid = tdx_keyid_alloc();
-	if (hkid < 0)
-		return -ENOKEY;
+	kvm_tdx->hkid = tdx_keyid_alloc();
+	if (kvm_tdx->hkid < 0)
+		return -EBUSY;
+	if (WARN_ON_ONCE(kvm_tdx->hkid >> 16)) {
+		ret = -EIO;
+		goto free_hkid;
+	}
 
 	/* SEAMCALL(TDCREATE) */
 	kvm_tdx->tdr = tdx_alloc_td_page();
@@ -1067,7 +1071,7 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 		goto free_hkid;
 	}
 
-	err = tdcreate(kvm_tdx->tdr, hkid);
+	err = tdcreate(kvm_tdx->tdr, kvm_tdx->hkid);
 	if (TDX_ERR(err, TDCREATE)) {
 		tdx_free_td_page(&kvm_tdx->tdr);
 		ret = -EIO;
@@ -1150,7 +1154,7 @@ reclaim_tdr:
 	tdx_reclaim_td_page(&kvm_tdx->tdr);
 
 free_hkid:
-	tdx_keyid_free(hkid);
+	tdx_keyid_free(kvm_tdx->hkid);
 	return ret;
 }
 
