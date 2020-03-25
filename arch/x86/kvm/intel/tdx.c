@@ -113,6 +113,11 @@ static inline bool is_td_guest_initialized(struct kvm_tdx *kvm_tdx)
 	return kvm_tdx->tdr != INVALID_PAGE;
 }
 
+static inline bool is_td_in_teardown(struct kvm_tdx *kvm_tdx)
+{
+	return kvm_tdx->hkid < 0;
+}
+
 static hpa_t tdx_alloc_td_page(void)
 {
 	unsigned long page;
@@ -227,9 +232,11 @@ static void tdx_vm_teardown(struct kvm *kvm)
 	u64 err;
 	int i;
 
-	/* Already in TEARDOWN state if the HKID has been freed. */
-	if (kvm_tdx->hkid < 0)
+	if (is_td_in_teardown(kvm_tdx))
 		return;
+
+	if (!is_td_guest_initialized(kvm_tdx))
+		goto free_hkid;
 
 	err = tdreclaimhkids(kvm_tdx->tdr);
 	if (TDX_ERR(err, TDRECLAIMHKIDS))
@@ -250,8 +257,24 @@ static void tdx_vm_teardown(struct kvm *kvm)
 	if (TDX_ERR(err, TDFREEHKIDS))
 		return;
 
+free_hkid:
 	tdx_keyid_free(kvm_tdx->hkid);
 	kvm_tdx->hkid = -1;
+}
+
+static void tdx_vm_destroy(struct kvm *kvm)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	int i;
+
+	/* Can't reclaim or free TD pages if teardown failed. */
+	if (!is_td_in_teardown(kvm_tdx))
+		return;
+
+	for (i = 0; i < tdx_capabilities.tdcs_nr_pages; i++)
+		tdx_reclaim_td_page(&kvm_tdx->tdcs[i]);
+
+	tdx_reclaim_td_page(&kvm_tdx->tdr);
 }
 
 static struct kvm *tdx_vm_alloc(void)
@@ -358,6 +381,10 @@ static void tdx_td_vcpu_uninit(struct kvm_vcpu *vcpu)
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	u8 i;
 
+	/* Can't reclaim or free TD pages if teardown failed. */
+	if (!is_td_in_teardown(to_kvm_tdx(vcpu->kvm)))
+		return;
+
 	if (!is_td_vcpu_initialized(tdx))
 		return;
 
@@ -391,11 +418,7 @@ static void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 	if (emulate_seam)
 		return seam_tdfreevp(vcpu);
 
-	/*
-	 * TODO:
-	 * SEAMCALL(TDRECLAIMPAGE)
-	 * SEAMCALL(TDREMOVEPAGE)
-	 */
+	tdx_td_vcpu_uninit(vcpu);
 }
 
 static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
@@ -406,12 +429,6 @@ static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		seam_tdinitvp(vcpu, init_event);
 		return;
 	}
-
-	/*
-	 * TODO:
-	 * SEAMCALL(TDFINALIZEMR)
-	 * SEAMCALL(TDINITVP)
-	 */
 
 	if (WARN_ON(init_event))
 		return;
