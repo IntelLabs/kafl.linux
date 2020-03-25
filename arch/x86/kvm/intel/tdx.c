@@ -151,8 +151,7 @@ static void tdx_flush_vp(void *arg)
 	struct vcpu_tdx *tdx = arg;
 	u64 err;
 
-	if (tdx->cpu != raw_smp_processor_id() ||
-	    WARN_ON_ONCE(tdx->tdvpr == INVALID_PAGE))
+	if (tdx->cpu != raw_smp_processor_id())
 		return;
 
 	err = tdflushvp(tdx->tdvpr);
@@ -398,7 +397,7 @@ static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
-	if (tdx->cpu != cpu) {
+	if (tdx->cpu != cpu && is_td_vcpu_initialized(tdx)) {
 		if (tdx->cpu != -1)
 			smp_call_function_single(tdx->cpu, tdx_flush_vp, tdx, 1);
 
