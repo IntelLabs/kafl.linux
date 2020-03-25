@@ -800,7 +800,7 @@ struct kvm_ppc_resize_hpt {
 
 #define KVM_S390_ENABLE_SIE       _IO(KVMIO,   0x06)
 
-#define KVM_LOAD_SEAM             _IO(KVMIO, 0x30)
+#define KVM_LOAD_SEAM             _IO(KVMIO,   0x30)
 #define KVM_SEAMCALL              _IOWR(KVMIO, 0x31, struct kvm_seamcall)
 
 /*
