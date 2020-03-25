@@ -103,10 +103,43 @@ static __always_inline void tdvmcall_set_return_val(struct kvm_vcpu *vcpu,
 	kvm_r11_write(vcpu, val);
 }
 
+static hpa_t tdx_alloc_td_page(void)
+{
+	unsigned long page;
+
+	page = __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!page)
+		return INVALID_PAGE;
+
+	return __pa(page);
+}
+
+static void tdx_free_td_page(hpa_t *hpa_p)
+{
+	free_page((unsigned long)__va(*hpa_p));
+	*hpa_p = INVALID_PAGE;
+}
+
+static void tdx_reclaim_td_page(hpa_t *hpa_p)
+{
+	struct tdx_ex_ret ex_ret;
+	u64 err;
+
+	err= tdreclaimpage(*hpa_p, &ex_ret);
+	if (TDX_ERR(err, TDRECLAIMPAGE))
+		return;
+
+	err = tdwbinvdpage(*hpa_p);
+	if (TDX_ERR(err, TDWBINVDPAGE))
+		return;
+
+	tdx_free_td_page(hpa_p);
+}
+
 static int tdx_vm_init(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
-	u8 i;
+	int i;
 
 	kvm->arch.shadow_mmio_value = 0;
 
@@ -162,7 +195,7 @@ static void tdx_vm_free(struct kvm *kvm)
 static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	u8 i;
+	int i;
 
 	if (emulate_seam)
 		return seam_tdcreatevp(vcpu);
@@ -788,38 +821,32 @@ static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	struct tdx_ex_ret ex_ret;
-	unsigned long page;
+	int ret, i;
 	u64 err;
-	int ret;
-	u8 i;
 
 	if (WARN_ON(is_td_vcpu_initialized(tdx)))
 		return -EINVAL;
 
 	/* SEAMCALL(TDCREATEVP) */
-	page = __get_free_page(GFP_KERNEL_ACCOUNT);
-	if (!page)
+	tdx->tdvpr = tdx_alloc_td_page();
+	if (!VALID_PAGE(tdx->tdvpr))
 		return -ENOMEM;
 
 	err = tdcreatevp(kvm_tdx->tdr, tdx->tdvpr);
 	if (TDX_ERR(err, TDCREATEVP)) {
-		ret = -EIO;
-		goto free_tdvpr;
+		tdx_free_td_page(&tdx->tdvpr);
+		return -EIO;
 	}
 
 	/* SEAMCALL(TDADDVPX) */
 	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
-		page = __get_free_page(GFP_KERNEL_ACCOUNT);
-		if (!page)
-			goto free_tdvpx;
-		else
-			tdx->tdvpx[i] = __pa(page);
-	}
+		tdx->tdvpx[i] = tdx_alloc_td_page();
+		if (!VALID_PAGE(tdx->tdvpx[i]))
+			goto reclaim_tdvpx;
 
-	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
 		err = tdaddvpx(tdx->tdvpr, tdx->tdvpx[i]);
 		if (TDX_ERR(err, TDADDVPX)) {
+			tdx_free_td_page(&tdx->tdvpx[i]);
 			ret = -EIO;
 			goto reclaim_tdvpx;
 		}
@@ -843,53 +870,27 @@ static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu)
 	return 0;
 
 reclaim_tdvpx:
-	/* @i points at the TDVPX page that failed tdaddvpx().
-	 *
-	 * If tdaddvpx() succeeds, TDX-SEAM zeros out the TDVPX page contents
-	 * using direct writes(MOVDIR64B).  MOVDIR64B ensures no cache line is
-	 * valid for the TDVPX page, so there's no need for tdwbinvdpage().
-	 */
-	while (i--) {
-		if (tdx->tdvpx[i] != INVALID_PAGE)
-			BUG_ON(tdreclaimpage(tdx->tdvpx[i], &ex_ret));
-	}
-	BUG_ON(tdwbinvdpage(tdx->tdvpr));
-free_tdvpx:
-	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
-		if (tdx->tdvpx[i] != INVALID_PAGE) {
-			free_page((unsigned long)__va(tdx->tdvpx[i]));
-			tdx->tdvpx[i] = INVALID_PAGE;
-		}
-	}
-	BUG_ON(tdreclaimpage(tdx->tdvpr, &ex_ret));
-free_tdvpr:
-	free_page((unsigned long)__va(tdx->tdvpr));
-	tdx->tdvpr = INVALID_PAGE;
+	/* @i points at the TDVPX page that failed tdaddvpx(). */
+	for (--i; i >= 0; i--)
+		tdx_reclaim_td_page(&tdx->tdvpx[i]);
+
+	tdx_reclaim_td_page(&tdx->tdvpr);
+
 	return ret;
 }
 
 static void tdx_td_vcpu_uninit(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	struct tdx_ex_ret ex_ret;
 	u8 i;
 
 	if (!is_td_vcpu_initialized(tdx))
 		return;
 
-	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
-		if (tdx->tdvpx[i] != INVALID_PAGE) {
-			BUG_ON(tdwbinvdpage(tdx->tdvpx[i]));
-			BUG_ON(tdreclaimpage(tdx->tdvpx[i], &ex_ret));
-			free_page((unsigned long)__va(tdx->tdvpx[i]));
-			tdx->tdvpx[i] = INVALID_PAGE;
-		}
-	}
+	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++)
+		tdx_reclaim_td_page(&tdx->tdvpx[i]);
 
-	BUG_ON(tdwbinvdpage(tdx->tdvpr));
-	BUG_ON(tdreclaimpage(tdx->tdvpr, &ex_ret));
-	free_page((unsigned long)__va(tdx->tdvpr));
-	tdx->tdvpr = INVALID_PAGE;
+	tdx_reclaim_td_page(&tdx->tdvpr);
 }
 
 static int tdx_td_vcpu_init_all(struct kvm *kvm)
@@ -1049,10 +1050,8 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	struct tdx_tdconfigkey configkey;
 	struct tdx_ex_ret ex_ret;
 	struct td_params *td_params;
-	unsigned long page;
-	int ret, hkid;
+	int ret, hkid, i;
 	u64 err;
-	u8 i;
 
 	if (is_td_guest_initialized(kvm_tdx))
 		return -EINVAL;
@@ -1062,17 +1061,17 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 		return -ENOKEY;
 
 	/* SEAMCALL(TDCREATE) */
-	page = __get_free_page(GFP_KERNEL_ACCOUNT);
-	if (!page) {
+	kvm_tdx->tdr = tdx_alloc_td_page();
+	if (!VALID_PAGE(kvm_tdx->tdr)) {
 		ret = -ENOMEM;
 		goto free_hkid;
 	}
 
-	kvm_tdx->tdr = __pa(page);
 	err = tdcreate(kvm_tdx->tdr, hkid);
 	if (TDX_ERR(err, TDCREATE)) {
+		tdx_free_td_page(&kvm_tdx->tdr);
 		ret = -EIO;
-		goto free_tdr_page;
+		goto free_hkid;
 	}
 
 	/* SEAMCALL(TDCONFIGKEY) */
@@ -1091,16 +1090,13 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	/* SEAMCAL(TDADDCX) */
 	ret = -ENOMEM;
 	for (i = 0; i < tdx_capabilities.tdcs_nr_pages; i++) {
-		page = __get_free_page(GFP_KERNEL_ACCOUNT);
-		if (!page)
-			goto free_tdcs;
-		else
-			kvm_tdx->tdcs[i] = __pa(page);
-	}
+		kvm_tdx->tdcs[i] = tdx_alloc_td_page();
+		if (!VALID_PAGE(kvm_tdx->tdcs[i]))
+			goto reclaim_tdcs;
 
-	for (i = 0; i < tdx_capabilities.tdcs_nr_pages; i++) {
 		err = tdaddcx(kvm_tdx->tdr, kvm_tdx->tdcs[i]);
 		if (TDX_ERR(err, TDADDCX)) {
+			tdx_free_td_page(&kvm_tdx->tdcs[i]);
 			ret = -EIO;
 			goto reclaim_tdcs;
 		}
@@ -1147,25 +1143,12 @@ free_tdparams:
 	kfree(td_params);
 reclaim_tdcs:
 	/* @i points at the TDCS page that failed tdaddcx(). */
-	while (i--) {
-		if (kvm_tdx->tdcs[i]) {
-			BUG_ON(tdreclaimpage(kvm_tdx->tdcs[i], &ex_ret));
-			BUG_ON(tdwbinvdpage(kvm_tdx->tdcs[i]));
-		}
-	}
-free_tdcs:
-	for (i = 0; i < tdx_capabilities.tdcs_nr_pages; i++) {
-		if (kvm_tdx->tdcs[i] != INVALID_PAGE) {
-			free_page((unsigned long)__va(kvm_tdx->tdcs[i]));
-			kvm_tdx->tdcs[i] = INVALID_PAGE;
-		}
-	}
+	for (i--; i >= 0; i--)
+		tdx_reclaim_td_page(&kvm_tdx->tdcs[i]);
+
 reclaim_tdr:
-	BUG_ON(tdreclaimpage(kvm_tdx->tdr, &ex_ret));
-	BUG_ON(tdwbinvdpage(kvm_tdx->tdr));
-free_tdr_page:
-	free_page((unsigned long)__va(kvm_tdx->tdr));
-	kvm_tdx->tdr = INVALID_PAGE;
+	tdx_reclaim_td_page(&kvm_tdx->tdr);
+
 free_hkid:
 	tdx_keyid_free(hkid);
 	return ret;
