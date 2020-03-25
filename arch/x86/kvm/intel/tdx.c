@@ -48,10 +48,6 @@ static inline struct kvm_vcpu *to_kvm_vcpu(struct kvm_vcpu *vcpu)
 	return phys_to_virt(to_tdx(vcpu)->tdvpr);
 }
 
-static __always_inline unsigned long seamret_exit_reason(struct kvm_vcpu *vcpu)
-{
-	return kvm_rax_read(vcpu);
-}
 static __always_inline unsigned long seamret_exit_qual(struct kvm_vcpu *vcpu)
 {
 	return kvm_rcx_read(vcpu);
@@ -533,7 +529,7 @@ static void tdx_hardware_disable(void)
 
 static void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 {
-	u32 exit_reason = seamret_exit_reason(vcpu);
+	u16 exit_reason = to_tdx(vcpu)->exit_reason.basic;
 
 	if (exit_reason == EXIT_REASON_EXCEPTION_NMI)
 		intel_handle_exception_nmi_irqoff(vcpu,
@@ -890,7 +886,7 @@ static int tdx_handle_ept_misconfig(struct kvm_vcpu *vcpu)
  */
 static int __tdx_handle_exit(struct kvm_vcpu *vcpu)
 {
-	u32 exit_reason = seamret_exit_reason(vcpu);
+	u16 exit_reason = to_tdx(vcpu)->exit_reason.basic;
 
 	switch (exit_reason) {
 	case EXIT_REASON_EXCEPTION_NMI:

@@ -480,7 +480,7 @@ static int seamret(struct kvm_vcpu *vcpu, u32 exit_reason)
 		tdx_vcpu->arch.regs[VCPU_REGS_R9]  = 0; /* TODO: S-EPT violation GPA */
 		tdx_vcpu->arch.regs[VCPU_REGS_R10] = vmcs_read32(VM_EXIT_INTR_INFO);
 	}
-	tdx_vcpu->arch.regs[VCPU_REGS_RAX] = exit_reason;
+	to_tdx(tdx_vcpu)->exit_reason.full = exit_reason;
 
 	ret = __tdx_handle_exit(tdx_vcpu);
 	if (ret)
