@@ -48,19 +48,19 @@ static inline struct kvm_vcpu *to_kvm_vcpu(struct kvm_vcpu *vcpu)
 	return phys_to_virt(to_tdx(vcpu)->tdvpr);
 }
 
-static __always_inline unsigned long seamret_exit_qual(struct kvm_vcpu *vcpu)
+static __always_inline unsigned long tdexit_exit_qual(struct kvm_vcpu *vcpu)
 {
 	return kvm_rcx_read(vcpu);
 }
-static __always_inline unsigned long seamret_gpa(struct kvm_vcpu *vcpu)
+static __always_inline unsigned long tdexit_gpa(struct kvm_vcpu *vcpu)
 {
 	return kvm_r8_read(vcpu);
 }
-static __always_inline unsigned long seamret_sept_hpa(struct kvm_vcpu *vcpu)
+static __always_inline unsigned long tdexit_sept_hpa(struct kvm_vcpu *vcpu)
 {
 	return kvm_r9_read(vcpu);
 }
-static __always_inline unsigned long seamret_intr_info(struct kvm_vcpu *vcpu)
+static __always_inline unsigned long tdexit_intr_info(struct kvm_vcpu *vcpu)
 {
 	return kvm_r10_read(vcpu);
 }
@@ -533,15 +533,15 @@ static void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 
 	if (exit_reason == EXIT_REASON_EXCEPTION_NMI)
 		intel_handle_exception_nmi_irqoff(vcpu,
-						  seamret_intr_info(vcpu));
+						  tdexit_intr_info(vcpu));
 	else if (exit_reason == EXIT_REASON_EXTERNAL_INTERRUPT)
 		vmx_handle_external_interrupt_irqoff(vcpu,
-						     seamret_intr_info(vcpu));
+						     tdexit_intr_info(vcpu));
 }
 
 static int tdx_handle_exception(struct kvm_vcpu *vcpu)
 {
-	u32 intr_info = seamret_intr_info(vcpu);
+	u32 intr_info = tdexit_intr_info(vcpu);
 
 	if (is_nmi(intr_info) || is_machine_check(intr_info))
 		return 1;
@@ -866,8 +866,8 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 {
 	/* TODO: Use TDX's version of the vCPU to handle MMU stuff. */
 	return ept_handle_ept_violation(to_kvm_vcpu(vcpu),
-					seamret_gpa(vcpu),
-					seamret_exit_qual(vcpu));
+					tdexit_gpa(vcpu),
+					tdexit_exit_qual(vcpu));
 }
 
 static int tdx_handle_ept_misconfig(struct kvm_vcpu *vcpu)
