@@ -7,6 +7,7 @@
 #include <asm/kvm_boot.h>
 #include <asm/virtext.h>
 
+#include "common.h"
 #include "cpuid.h"
 #include "ept.h"
 #include "lapic.h"
@@ -535,11 +536,11 @@ static void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 	u32 exit_reason = seamret_exit_reason(vcpu);
 
 	if (exit_reason == EXIT_REASON_EXCEPTION_NMI)
-		vmx_handle_exception_nmi_irqoff(vcpu,
-			seamret_intr_info(vcpu));
+		intel_handle_exception_nmi_irqoff(vcpu,
+						  seamret_intr_info(vcpu));
 	else if (exit_reason == EXIT_REASON_EXTERNAL_INTERRUPT)
 		vmx_handle_external_interrupt_irqoff(vcpu,
-			seamret_intr_info(vcpu));
+						     seamret_intr_info(vcpu));
 }
 
 static int tdx_handle_exception(struct kvm_vcpu *vcpu)
