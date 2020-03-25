@@ -382,9 +382,9 @@ static inline u64 tdflushvp(hpa_t tdvpr)
 	seamcall_1(SEAMCALL_TDFLUSHVP, tdvpr);
 }
 
-static inline u64 tdflushvpdone(hpa_t tdvpr)
+static inline u64 tdflushvpdone(hpa_t tdr)
 {
-	seamcall_1(SEAMCALL_TDFLUSHVPDONE, tdvpr);
+	seamcall_1(SEAMCALL_TDFLUSHVPDONE, tdr);
 }
 
 static inline u64 tdfreehkids(hpa_t tdr)
