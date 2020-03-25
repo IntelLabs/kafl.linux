@@ -103,6 +103,16 @@ static __always_inline void tdvmcall_set_return_val(struct kvm_vcpu *vcpu,
 	kvm_r11_write(vcpu, val);
 }
 
+static inline bool is_td_vcpu_initialized(struct vcpu_tdx *tdx)
+{
+	return tdx->tdvpr != INVALID_PAGE;
+}
+
+static inline bool is_td_guest_initialized(struct kvm_tdx *kvm_tdx)
+{
+	return kvm_tdx->tdr != INVALID_PAGE;
+}
+
 static hpa_t tdx_alloc_td_page(void)
 {
 	unsigned long page;
@@ -210,6 +220,101 @@ static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	tdx->pi_desc.sn = 1;
 
 	return 0;
+}
+
+static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	int ret, i;
+	u64 err;
+
+	if (WARN_ON(is_td_vcpu_initialized(tdx)))
+		return -EINVAL;
+
+	/* SEAMCALL(TDCREATEVP) */
+	tdx->tdvpr = tdx_alloc_td_page();
+	if (!VALID_PAGE(tdx->tdvpr))
+		return -ENOMEM;
+
+	err = tdcreatevp(kvm_tdx->tdr, tdx->tdvpr);
+	if (TDX_ERR(err, TDCREATEVP)) {
+		tdx_free_td_page(&tdx->tdvpr);
+		return -EIO;
+	}
+
+	/* SEAMCALL(TDADDVPX) */
+	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
+		tdx->tdvpx[i] = tdx_alloc_td_page();
+		if (!VALID_PAGE(tdx->tdvpx[i]))
+			goto reclaim_tdvpx;
+
+		err = tdaddvpx(tdx->tdvpr, tdx->tdvpx[i]);
+		if (TDX_ERR(err, TDADDVPX)) {
+			tdx_free_td_page(&tdx->tdvpx[i]);
+			ret = -EIO;
+			goto reclaim_tdvpx;
+		}
+	}
+
+	/* SEAMCALL(TDINITVP) */
+	/*
+	 * TODO: Plumb an ioctl() to allow userspace to define the initial
+	 *       RCX value for the vCPU.  For now, harcode it to zero.
+	 */
+	err = tdinitvp(tdx->tdvpr, 0);
+	if (TDX_ERR(err, TDINITVP)) {
+		ret = -EIO;
+		goto reclaim_tdvpx;
+	}
+
+	/* TODO: Configure posted interrupts in TDVPS. */
+	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
+	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->pi_desc));
+	td_vmcs_setbit16(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
+	return 0;
+
+reclaim_tdvpx:
+	/* @i points at the TDVPX page that failed tdaddvpx(). */
+	for (--i; i >= 0; i--)
+		tdx_reclaim_td_page(&tdx->tdvpx[i]);
+
+	tdx_reclaim_td_page(&tdx->tdvpr);
+
+	return ret;
+}
+
+static void tdx_td_vcpu_uninit(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	u8 i;
+
+	if (!is_td_vcpu_initialized(tdx))
+		return;
+
+	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++)
+		tdx_reclaim_td_page(&tdx->tdvpx[i]);
+
+	tdx_reclaim_td_page(&tdx->tdvpr);
+}
+
+static int tdx_td_vcpu_init_all(struct kvm *kvm)
+{
+	struct kvm_vcpu *vcpu;
+	int i, ret;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		ret = tdx_td_vcpu_init(kvm, vcpu);
+		if (ret)
+			goto td_vcpu_uninit;
+	}
+	return 0;
+
+td_vcpu_uninit:
+	kvm_for_each_vcpu(i, vcpu, kvm)
+		tdx_td_vcpu_uninit(vcpu);
+
+	return ret;
 }
 
 static void tdx_vcpu_free(struct kvm_vcpu *vcpu)
@@ -805,111 +910,6 @@ static void tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector)
 
 	if (!kvm_vcpu_trigger_posted_interrupt(vcpu, false))
 		kvm_vcpu_kick(vcpu);
-}
-
-static inline bool is_td_vcpu_initialized(struct vcpu_tdx *tdx)
-{
-	return tdx->tdvpr != INVALID_PAGE;
-}
-
-static inline bool is_td_guest_initialized(struct kvm_tdx *kvm_tdx)
-{
-	return kvm_tdx->tdr != INVALID_PAGE;
-}
-
-static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu)
-{
-	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
-	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	int ret, i;
-	u64 err;
-
-	if (WARN_ON(is_td_vcpu_initialized(tdx)))
-		return -EINVAL;
-
-	/* SEAMCALL(TDCREATEVP) */
-	tdx->tdvpr = tdx_alloc_td_page();
-	if (!VALID_PAGE(tdx->tdvpr))
-		return -ENOMEM;
-
-	err = tdcreatevp(kvm_tdx->tdr, tdx->tdvpr);
-	if (TDX_ERR(err, TDCREATEVP)) {
-		tdx_free_td_page(&tdx->tdvpr);
-		return -EIO;
-	}
-
-	/* SEAMCALL(TDADDVPX) */
-	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
-		tdx->tdvpx[i] = tdx_alloc_td_page();
-		if (!VALID_PAGE(tdx->tdvpx[i]))
-			goto reclaim_tdvpx;
-
-		err = tdaddvpx(tdx->tdvpr, tdx->tdvpx[i]);
-		if (TDX_ERR(err, TDADDVPX)) {
-			tdx_free_td_page(&tdx->tdvpx[i]);
-			ret = -EIO;
-			goto reclaim_tdvpx;
-		}
-	}
-
-	/* SEAMCALL(TDINITVP) */
-	/*
-	 * TODO: Plumb an ioctl() to allow userspace to define the initial
-	 *       RCX value for the vCPU.  For now, harcode it to zero.
-	 */
-	err = tdinitvp(tdx->tdvpr, 0);
-	if (TDX_ERR(err, TDINITVP)) {
-		ret = -EIO;
-		goto reclaim_tdvpx;
-	}
-
-	/* TODO: Configure posted interrupts in TDVPS. */
-	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
-	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->pi_desc));
-	td_vmcs_setbit16(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
-	return 0;
-
-reclaim_tdvpx:
-	/* @i points at the TDVPX page that failed tdaddvpx(). */
-	for (--i; i >= 0; i--)
-		tdx_reclaim_td_page(&tdx->tdvpx[i]);
-
-	tdx_reclaim_td_page(&tdx->tdvpr);
-
-	return ret;
-}
-
-static void tdx_td_vcpu_uninit(struct kvm_vcpu *vcpu)
-{
-	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	u8 i;
-
-	if (!is_td_vcpu_initialized(tdx))
-		return;
-
-	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++)
-		tdx_reclaim_td_page(&tdx->tdvpx[i]);
-
-	tdx_reclaim_td_page(&tdx->tdvpr);
-}
-
-static int tdx_td_vcpu_init_all(struct kvm *kvm)
-{
-	struct kvm_vcpu *vcpu;
-	int i, ret;
-
-	kvm_for_each_vcpu(i, vcpu, kvm) {
-		ret = tdx_td_vcpu_init(kvm, vcpu);
-		if (ret)
-			goto td_vcpu_uninit;
-	}
-	return 0;
-
-td_vcpu_uninit:
-	kvm_for_each_vcpu(i, vcpu, kvm)
-		tdx_td_vcpu_uninit(vcpu);
-
-	return ret;
 }
 
 static int __init setup_tdx_capabilities(struct tdx_capabilities *tdx_caps)
