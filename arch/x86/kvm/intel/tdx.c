@@ -146,6 +146,31 @@ static void tdx_reclaim_td_page(hpa_t *hpa_p)
 	tdx_free_td_page(hpa_p);
 }
 
+static void tdx_flush_vp(void *arg)
+{
+	struct vcpu_tdx *tdx = arg;
+	u64 err;
+
+	if (tdx->cpu != raw_smp_processor_id() ||
+	    WARN_ON_ONCE(tdx->tdvpr == INVALID_PAGE))
+		return;
+
+	err = tdflushvp(tdx->tdvpr);
+	if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED))
+		TDX_ERR(err, TDFLUSHVP);
+
+	list_del(&tdx->cpu_list);
+
+	/*
+	 * Ensure tdx->cpu_list is updated is before setting tdx->cpu to -1,
+	 * otherwise, a different CPU can see tdx->cpu = -1 and add the vCPU to
+	 * its list before its deleted from this CPUs list.
+	 */
+	smp_wmb();
+
+	tdx->cpu = -1;
+}
+
 static int tdx_vm_init(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
@@ -352,31 +377,6 @@ static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		apic_base_msr.data |= MSR_IA32_APICBASE_BSP;
 	apic_base_msr.host_initiated = true;
 	WARN_ON(kvm_set_apic_base(vcpu, &apic_base_msr));
-}
-
-static void tdx_flush_vp(void *arg)
-{
-	struct vcpu_tdx *tdx = arg;
-	u64 err;
-
-	if (tdx->cpu != raw_smp_processor_id() ||
-	    WARN_ON_ONCE(tdx->tdvpr == INVALID_PAGE))
-		return;
-
-	err = tdflushvp(tdx->tdvpr);
-	if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED))
-		TDX_ERR(err, TDFLUSHVP);
-
-	list_del(&tdx->cpu_list);
-
-	/*
-	 * Ensure tdx->cpu_list is updated is before setting tdx->cpu to -1,
-	 * otherwise, a different CPU can see tdx->cpu = -1 and add the vCPU to
-	 * its list before its deleted from this CPUs list.
-	 */
-	smp_wmb();
-
-	tdx->cpu = -1;
 }
 
 static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
