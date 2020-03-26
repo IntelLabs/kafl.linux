@@ -76,7 +76,7 @@ static __init int intel_hardware_setup(void)
 	 * Not a typo, direct SEAMCALL is only allowed when it won't interfere
 	 * with TDs created and managed by KVM.
 	 */
-	if (!enable_tdx) {
+	if (!enable_tdx && !tdx_hardware_setup()) {
 		kvm_x86_ops->do_seamcall = tdx_do_seamcall;
 		kvm_x86_ops->do_tdenter = tdx_do_tdenter;
 	}
