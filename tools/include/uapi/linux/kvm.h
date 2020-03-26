@@ -776,6 +776,10 @@ struct kvm_ppc_resize_hpt {
 #define KVM_VM_MIPS_TE		0
 #define KVM_VM_MIPS_VZ		1
 
+#define KVM_X86_LEGACY_VM	0
+#define KVM_X86_SW_PROTECTED_VM	1
+#define KVM_X86_TDX_VM		2
+
 #define KVM_S390_SIE_PAGE_OFFSET 1
 
 /*
@@ -796,8 +800,9 @@ struct kvm_ppc_resize_hpt {
 
 #define KVM_S390_ENABLE_SIE       _IO(KVMIO,   0x06)
 
-#define KVM_LOAD_SEAM             _IO(KVMIO, 0x30)
+#define KVM_LOAD_SEAM             _IO(KVMIO,   0x30)
 #define KVM_SEAMCALL              _IOWR(KVMIO, 0x31, struct kvm_seamcall)
+#define KVM_TDENTER		  _IOWR(KVMIO, 0x32, struct kvm_tdenter)
 
 /*
  * Check if a kvm extension is available.  Argument is extension number,
@@ -1013,6 +1018,8 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_PPC_GUEST_DEBUG_SSTEP 176
 #define KVM_CAP_ARM_NISV_TO_USER 177
 #define KVM_CAP_ARM_INJECT_EXT_DABT 178
+
+#define KVM_CAP_VM_TYPES 1000
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
@@ -1555,6 +1562,35 @@ struct kvm_sev_dbg {
 	__u64 src_uaddr;
 	__u64 dst_uaddr;
 	__u32 len;
+};
+
+/* Trust Domain eXtension command*/
+enum tdx_cmd_id {
+	KVM_TDX_INIT = 0,
+	KVM_TDX_INIT_MEM_REGION,
+
+	KVM_TDX_CMD_NR_MAX,
+};
+
+enum tdx_cmd_error_type {
+	NO_ERROR = 0,
+	SEAMCALL_ERROR,
+};
+
+struct kvm_tdx_cmd {
+	__u32 id;
+	__u32 reserved;
+	__u64 data;
+	__u32 error_type;
+	union {
+		__u32 seamcall_leaf; /* for error_type SEAMCALL_ERROR */
+	} error;
+};
+
+struct kvm_tdx_init_mem_region {
+	__u64 source_addr;
+	__u64 gpa;
+	__u64 nr_pages;
 };
 
 #define KVM_DEV_ASSIGN_ENABLE_IOMMU	(1 << 0)
