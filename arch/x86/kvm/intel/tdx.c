@@ -165,6 +165,7 @@ static void tdx_flush_vp(void *arg)
 	struct kvm_vcpu *vcpu = arg;
 	u64 err;
 
+	/* Task migration can race with CPU offlining. */
 	if (vcpu->cpu != raw_smp_processor_id())
 		return;
 
@@ -222,7 +223,9 @@ static int tdx_vm_init(struct kvm *kvm)
 static void tdx_vm_teardown(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct kvm_vcpu *vcpu;
 	u64 err;
+	int i;
 
 	/* Already in TEARDOWN state if the HKID has been freed. */
 	if (kvm_tdx->hkid < 0)
@@ -231,6 +234,9 @@ static void tdx_vm_teardown(struct kvm *kvm)
 	err = tdreclaimhkids(kvm_tdx->tdr);
 	if (TDX_ERR(err, TDRECLAIMHKIDS))
 		return;
+
+	kvm_for_each_vcpu(i, vcpu, (&kvm_tdx->kvm))
+		tdx_flush_vp_on_cpu(vcpu);
 
 	err = tdflushvpdone(kvm_tdx->tdr);
 	if (TDX_ERR(err, TDFLUSHVPDONE))
