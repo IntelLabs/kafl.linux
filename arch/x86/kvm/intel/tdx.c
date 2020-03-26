@@ -354,7 +354,7 @@ static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	int ret, i;
+	int ret, i, cpu;
 	u64 err;
 
 	if (WARN_ON(is_td_vcpu_initialized(tdx)))
@@ -397,9 +397,15 @@ static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu)
 	}
 
 	/* TODO: Configure posted interrupts in TDVPS. */
+	cpu = get_cpu();
+	tdx_vcpu_load(vcpu, cpu);
+	vcpu->cpu = cpu;
 	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
 	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->pi_desc));
 	td_vmcs_setbit16(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
+	tdx_vcpu_put(vcpu);
+	put_cpu();
+
 	return 0;
 
 reclaim_tdvpx:
