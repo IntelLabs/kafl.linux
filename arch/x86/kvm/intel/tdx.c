@@ -326,6 +326,30 @@ static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (vcpu->cpu != cpu) {
+		tdx_flush_vp_on_cpu(vcpu);
+
+		/*
+		 * Pairs with the smp_wmb() in tdx_disassociate_vp() to ensure
+		 * vcpu->cpu is read before tdx->cpu_list.
+		 */
+		smp_rmb();
+
+		list_add(&tdx->cpu_list, &per_cpu(associated_tdvcpus, cpu));
+	}
+
+	vmx_vcpu_pi_load(vcpu, cpu);
+}
+
+static void tdx_vcpu_put(struct kvm_vcpu *vcpu)
+{
+	vmx_vcpu_pi_put(vcpu);
+}
+
 static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
@@ -450,30 +474,6 @@ static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		apic_base_msr.data |= MSR_IA32_APICBASE_BSP;
 	apic_base_msr.host_initiated = true;
 	WARN_ON(kvm_set_apic_base(vcpu, &apic_base_msr));
-}
-
-static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
-{
-	struct vcpu_tdx *tdx = to_tdx(vcpu);
-
-	if (vcpu->cpu != cpu) {
-		tdx_flush_vp_on_cpu(vcpu);
-
-		/*
-		 * Pairs with the smp_wmb() in tdx_disassociate_vp() to ensure
-		 * vcpu->cpu is read before tdx->cpu_list.
-		 */
-		smp_rmb();
-
-		list_add(&tdx->cpu_list, &per_cpu(associated_tdvcpus, cpu));
-	}
-
-	vmx_vcpu_pi_load(vcpu, cpu);
-}
-
-static void tdx_vcpu_put(struct kvm_vcpu *vcpu)
-{
-	vmx_vcpu_pi_put(vcpu);
 }
 
 u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
