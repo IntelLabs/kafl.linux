@@ -225,6 +225,18 @@ static int tdx_vm_init(struct kvm *kvm)
 	return 0;
 }
 
+static void tdx_do_tdwbcache(void *data)
+{
+	u64 err = 0;
+
+	do {
+		err = tdwbcache(!!err);
+	} while (err == TDX_INTERRUPTED_RESUMABLE);
+
+	if (err && cmpxchg64((u64 *)data, 0, err) == 0)
+		TDX_ERR(err, TDWBCACHE);
+}
+
 static void tdx_vm_teardown(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
@@ -249,8 +261,11 @@ static void tdx_vm_teardown(struct kvm *kvm)
 	if (TDX_ERR(err, TDFLUSHVPDONE))
 		return;
 
-	err = tdwbcache(kvm_tdx->tdr);
-	if (TDX_ERR(err, TDWBCACHE))
+	preempt_disable();
+	on_each_cpu_mask(tdx_package_leadcpus, tdx_do_tdwbcache, &err, 1);
+	preempt_enable();
+
+	if (unlikely(err))
 		return;
 
 	err = tdfreehkids(kvm_tdx->tdr);
