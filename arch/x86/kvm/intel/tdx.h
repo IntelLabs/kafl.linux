@@ -63,7 +63,6 @@ struct vcpu_tdx {
 	hpa_t tdvpx[TDX1_NR_TDVPX_PAGES];
 
 	struct list_head cpu_list;
-	int cpu;
 
 	/* Posted interrupt descriptor */
 	struct pi_desc pi_desc;

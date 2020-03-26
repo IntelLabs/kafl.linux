@@ -146,28 +146,49 @@ static void tdx_reclaim_td_page(hpa_t *hpa_p)
 	tdx_free_td_page(hpa_p);
 }
 
-static void tdx_flush_vp(void *arg)
+static inline void tdx_disassociate_vp(struct kvm_vcpu *vcpu)
 {
-	struct vcpu_tdx *tdx = arg;
-	u64 err;
-
-	if (tdx->cpu != raw_smp_processor_id())
-		return;
-
-	err = tdflushvp(tdx->tdvpr);
-	if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED))
-		TDX_ERR(err, TDFLUSHVP);
-
-	list_del(&tdx->cpu_list);
+	list_del(&to_tdx(vcpu)->cpu_list);
 
 	/*
-	 * Ensure tdx->cpu_list is updated is before setting tdx->cpu to -1,
-	 * otherwise, a different CPU can see tdx->cpu = -1 and add the vCPU to
-	 * its list before its deleted from this CPUs list.
+	 * Ensure tdx->cpu_list is updated is before setting vcpu->cpu to -1,
+	 * otherwise, a different CPU can see vcpu->cpu = -1 and add the vCPU
+	 * to its list before its deleted from this CPUs list.
 	 */
 	smp_wmb();
 
-	tdx->cpu = -1;
+	vcpu->cpu = -1;
+}
+
+static void tdx_flush_vp(void *arg)
+{
+	struct kvm_vcpu *vcpu = arg;
+	u64 err;
+
+	if (vcpu->cpu != raw_smp_processor_id())
+		return;
+
+	err = tdflushvp(to_tdx(vcpu)->tdvpr);
+	if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED))
+		TDX_ERR(err, TDFLUSHVP);
+
+	tdx_disassociate_vp(vcpu);
+}
+
+static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
+{
+	if (vcpu->cpu == -1)
+		return;
+
+	/*
+	 * No need to do TDFLUSHVP if the vCPU hasn't been initialized.  The
+	 * list tracking still needs to be updated so that it's correct if/when
+	 * the vCPU does get initialized.
+	 */
+	if (is_td_vcpu_initialized(to_tdx(vcpu)))
+		smp_call_function_single(vcpu->cpu, tdx_flush_vp, vcpu, 1);
+	else
+		tdx_disassociate_vp(vcpu);
 }
 
 static int tdx_vm_init(struct kvm *kvm)
@@ -244,7 +265,7 @@ static void tdx_vm_free(struct kvm *kvm)
 static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	int i;
+	int cpu, i;
 
 	if (emulate_seam)
 		return seam_tdcreatevp(vcpu);
@@ -253,10 +274,13 @@ static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++)
 		tdx->tdvpx[i] = INVALID_PAGE;
 
-	tdx->cpu = -1;
-
 	tdx->pi_desc.nv = POSTED_INTR_VECTOR;
 	tdx->pi_desc.sn = 1;
+
+	cpu = get_cpu();
+	list_add(&tdx->cpu_list, &per_cpu(associated_tdvcpus, cpu));
+	vcpu->cpu = cpu;
+	put_cpu();
 
 	return 0;
 }
@@ -397,19 +421,16 @@ static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
-	if (tdx->cpu != cpu && is_td_vcpu_initialized(tdx)) {
-		if (tdx->cpu != -1)
-			smp_call_function_single(tdx->cpu, tdx_flush_vp, tdx, 1);
+	if (vcpu->cpu != cpu) {
+		tdx_flush_vp_on_cpu(vcpu);
 
 		/*
-		 * Pairs with the smp_wmb() in tdx_flush_vp() to ensure
-		 * tdx->cpu is read before tdx->cpu_list.
+		 * Pairs with the smp_wmb() in tdx_disassociate_vp() to ensure
+		 * vcpu->cpu is read before tdx->cpu_list.
 		 */
 		smp_rmb();
 
 		list_add(&tdx->cpu_list, &per_cpu(associated_tdvcpus, cpu));
-
-		tdx->cpu = cpu;
 	}
 
 	vmx_vcpu_pi_load(vcpu, cpu);
