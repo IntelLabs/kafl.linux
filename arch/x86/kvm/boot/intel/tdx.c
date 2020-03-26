@@ -854,24 +854,24 @@ static void __init do_tdsysconfigkey(void *err)
 
 static int __init tdx_init_tdmr(void)
 {
-	u64 tdmr_base, tdmr_size;
 	struct tdx_ex_ret ex_ret;
+	u64 base, size;
 	u64 err;
 	int i;
 
 	for (i = 0; i < tdx_nr_tdmrs; i++) {
-		tdmr_base = tdx_tdmrs[i].base;
-		tdmr_size = tdx_tdmrs[i].size;
+		base = tdx_tdmrs[i].base;
+		size = tdx_tdmrs[i].size;
 
 		do {
-			err = tdsysinittdmr(tdmr_base, &ex_ret);
+			err = tdsysinittdmr(base, &ex_ret);
 			if (TDX_ERR(err, TDSYSINITTDMR))
 				return -EIO;
 		/*
-		 * Note, "next" is simply an indicator, tdmr_base is passed to
+		 * Note, "next" is simply an indicator, base is passed to
 		 * TDSYSINTTDMR on every iteration.
 		 */
-		} while (ex_ret.next < (tdmr_base + tdmr_size));
+		} while (ex_ret.next < (base + size));
 	}
 
 	return 0;
