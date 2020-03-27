@@ -456,7 +456,7 @@ enum tdx_cmd_id {
 
 struct kvm_tdx_cmd {
 	__u32 id;
-	__u32 reserved;
+	__u32 metadata;
 	__u64 data;
 };
 

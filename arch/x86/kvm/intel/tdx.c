@@ -1137,6 +1137,9 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	int ret;
 	u64 err;
 
+	if (cmd->metadata)
+		return -EINVAL;
+
 	/* SEAMCALL(TDINIT) */
 	BUILD_BUG_ON(sizeof(struct td_params) != 1024);
 
@@ -1172,6 +1175,9 @@ static int tdx_init_mem_region(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	struct page *page;
 	u64 err;
 	int ret;
+
+	if (cmd->metadata)
+		return -EINVAL;
 
 	if (copy_from_user(&region, (void __user *)cmd->data, sizeof(region)))
 		return -EFAULT;
@@ -1232,9 +1238,6 @@ static int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 
 	if (copy_from_user(&tdx_cmd, argp, sizeof(struct kvm_tdx_cmd)))
 		return -EFAULT;
-
-	if (tdx_cmd.reserved)
-		return -EINVAL;
 
 	mutex_lock(&kvm->lock);
 
