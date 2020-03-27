@@ -146,12 +146,12 @@ static __always_inline u##bits td_##lclass##_read##bits(struct vcpu_tdx *tdx,  \
 							u32 field)	       \
 {									       \
 	struct tdx_ex_ret ex_ret;					       \
-	long err;							       \
+	u64 err;							       \
 									       \
 	tdvps_##lclass##_check(field);					       \
 	err = tdrdvps(tdx->tdvpr.pa, TDVPS_##uclass(field), &ex_ret);	       \
 	if (unlikely(err)) {						       \
-		pr_err("TDRDVPS["#uclass".0x%x] failed: 0x%lx\n", field, err); \
+		pr_err("TDRDVPS["#uclass".0x%x] failed: 0x%llx\n", field, err);\
 		return 0;						       \
 	}								       \
 	return (u##bits)ex_ret.r8;					       \
@@ -160,37 +160,37 @@ static __always_inline void td_##lclass##_write##bits(struct vcpu_tdx *tdx,    \
 						      u32 field, u##bits val)  \
 {									       \
 	struct tdx_ex_ret ex_ret;					       \
-	long err;							       \
+	u64 err;							       \
 									       \
 	tdvps_##lclass##_check(field);					       \
 	err = tdwrvps(tdx->tdvpr.pa, TDVPS_##uclass(field), val,	       \
 		      GENMASK_ULL(bits - 1, 0), &ex_ret);		       \
 	if (unlikely(err))						       \
-		pr_err("TDRDVPS["#uclass".0x%x] = 0x%llx failed: 0x%lx\n",     \
+		pr_err("TDRDVPS["#uclass".0x%x] = 0x%llx failed: 0x%llx\n",    \
 		       field, (u64)val, err);				       \
 }									       \
 static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,   \
 						       u32 field, u64 bit)     \
 {									       \
 	struct tdx_ex_ret ex_ret;					       \
-	long err;							       \
+	u64 err;							       \
 									       \
 	tdvps_##lclass##_check(field);					       \
 	err = tdwrvps(tdx->tdvpr.pa, TDVPS_##uclass(field), bit, bit, &ex_ret);\
 	if (unlikely(err))						       \
-		pr_err("TDRDVPS["#uclass".0x%x] |= 0x%llx failed: 0x%lx\n",    \
+		pr_err("TDRDVPS["#uclass".0x%x] |= 0x%llx failed: 0x%llx\n",   \
 		       field, bit, err);				       \
 }									       \
 static __always_inline void td_##lclass##_clearbit##bits(struct vcpu_tdx *tdx, \
 						         u32 field, u64 bit)   \
 {									       \
 	struct tdx_ex_ret ex_ret;					       \
-	long err;							       \
+	u64 err;							       \
 									       \
 	tdvps_##lclass##_check(field);					       \
 	err = tdwrvps(tdx->tdvpr.pa, TDVPS_##uclass(field), 0, bit, &ex_ret);  \
 	if (unlikely(err))						       \
-		pr_err("TDRDVPS["#uclass".0x%x] &= ~0x%llx failed: 0x%lx\n",   \
+		pr_err("TDRDVPS["#uclass".0x%x] &= ~0x%llx failed: 0x%llx\n",  \
 		       field, bit, err);				       \
 }
 
