@@ -192,6 +192,6 @@ struct tdsysinfo_struct {
 		struct tdx_cpuid_config cpuid_configs[0];
 		u8 reserved5[892];
 	};
-} __packed __aligned(1024);
+} __packed;
 
 #endif /* __KVM_X86_TDX_ARCH_H */

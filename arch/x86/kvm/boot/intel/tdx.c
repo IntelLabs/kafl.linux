@@ -71,7 +71,7 @@ static int tdx_nr_cmrs;
 /*
  * TDMR info array used as input for TDSYSCONFIG.
  */
-static struct tdmr_info tdx_tdmrs[TDX1_MAX_NR_TDMRS] __aligned(PAGE_SIZE) __initdata;
+static struct tdmr_info tdx_tdmrs[TDX1_MAX_NR_TDMRS] __initdata;
 static int tdx_nr_tdmrs __initdata;
 
 /* TDMRs must be 1gb aligned */
