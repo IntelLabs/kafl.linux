@@ -30,8 +30,6 @@ struct kvm_tdx {
 
 	int cpuid_nent;
 	struct kvm_cpuid_entry2 cpuid_entries[KVM_MAX_CPUID_ENTRIES];
-
-	u32 max_vcpus;
 };
 
 union tdx_exit_reason {

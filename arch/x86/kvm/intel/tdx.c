@@ -1088,7 +1088,7 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 	int max_pa;
 	int i;
 
-	td_params->max_vcpus = atomic_read(&kvm->online_vcpus);
+	td_params->max_vcpus = kvm->max_vcpus;
 
 	/* TODO: Enforce consistent CPUID features for all vCPUs. */
 	for (i = 0; i < tdx_capabilities.nr_cpuid_configs; i++) {
@@ -1178,7 +1178,7 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	int ret;
 	u64 err;
 
-	if (cmd->metadata)
+	if (cmd->metadata > KVM_MAX_VCPUS)
 		return -EINVAL;
 
 	if (copy_from_user(&cpuid, user_cpuid, sizeof(cpuid)))
@@ -1190,6 +1190,8 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	if (copy_from_user(&kvm_tdx->cpuid_entries, user_cpuid->entries,
 			   cpuid.nent * sizeof(struct kvm_cpuid_entry2)))
 		return -EFAULT;
+
+	kvm->max_vcpus = cmd->metadata;
 
 	BUILD_BUG_ON(sizeof(struct td_params) != 1024);
 
@@ -1213,8 +1215,10 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 
 free_tdparams:
 	kfree(td_params);
-	if (ret)
+	if (ret) {
 		kvm_tdx->cpuid_nent = 0;
+		kvm->max_vcpus = 0;
+	}
 	return ret;
 }
 
