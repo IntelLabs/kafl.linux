@@ -45,7 +45,9 @@ static DEFINE_PER_CPU(struct list_head, associated_tdvcpus);
  */
 static inline struct kvm_vcpu *to_kvm_vcpu(struct kvm_vcpu *vcpu)
 {
-	return phys_to_virt(to_tdx(vcpu)->tdvpr);
+	if (emulate_seam)
+		return phys_to_virt(to_tdx(vcpu)->tdvpr);
+	return vcpu;
 }
 
 static __always_inline unsigned long tdexit_exit_qual(struct kvm_vcpu *vcpu)
