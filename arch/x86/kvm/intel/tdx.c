@@ -955,7 +955,7 @@ static int __init tdx_hardware_setup(void)
 
 struct tdx_tdconfigkey {
 	hpa_t tdr;
-	int error_code;
+	int failed;
 };
 
 static void tdx_do_tdconfigkey(void *data)
@@ -964,7 +964,7 @@ static void tdx_do_tdconfigkey(void *data)
 	u64 err;
 
 	err = tdconfigkey(configkey->tdr);
-	if (err && cmpxchg(&configkey->error_code, 0, -EFAULT) == 0)
+	if (err && cmpxchg(&configkey->failed, 0, 1) == 0)
 		TDX_ERR(err, TDCONFIGKEY);
 }
 
@@ -1080,14 +1080,14 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 
 	/* SEAMCALL(TDCONFIGKEY) */
 	configkey.tdr = kvm_tdx->tdr;
-	configkey.error_code = 0;
+	configkey.failed = 0;
 
 	preempt_disable();
 	on_each_cpu_mask(tdx_package_leadcpus, tdx_do_tdconfigkey, &configkey, 1);
 	preempt_enable();
 
-	if (configkey.error_code) {
-		ret = configkey.error_code;
+	if (configkey.failed) {
+		ret = -EIO;
 		goto reclaim_tdr;
 	}
 
