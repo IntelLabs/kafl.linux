@@ -1132,69 +1132,17 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
-	struct tdx_tdconfigkey configkey;
 	struct td_params *td_params;
 	struct tdx_ex_ret ex_ret;
-	struct kvm_vcpu *vcpu;
-	int ret, i;
+	int ret;
 	u64 err;
-
-	if (is_td_initialized(kvm_tdx))
-		return -EINVAL;
-
-	BUILD_BUG_ON(sizeof(struct td_params) != 1024);
-
-	kvm_tdx->hkid = tdx_keyid_alloc();
-	if (kvm_tdx->hkid < 0)
-		return -EBUSY;
-	if (WARN_ON_ONCE(kvm_tdx->hkid >> 16)) {
-		ret = -EIO;
-		goto free_hkid;
-	}
-
-	ret = tdx_alloc_td_page(&kvm_tdx->tdr);
-	if (ret)
-		goto free_hkid;
-
-	for (i = 0; i < tdx_capabilities.tdcs_nr_pages; i++) {
-		ret = tdx_alloc_td_page(&kvm_tdx->tdcs[i]);
-		if (ret)
-			goto free_tdcs;
-	}
-
-	ret = -EIO;
-
-	err = tdcreate(kvm_tdx->tdr.pa, kvm_tdx->hkid);
-	if (TDX_ERR(err, TDCREATE))
-		goto free_tdcs;
-	tdx_add_td_page(&kvm_tdx->tdr);
-
-	/* SEAMCALL(TDCONFIGKEY) */
-	configkey.tdr = kvm_tdx->tdr.pa;
-	configkey.failed = 0;
-
-	preempt_disable();
-	on_each_cpu_mask(tdx_package_leadcpus, tdx_do_tdconfigkey, &configkey, 1);
-	preempt_enable();
-
-	if (configkey.failed)
-		goto teardown;
-
-	for (i = 0; i < tdx_capabilities.tdcs_nr_pages; i++) {
-		err = tdaddcx(kvm_tdx->tdr.pa, kvm_tdx->tdcs[i].pa);
-		if (TDX_ERR(err, TDADDCX))
-			goto teardown;
-		tdx_add_td_page(&kvm_tdx->tdcs[i]);
-	}
 
 	/* SEAMCALL(TDINIT) */
 	BUILD_BUG_ON(sizeof(struct td_params) != 1024);
 
 	td_params = kzalloc(sizeof(struct td_params), GFP_KERNEL_ACCOUNT);
-	if (!td_params) {
-		ret = -ENOMEM;
-		goto teardown;
-	}
+	if (!td_params)
+		return -ENOMEM;
 
 	ret = setup_tdparams(kvm, td_params);
 	if (ret)
@@ -1210,30 +1158,8 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	if (ret)
 		goto free_tdparams;
 
-	kfree(td_params);
-	return 0;
-
 free_tdparams:
 	kfree(td_params);
-	/*
-	 * The sequence for freeing resources from a partially initialized TD
-	 * varies based on where in the initialization flow failure occurred.
-	 * Simply use the full teardown and destroy, which naturally play nice
-	 * with partial initialization.
-	 */
-teardown:
-	tdx_vm_teardown(kvm);
-	tdx_vm_destroy(kvm);
-	return ret;
-
-free_tdcs:
-	/* @i points at the TDCS page that failed allocation. */
-	for (--i; i >= 0; i--)
-		tdx_free_td_page(&kvm_tdx->tdcs[i]);
-
-	tdx_free_td_page(&kvm_tdx->tdr);
-free_hkid:
-	tdx_keyid_free(kvm_tdx->hkid);
 	return ret;
 }
 
