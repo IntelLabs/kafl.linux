@@ -107,7 +107,7 @@ static inline bool is_td_vcpu_initialized(struct vcpu_tdx *tdx)
 	return tdx->tdvpr != INVALID_PAGE;
 }
 
-static inline bool is_td_guest_initialized(struct kvm_tdx *kvm_tdx)
+static inline bool is_td_initialized(struct kvm_tdx *kvm_tdx)
 {
 	return kvm_tdx->tdr != INVALID_PAGE;
 }
@@ -246,7 +246,7 @@ static void tdx_vm_teardown(struct kvm *kvm)
 	if (is_td_in_teardown(kvm_tdx))
 		return;
 
-	if (!is_td_guest_initialized(kvm_tdx))
+	if (!is_td_initialized(kvm_tdx))
 		goto free_hkid;
 
 	err = tdreclaimhkids(kvm_tdx->tdr);
@@ -1122,7 +1122,7 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 	return 0;
 }
 
-static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
+static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct tdx_tdconfigkey configkey;
@@ -1131,7 +1131,7 @@ static int tdx_guest_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	int ret, i;
 	u64 err;
 
-	if (is_td_guest_initialized(kvm_tdx))
+	if (is_td_initialized(kvm_tdx))
 		return -EINVAL;
 
 	kvm_tdx->hkid = tdx_keyid_alloc();
@@ -1301,7 +1301,7 @@ static int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 
 	switch (tdx_cmd.id) {
 	case KVM_TDX_INIT:
-		r = tdx_guest_init(kvm, &tdx_cmd);
+		r = tdx_td_init(kvm, &tdx_cmd);
 		break;
 	case KVM_TDX_INIT_MEM_REGION:
 		r = tdx_init_mem_region(kvm, &tdx_cmd);
