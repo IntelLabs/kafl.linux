@@ -760,24 +760,21 @@ init_seam:
 	if (!vmcs)
 		return;
 
-	if (!__tdx_init_cpu(&boot_cpu_data, (unsigned long)vmcs))
-		setup_force_cpu_cap(X86_FEATURE_TDX);
+	if (__tdx_init_cpu(&boot_cpu_data, (unsigned long)vmcs))
+		goto out;
 
+	if (construct_tdmrs())
+		goto out;
+
+	setup_force_cpu_cap(X86_FEATURE_TDX);
+
+out:
 	/*
 	 * Free VMCS here, since it's harder to free it later, i.e after SMP
 	 * is up, because at that time page allocator is already up. VMCS can
 	 * be allocated again when needed before TDSYSCONFIG staff.
 	 */
 	memblock_free(__pa(vmcs), PAGE_SIZE);
-
-	if (construct_tdmrs())
-		goto error;
-
-	return;
-
-error:
-	clear_cpu_cap(&boot_cpu_data, X86_FEATURE_TDX);
-	setup_clear_cpu_cap(X86_FEATURE_TDX);
 }
 
 /*
