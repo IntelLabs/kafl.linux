@@ -572,7 +572,7 @@ static int __init construct_tdmrs(void)
 	return 0;
 
 free_pamts:
-	for (i = 0; i < TDX1_MAX_NR_TDMRS; i++) {
+	for (i = 0; i < ARRAY_SIZE(tdx_pamts); i++) {
 		pamt = &tdx_pamts[i];
 		if (pamt->pamt_base && pamt->pamt_size) {
 			if (WARN_ON(!IS_ALIGNED(pamt->pamt_base, PAGE_SIZE) ||
