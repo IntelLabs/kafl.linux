@@ -61,29 +61,17 @@ static struct tdsysinfo_struct tdx_tdsysinfo __aligned(1024);
 /*
  * CMR info array returned by TDSYSINFO.
  *
- * FIXME:
- *
  * TDSYSINFO doesn't return specific error code indicating whether we didn't
- * pass long-enough CMR info array to it, so we just define a maximum value
- * which should be big enough for now -- which is 128, which is twice of
- * maximum number of TDMRs for TDX1.
- *
- * FIXME 2:
- *
- * Use __initdata? It appears they are not needed after kernel boots.
+ * pass long-enough CMR info array to it, so just reserve enough space for
+ * the maximum number of CMRs.
  */
-#define MAX_NR_CMRS	128
-static struct cmr_info tdx_cmrs[MAX_NR_CMRS] __aligned(512);
+static struct cmr_info tdx_cmrs[TDX1_MAX_NR_CMRS] __aligned(512);
 static int tdx_nr_cmrs;
 
 /*
  * TDMR info array used as input for TDSYSCONFIG.
- *
- * TDX1 supports upto 64 TDMRs, and 128 should be big enough even for next
- * TDX generation.
  */
-#define MAX_NR_TDMRS	128
-static struct tdmr_info tdx_tdmrs[MAX_NR_TDMRS] __aligned(PAGE_SIZE) __initdata;
+static struct tdmr_info tdx_tdmrs[TDX1_MAX_NR_TDMRS] __aligned(PAGE_SIZE) __initdata;
 static int tdx_nr_tdmrs __initdata;
 
 /* TDMRs must be 1gb aligned */
@@ -94,7 +82,7 @@ static int tdx_nr_tdmrs __initdata;
  * TDSYSCONFIG takes a array of pointers to TDMR infos.  Its just big enough
  * that allocating it on the stack is undesirable.
  */
-static u64 tdx_tdmr_addrs[MAX_NR_TDMRS] __aligned(512) __initdata;
+static u64 tdx_tdmr_addrs[TDX1_MAX_NR_TDMRS] __aligned(512) __initdata;
 
 struct pamt_info {
 	u64 pamt_base;
@@ -105,7 +93,7 @@ struct pamt_info {
  * PAMT info for each TDMR, used to free PAMT when TDX is disabled due to
  * whatever reason.
  */
-static struct pamt_info tdx_pamts[MAX_NR_TDMRS] __initdata;
+static struct pamt_info tdx_pamts[TDX1_MAX_NR_TDMRS] __initdata;
 
 static int __init set_tdmr_reserved_area(struct tdmr_info *tdmr, int *p_idx,
 					 u64 offset, u64 size)
@@ -584,7 +572,7 @@ static int __init construct_tdmrs(void)
 	return 0;
 
 free_pamts:
-	for (i = 0; i < MAX_NR_TDMRS; i++) {
+	for (i = 0; i < TDX1_MAX_NR_TDMRS; i++) {
 		pamt = &tdx_pamts[i];
 		if (pamt->pamt_base && pamt->pamt_size) {
 			if (WARN_ON(!IS_ALIGNED(pamt->pamt_base, PAGE_SIZE) ||
@@ -700,7 +688,7 @@ static int __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
 	 */
 	if (is_bsp) {
 		err = tdsysinfo(__pa(&tdx_tdsysinfo), sizeof(tdx_tdsysinfo),
-				__pa(tdx_cmrs), MAX_NR_CMRS, &ex_ret);
+				__pa(tdx_cmrs), TDX1_MAX_NR_CMRS, &ex_ret);
 		if (TDX_ERR(err, TDSYSINFO)) {
 			ret = -EIO;
 			goto out;

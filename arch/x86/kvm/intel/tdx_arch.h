@@ -96,6 +96,8 @@ enum tdx_guest_other_state {
 #define TDX1_NR_TDVPX_PAGES		5
 
 #define TDX1_MAX_NR_CPUID_CONFIGS	6
+#define TDX1_MAX_NR_CMRS		32
+#define TDX1_MAX_NR_TDMRS		64
 
 struct tdx_cpuid_config {
 	u32 leaf;
