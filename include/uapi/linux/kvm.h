@@ -1569,26 +1569,6 @@ struct kvm_sev_dbg {
 	__u32 len;
 };
 
-/* Trust Domain eXtension command*/
-enum tdx_cmd_id {
-	KVM_TDX_INIT = 0,
-	KVM_TDX_INIT_MEM_REGION,
-
-	KVM_TDX_CMD_NR_MAX,
-};
-
-struct kvm_tdx_cmd {
-	__u32 id;
-	__u32 reserved;
-	__u64 data;
-};
-
-struct kvm_tdx_init_mem_region {
-	__u64 source_addr;
-	__u64 gpa;
-	__u64 nr_pages;
-};
-
 #define KVM_DEV_ASSIGN_ENABLE_IOMMU	(1 << 0)
 #define KVM_DEV_ASSIGN_PCI_2_3		(1 << 1)
 #define KVM_DEV_ASSIGN_MASK_INTX	(1 << 2)
