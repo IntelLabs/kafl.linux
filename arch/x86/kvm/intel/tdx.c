@@ -1062,19 +1062,79 @@ static inline bool tdx_fixed_bits_valid(u64 val, u64 fixed0, u64 fixed1)
 	return ((val & fixed0) | fixed1) == val;
 }
 
+static struct kvm_cpuid_entry2 *tdx_find_cpuid_entry(struct kvm_tdx *kvm_tdx,
+						     u32 function, u32 index)
+{
+	struct kvm_cpuid_entry2 *entry;
+	int i;
+
+	for (i = 0; i < kvm_tdx->cpuid_nent; i++) {
+		entry = &kvm_tdx->cpuid_entries[i];
+
+		if (is_matching_cpuid_entry(entry, function, index))
+			return entry;
+	}
+	return NULL;
+}
+
 static int setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 {
-	struct kvm_vcpu *vcpu = kvm_get_vcpu(kvm, 0);
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct tdx_cpuid_config *config;
 	struct kvm_cpuid_entry2 *entry;
 	struct tdx_cpuid_value *value;
+	u64 guest_supported_xcr0;
+	u64 guest_supported_xss;
+	int max_pa;
 	int i;
 
 	td_params->max_vcpus = atomic_read(&kvm->online_vcpus);
+
+	/* TODO: Enforce consistent CPUID features for all vCPUs. */
+	for (i = 0; i < tdx_capabilities.nr_cpuid_configs; i++) {
+		config = &tdx_capabilities.cpuid_configs[i];
+
+		entry = tdx_find_cpuid_entry(kvm_tdx, config->leaf,
+					     config->sub_leaf);
+		if (!entry)
+			continue;
+
+		/*
+		 * Non-configurable bits must be '0', even if they are fixed to
+		 * '1' by TDX-SEAM, i.e. mask off non-configurable bits.
+		 */
+		value = &td_params->cpuid_values[i];
+		value->eax = entry->eax & config->eax;
+		value->ebx = entry->ebx & config->ebx;
+		value->ecx = entry->ecx & config->ecx;
+		value->edx = entry->edx & config->edx;
+	}
+
+	/*
+	 * TODO: Thse needs to be masked against kvm_supported_xcr0/xss(), but
+	 * the former isn't supported and the latter doesn't exist.  That's
+	 * changing in 5.7, so don't bother for now.
+	 */
+	entry = tdx_find_cpuid_entry(kvm_tdx, 0xd, 0);
+	if (entry)
+		guest_supported_xcr0 = (entry->eax | ((u64)entry->edx << 32));
+	else
+		guest_supported_xcr0 = 0;
+
+	entry = tdx_find_cpuid_entry(kvm_tdx, 0xd, 1);
+	if (entry)
+		guest_supported_xss = (entry->ecx | ((u64)entry->edx << 32));
+	else
+		guest_supported_xss = 0;
+
+	max_pa = 36;
+	entry = tdx_find_cpuid_entry(kvm_tdx, 0x80000008, 0);
+	if (entry)
+		max_pa = entry->eax & 0xff;
+
 	td_params->eptp_controls = VMX_EPTP_MT_WB;
 
-	/* TODO: Make max PA a property of the TD and enforce it for each vCPU. */
-	if (cpu_has_vmx_ept_5levels() && vcpu->arch.maxphyaddr > 48) {
+	if (cpu_has_vmx_ept_5levels() && max_pa > 48) {
 		td_params->eptp_controls |= VMX_EPTP_PWL_5;
 		td_params->exec_controls = 1;
 	} else {
@@ -1093,32 +1153,11 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 		return -EINVAL;
 
 	/* Setup td_params.xfam */
-	td_params->xfam = vcpu->arch.guest_supported_xcr0 |
-			  vcpu->arch.guest_supported_xss;
+	td_params->xfam = guest_supported_xcr0 | guest_supported_xss;
 	if (!tdx_fixed_bits_valid(td_params->xfam,
 				  tdx_capabilities.xfam_fixed0,
 				  tdx_capabilities.xfam_fixed1))
 		return -EINVAL;
-
-	/* Setup td_params.cpuid_values */
-	for (i = 0; i < tdx_capabilities.nr_cpuid_configs; i++) {
-		config = &tdx_capabilities.cpuid_configs[i];
-
-		entry = kvm_find_cpuid_entry(vcpu, config->leaf,
-					     config->sub_leaf);
-		if (!entry)
-			continue;
-
-		/*
-		 * Non-configurable bits must be '0', even if they are fixed to
-		 * '1' by TDX-SEAM, i.e. mask off non-configurable bits.
-		 */
-		value = &td_params->cpuid_values[i];
-		value->eax = entry->eax & config->eax;
-		value->ebx = entry->ebx & config->ebx;
-		value->ecx = entry->ecx & config->ecx;
-		value->edx = entry->edx & config->edx;
-	}
 
 	/* TODO
 	 * 1. TSC_FREQUENCY
@@ -1131,21 +1170,34 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 
 static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 {
+	struct kvm_cpuid2 __user *user_cpuid = (void *)cmd->data;
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct td_params *td_params;
 	struct tdx_ex_ret ex_ret;
+	struct kvm_cpuid2 cpuid;
 	int ret;
 	u64 err;
 
 	if (cmd->metadata)
 		return -EINVAL;
 
-	/* SEAMCALL(TDINIT) */
+	if (copy_from_user(&cpuid, user_cpuid, sizeof(cpuid)))
+		return -EFAULT;
+
+	if (cpuid.nent > KVM_MAX_CPUID_ENTRIES)
+		return -E2BIG;
+
+	if (copy_from_user(&kvm_tdx->cpuid_entries, user_cpuid->entries,
+			   cpuid.nent * sizeof(struct kvm_cpuid_entry2)))
+		return -EFAULT;
+
 	BUILD_BUG_ON(sizeof(struct td_params) != 1024);
 
 	td_params = kzalloc(sizeof(struct td_params), GFP_KERNEL_ACCOUNT);
 	if (!td_params)
 		return -ENOMEM;
+
+	kvm_tdx->cpuid_nent = cpuid.nent;
 
 	ret = setup_tdparams(kvm, td_params);
 	if (ret)
@@ -1158,11 +1210,11 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	}
 
 	ret = tdx_td_vcpu_init_all(kvm);
-	if (ret)
-		goto free_tdparams;
 
 free_tdparams:
 	kfree(td_params);
+	if (ret)
+		kvm_tdx->cpuid_nent = 0;
 	return ret;
 }
 
