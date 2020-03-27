@@ -166,7 +166,7 @@ static __always_inline void td_##lclass##_write##bits(struct vcpu_tdx *tdx,    \
 	err = tdwrvps(tdx->tdvpr.pa, TDVPS_##uclass(field), val,	       \
 		      GENMASK_ULL(bits - 1, 0), &ex_ret);		       \
 	if (unlikely(err))						       \
-		pr_err("TDRDVPS["#uclass".0x%x] = 0x%llx failed: 0x%llx\n",    \
+		pr_err("TDWRVPS["#uclass".0x%x] = 0x%llx failed: 0x%llx\n",    \
 		       field, (u64)val, err);				       \
 }									       \
 static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,   \
@@ -178,7 +178,7 @@ static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,   \
 	tdvps_##lclass##_check(field);					       \
 	err = tdwrvps(tdx->tdvpr.pa, TDVPS_##uclass(field), bit, bit, &ex_ret);\
 	if (unlikely(err))						       \
-		pr_err("TDRDVPS["#uclass".0x%x] |= 0x%llx failed: 0x%llx\n",   \
+		pr_err("TDWRVPS["#uclass".0x%x] |= 0x%llx failed: 0x%llx\n",   \
 		       field, bit, err);				       \
 }									       \
 static __always_inline void td_##lclass##_clearbit##bits(struct vcpu_tdx *tdx, \
@@ -190,7 +190,7 @@ static __always_inline void td_##lclass##_clearbit##bits(struct vcpu_tdx *tdx, \
 	tdvps_##lclass##_check(field);					       \
 	err = tdwrvps(tdx->tdvpr.pa, TDVPS_##uclass(field), 0, bit, &ex_ret);  \
 	if (unlikely(err))						       \
-		pr_err("TDRDVPS["#uclass".0x%x] &= ~0x%llx failed: 0x%llx\n",  \
+		pr_err("TDWRVPS["#uclass".0x%x] &= ~0x%llx failed: 0x%llx\n",  \
 		       field, bit, err);				       \
 }
 
