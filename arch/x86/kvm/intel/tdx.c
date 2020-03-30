@@ -338,10 +338,20 @@ static void tdx_vm_free(struct kvm *kvm)
 static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	int cpu;
+	int cpu, ret, i;
 
 	if (emulate_seam)
 		return seam_tdcreatevp(vcpu);
+
+	ret = tdx_alloc_td_page(&tdx->tdvpr);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
+		ret = tdx_alloc_td_page(&tdx->tdvpx[i]);
+		if (ret)
+			goto free_tdvpx;
+	}
 
 	tdx->pi_desc.nv = POSTED_INTR_VECTOR;
 	tdx->pi_desc.sn = 1;
@@ -352,6 +362,15 @@ static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	put_cpu();
 
 	return 0;
+
+free_tdvpx:
+	/* @i points at the TDVPX page that failed allocation. */
+	for (--i; i >= 0; i--)
+		tdx_free_td_page(&tdx->tdvpx[i]);
+
+	tdx_free_td_page(&tdx->tdvpr);
+
+	return ret;
 }
 
 static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
@@ -382,27 +401,12 @@ static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	int ret, i, cpu;
+	int i, cpu;
 	u64 err;
 
-	if (WARN_ON(is_td_vcpu_initialized(tdx)))
-		return -EINVAL;
-
-	ret = tdx_alloc_td_page(&tdx->tdvpr);
-	if (ret)
-		return ret;
-
-	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
-		ret = tdx_alloc_td_page(&tdx->tdvpx[i]);
-		if (ret)
-			goto free_tdvpx;
-	}
-
 	err = tdcreatevp(kvm_tdx->tdr.pa, tdx->tdvpr.pa);
-	if (TDX_ERR(err, TDCREATEVP)) {
-		ret = -EIO;
-		goto free_tdvpx;
-	}
+	if (TDX_ERR(err, TDCREATEVP))
+		return -EIO;
 	tdx_add_td_page(&tdx->tdvpr);
 
 	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
@@ -431,15 +435,6 @@ static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu)
 	put_cpu();
 
 	return 0;
-
-free_tdvpx:
-	/* @i points at the TDVPX page that failed allocation. */
-	for (--i; i >= 0; i--)
-		tdx_free_td_page(&tdx->tdvpx[i]);
-
-	tdx_free_td_page(&tdx->tdvpr);
-
-	return ret;
 }
 
 static void tdx_td_vcpu_uninit(struct kvm_vcpu *vcpu)
