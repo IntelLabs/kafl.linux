@@ -397,22 +397,49 @@ static void tdx_vcpu_put(struct kvm_vcpu *vcpu)
 	vmx_vcpu_pi_put(vcpu);
 }
 
-static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu)
+static void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 {
-	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	int i, cpu;
+	int i;
+
+	if (emulate_seam)
+		return seam_tdfreevp(vcpu);
+
+	/* Can't reclaim or free pages if teardown failed. */
+	if (!is_td_in_teardown(to_kvm_tdx(vcpu->kvm)))
+		return;
+
+	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++)
+		tdx_reclaim_td_page(&tdx->tdvpx[i]);
+
+	tdx_reclaim_td_page(&tdx->tdvpr);
+}
+
+static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct msr_data apic_base_msr;
 	u64 err;
+	int i;
+
+	if (emulate_seam) {
+		seam_tdinitvp(vcpu, init_event);
+		return;
+	}
+
+	if (WARN_ON(init_event))
+		goto td_bugged;
 
 	err = tdcreatevp(kvm_tdx->tdr.pa, tdx->tdvpr.pa);
 	if (TDX_ERR(err, TDCREATEVP))
-		return -EIO;
+		goto td_bugged;
 	tdx_add_td_page(&tdx->tdvpr);
 
 	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++) {
 		err = tdaddvpx(tdx->tdvpr.pa, tdx->tdvpx[i].pa);
 		if (TDX_ERR(err, TDADDVPX))
-			return -EIO;
+			goto td_bugged;
 		tdx_add_td_page(&tdx->tdvpx[i]);
 	}
 
@@ -422,83 +449,23 @@ static int tdx_td_vcpu_init(struct kvm *kvm, struct kvm_vcpu *vcpu)
 	 */
 	err = tdinitvp(tdx->tdvpr.pa, 0);
 	if (TDX_ERR(err, TDINITVP))
-		return -EIO;
-
-	/* TODO: Configure posted interrupts in TDVPS. */
-	cpu = get_cpu();
-	tdx_vcpu_load(vcpu, cpu);
-	vcpu->cpu = cpu;
-	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
-	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->pi_desc));
-	td_vmcs_setbit16(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
-	tdx_vcpu_put(vcpu);
-	put_cpu();
-
-	return 0;
-}
-
-static void tdx_td_vcpu_uninit(struct kvm_vcpu *vcpu)
-{
-	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	u8 i;
-
-	/* Can't reclaim or free TD pages if teardown failed. */
-	if (!is_td_in_teardown(to_kvm_tdx(vcpu->kvm)))
-		return;
-
-	if (!is_td_vcpu_initialized(tdx))
-		return;
-
-	for (i = 0; i < tdx_capabilities.tdvpx_nr_pages; i++)
-		tdx_reclaim_td_page(&tdx->tdvpx[i]);
-
-	tdx_reclaim_td_page(&tdx->tdvpr);
-}
-
-static int tdx_td_vcpu_init_all(struct kvm *kvm)
-{
-	struct kvm_vcpu *vcpu;
-	int i, ret;
-
-	kvm_for_each_vcpu(i, vcpu, kvm) {
-		ret = tdx_td_vcpu_init(kvm, vcpu);
-		if (ret)
-			goto td_vcpu_uninit;
-	}
-	return 0;
-
-td_vcpu_uninit:
-	kvm_for_each_vcpu(i, vcpu, kvm)
-		tdx_td_vcpu_uninit(vcpu);
-
-	return ret;
-}
-
-static void tdx_vcpu_free(struct kvm_vcpu *vcpu)
-{
-	if (emulate_seam)
-		return seam_tdfreevp(vcpu);
-
-	tdx_td_vcpu_uninit(vcpu);
-}
-
-static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
-{
-	struct msr_data apic_base_msr;
-
-	if (emulate_seam) {
-		seam_tdinitvp(vcpu, init_event);
-		return;
-	}
-
-	if (WARN_ON(init_event))
-		return;
+		goto td_bugged;
 
 	apic_base_msr.data = APIC_DEFAULT_PHYS_BASE | LAPIC_MODE_X2APIC;
 	if (kvm_vcpu_is_reset_bsp(vcpu))
 		apic_base_msr.data |= MSR_IA32_APICBASE_BSP;
 	apic_base_msr.host_initiated = true;
-	WARN_ON(kvm_set_apic_base(vcpu, &apic_base_msr));
+	if (WARN_ON(kvm_set_apic_base(vcpu, &apic_base_msr)))
+		goto td_bugged;
+
+	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
+	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->pi_desc));
+	td_vmcs_setbit16(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
+	return;
+
+td_bugged:
+	vcpu->kvm->vm_bugged = true;
+	return;
 }
 
 u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
@@ -1201,12 +1168,8 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 		goto free_tdparams;
 
 	err = tdinit(kvm_tdx->tdr.pa, __pa(td_params), &ex_ret);
-	if (TDX_ERR(err, TDINIT)) {
+	if (TDX_ERR(err, TDINIT))
 		ret = -EIO;
-		goto free_tdparams;
-	}
-
-	ret = tdx_td_vcpu_init_all(kvm);
 
 free_tdparams:
 	kfree(td_params);
