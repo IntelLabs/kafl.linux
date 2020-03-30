@@ -158,7 +158,7 @@ static void init_random_seed(int argc, char **argv)
 		goto init_srand;
 
 	fd = open("/dev/urandom", O_RDONLY);
-	TEST_ASSERT(fd >= 0, "failed to open /dev/kvm, fd: %i errno: %i",
+	TEST_ASSERT(fd >= 0, "failed to open /dev/urandom, fd: %i errno: %i",
 		    fd, errno);
 
 	ret = read(fd, &seed, sizeof(seed));
