@@ -502,6 +502,8 @@ struct kvm {
 	struct srcu_struct srcu;
 	struct srcu_struct irq_srcu;
 	pid_t userspace_pid;
+
+	bool vm_bugged;
 };
 
 #define kvm_err(fmt, ...) \
@@ -529,6 +531,16 @@ struct kvm {
 			      ## __VA_ARGS__)
 #define vcpu_err(vcpu, fmt, ...)					\
 	kvm_err("vcpu%i " fmt, (vcpu)->vcpu_id, ## __VA_ARGS__)
+
+void kvm_arch_vm_bugged(struct kvm *kvm);
+
+#define KVM_BUG_ON(cond, kvm)			\
+do {						\
+	if (WARN_ON_ONCE(cond))	{		\
+		(kvm)->vm_bugged = true;	\
+		kvm_arch_vm_bugged(kvm);	\
+	}					\
+} while (0)
 
 static inline struct kvm_io_bus *kvm_get_bus(struct kvm *kvm, enum kvm_bus idx)
 {
