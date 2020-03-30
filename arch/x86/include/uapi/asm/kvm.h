@@ -485,5 +485,9 @@ struct kvm_tdenter {
 	__u64 regs[16];
 };
 
+struct kvm_va_to_pa {
+	u64 va;
+	u64 pa;
+};
 
 #endif /* _ASM_X86_KVM_H */
