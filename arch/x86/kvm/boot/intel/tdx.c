@@ -355,6 +355,9 @@ static int __init construct_tdmr_node(int *p_tdmr_idx,
 		if (ret == -ENOMEM) {
 			mid_pfn = start_pfn + (end_pfn - start_pfn) / 2;
 			mid_pfn = ALIGN_DOWN(mid_pfn, TDMR_PFN_ALIGNMENT);
+			mid_pfn = max(mid_pfn, start_pfn + TDMR_PFN_ALIGNMENT);
+			if (mid_pfn == end_pfn)
+				break;
 			end_pfn = mid_pfn;
 			continue;
 		} else if (ret) {
