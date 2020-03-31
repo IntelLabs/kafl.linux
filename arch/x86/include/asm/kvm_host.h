@@ -1062,6 +1062,7 @@ struct kvm_x86_ops {
 	struct kvm *(*vm_alloc)(void);
 	void (*vm_free)(struct kvm *);
 	int (*vm_init)(struct kvm *kvm);
+	void (*vm_teardown)(struct kvm *kvm);
 	void (*vm_destroy)(struct kvm *kvm);
 
 	/* Create, but do not attach this VCPU */

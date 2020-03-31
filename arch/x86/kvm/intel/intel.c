@@ -148,10 +148,15 @@ static void intel_vm_free(struct kvm *kvm)
 	vmx_vm_free(kvm);
 }
 
-static void intel_vm_destroy(struct kvm *kvm)
+static void intel_vm_teardown(struct kvm *kvm)
 {
 	if (is_td(kvm) && !emulate_seam)
-		return tdx_vm_destroy(kvm);
+		return tdx_vm_teardown(kvm);
+}
+
+static void intel_vm_destroy(struct kvm *kvm)
+{
+
 }
 
 static int intel_vcpu_create(struct kvm_vcpu *vcpu)
@@ -394,6 +399,7 @@ static struct kvm_x86_ops intel_x86_ops __ro_after_init = {
 	.vm_init = intel_vm_init,
 	.vm_alloc = intel_vm_alloc,
 	.vm_free = intel_vm_free,
+	.vm_teardown = intel_vm_teardown,
 	.vm_destroy = intel_vm_destroy,
 	.vcpu_create = intel_vcpu_create,
 

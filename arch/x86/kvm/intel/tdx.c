@@ -199,7 +199,7 @@ static int tdx_vm_init(struct kvm *kvm)
 	return 0;
 }
 
-static void tdx_vm_destroy(struct kvm *kvm)
+static void tdx_vm_teardown(struct kvm *kvm)
 {
 	/*
 	 * TODO:
@@ -1325,7 +1325,7 @@ out:
 #else /* CONFIG_KVM_INTEL_TDX */
 
 static int tdx_vm_init(struct kvm *kvm) { return 0; }
-static void tdx_vm_destroy(struct kvm *kvm) {}
+static void tdx_vm_teardown(struct kvm *kvm) {}
 static struct kvm *tdx_vm_alloc(void) { return NULL; }
 static void tdx_vm_free(struct kvm *kvm) {}
 static int tdx_vcpu_create(struct kvm_vcpu *vcpu) { return 0; }

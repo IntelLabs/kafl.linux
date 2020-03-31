@@ -2005,10 +2005,15 @@ static void avic_vm_destroy(struct kvm *kvm)
 	spin_unlock_irqrestore(&svm_vm_data_hash_lock, flags);
 }
 
-static void svm_vm_destroy(struct kvm *kvm)
+static void svm_vm_teardown(struct kvm *kvm)
 {
 	avic_vm_destroy(kvm);
 	sev_vm_destroy(kvm);
+}
+
+static void svm_vm_destroy(struct kvm *kvm)
+{
+
 }
 
 static bool svm_is_vm_type_supported(unsigned long type)
@@ -7411,6 +7416,7 @@ static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.vm_alloc = svm_vm_alloc,
 	.vm_free = svm_vm_free,
 	.vm_init = svm_vm_init,
+	.vm_teardown = svm_vm_teardown,
 	.vm_destroy = svm_vm_destroy,
 
 	.prepare_guest_switch = svm_prepare_guest_switch,
