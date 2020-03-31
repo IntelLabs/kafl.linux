@@ -142,11 +142,6 @@ static int seam_tdcreate(struct kvm *kvm)
 	return ret;
 }
 
-static void seam_tdteardown(struct kvm *kvm)
-{
-
-}
-
 static void flat_seg_setup(int seg)
 {
 	const struct kvm_vmx_segment_field *sf = &kvm_vmx_segment_fields[seg];

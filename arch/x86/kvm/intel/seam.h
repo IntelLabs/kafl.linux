@@ -56,8 +56,6 @@ struct vcpu_seam {
 void seam_exit(void);
 
 int seam_tdcreate(struct kvm *kvm);
-void seam_tdteardown(struct kvm *kvm);
-
 int seam_tdcreatevp(struct kvm_vcpu *vcpu);
 void seam_tdfreevp(hpa_t tdvpr);
 void seam_tdinitvp(hpa_t tdvpr, bool init_event);

@@ -150,8 +150,8 @@ static void intel_vm_free(struct kvm *kvm)
 
 static void intel_vm_destroy(struct kvm *kvm)
 {
-	if (is_td(kvm))
-		tdx_vm_destroy(kvm);
+	if (is_td(kvm) && !emulate_seam)
+		return tdx_vm_destroy(kvm);
 }
 
 static int intel_vcpu_create(struct kvm_vcpu *vcpu)

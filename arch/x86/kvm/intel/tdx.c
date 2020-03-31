@@ -201,11 +201,6 @@ static int tdx_vm_init(struct kvm *kvm)
 
 static void tdx_vm_destroy(struct kvm *kvm)
 {
-	if (emulate_seam) {
-		seam_tdteardown(kvm);
-		return;
-	}
-
 	/*
 	 * TODO:
 	 * SEAMCALL(TDFREEHKIDS);
