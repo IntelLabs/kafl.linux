@@ -405,7 +405,7 @@ static int __init construct_tdmr_node(int *p_tdmr_idx,
  */
 static int __init __construct_tdmrs(void)
 {
-	u64 tdmr_start_pfn, tdmr_end_pfn, tdmr_start_pfn_next;
+	u64 tdmr_start_pfn, tdmr_end_pfn, tdmr_start_pfn_next, inc_pfn;
 	unsigned long start_pfn, end_pfn;
 	int last_nid, nid, i, idx, ret;
 
@@ -467,9 +467,31 @@ static int __init __construct_tdmrs(void)
 		}
 	}
 
-	ret = construct_tdmr_node(&idx, tdmr_start_pfn, tdmr_end_pfn);
-	if (ret)
-		return ret;
+	/* Spread out the remaining memory across multiple TDMRs. */
+	inc_pfn = (tdmr_end_pfn - tdmr_start_pfn) /
+		  (tdx_tdsysinfo.max_tdmrs - idx);
+	inc_pfn = ALIGN(inc_pfn, TDMR_PFN_ALIGNMENT);
+
+	tdmr_start_pfn_next = tdmr_end_pfn;
+	while (tdmr_start_pfn < tdmr_start_pfn_next) {
+		if (idx == tdx_tdsysinfo.max_tdmrs - 1)
+			tdmr_end_pfn = tdmr_start_pfn_next;
+		else
+			tdmr_end_pfn = tdmr_start_pfn + inc_pfn;
+retry:
+		tdmr_end_pfn = min(tdmr_end_pfn, tdmr_start_pfn_next);
+
+		ret = construct_tdmr_node(&idx, tdmr_start_pfn, tdmr_end_pfn);
+		if (ret == -ENOMEM) {
+			if (tdmr_end_pfn == tdmr_start_pfn_next)
+				return -ENOMEM;
+			tdmr_end_pfn += inc_pfn;
+			goto retry;
+		}
+		if (ret)
+			return ret;
+		tdmr_start_pfn = tdmr_end_pfn;
+	}
 
 	tdx_nr_tdmrs = idx;
 
