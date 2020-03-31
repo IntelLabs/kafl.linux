@@ -76,6 +76,8 @@ static int tdx_nr_cmrs;
  */
 static struct tdmr_info tdx_tdmrs[TDX1_MAX_NR_TDMRS] __initdata;
 static int tdx_nr_tdmrs __initdata;
+static atomic_t tdx_next_tdmr_index;
+static atomic_t tdx_nr_initialized_tdmrs;
 
 /* TDMRs must be 1gb aligned */
 #define TDMR_ALIGNMENT		BIT_ULL(30)
@@ -847,26 +849,48 @@ static void __init do_tdsysconfigkey(void *failed)
 		*(int *)failed = -EIO;
 }
 
-static int __init tdx_init_tdmr(void)
+static void __init __tdx_init_tdmrs(void *failed)
 {
 	struct tdx_ex_ret ex_ret;
 	u64 base, size;
 	u64 err;
 	int i;
 
-	for (i = 0; i < tdx_nr_tdmrs; i++) {
+	for (i = atomic_fetch_add(1, &tdx_next_tdmr_index);
+	     i < tdx_nr_tdmrs;
+	     i = atomic_fetch_add(1, &tdx_next_tdmr_index)) {
 		base = tdx_tdmrs[i].base;
 		size = tdx_tdmrs[i].size;
 
 		do {
+			/* Abort if a different CPU failed. */
+			if (atomic_read(failed))
+				return;
+
 			err = tdsysinittdmr(base, &ex_ret);
-			if (TDX_ERR(err, TDSYSINITTDMR))
-				return -EIO;
+			if (TDX_ERR(err, TDSYSINITTDMR)) {
+				atomic_inc(failed);
+				return;
+			}
 		/*
 		 * Note, "next" is simply an indicator, base is passed to
 		 * TDSYSINTTDMR on every iteration.
 		 */
 		} while (ex_ret.next < (base + size));
+
+		atomic_inc(&tdx_nr_initialized_tdmrs);
+	}
+}
+
+static int __init tdx_init_tdmrs(void)
+{
+	atomic_t failed = ATOMIC_INIT(0);
+
+	on_each_cpu(__tdx_init_tdmrs, &failed, 0);
+
+	while (atomic_read(&tdx_nr_initialized_tdmrs) < tdx_nr_tdmrs) {
+		if (atomic_read(&failed))
+			return -EIO;
 	}
 
 	return 0;
@@ -903,7 +927,7 @@ static int __init tdx_init(void)
 	if (ret)
 		goto err;
 
-	ret = tdx_init_tdmr();
+	ret = tdx_init_tdmrs();
 	if (ret)
 		goto err;
 
