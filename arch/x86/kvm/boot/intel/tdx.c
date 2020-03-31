@@ -33,6 +33,9 @@
 
 #include "intel/vmcs.h"
 
+static DEFINE_PER_CPU(unsigned long, tdx_vmxon_vmcs);
+static atomic_t tdx_init_cpu_errors;
+
 /*
  * TODO: better to have kernel boot parameter to let admin control whether to
  * enable TDX with sysprof or not.
@@ -606,7 +609,7 @@ static inline void cpu_vmxon(u64 vmxon_region)
 	asm volatile ("vmxon %0" : : "m"(vmxon_region));
 }
 
-static inline int tdx_vmxon(struct vmcs *vmcs)
+static inline int tdx_init_vmxon_vmcs(struct vmcs *vmcs)
 {
 	u64 msr;
 
@@ -628,8 +631,6 @@ static inline int tdx_vmxon(struct vmcs *vmcs)
 
 	memset(vmcs, 0, PAGE_SIZE);
 	vmcs->hdr.revision_id = (u32)msr;
-
-	cpu_vmxon(__pa(vmcs));
 
 	return 0;
 }
@@ -656,9 +657,7 @@ static int __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
 	if (!mktme_keyids || (tdx_keyids < 2))
 		return -ENOTSUPP;
 
-	ret = tdx_vmxon((void *)vmcs);
-	if (ret)
-		return ret;
+	 cpu_vmxon(__pa(vmcs));
 
 	/* For BSP, call TDSYSINIT first for platform-level initialization. */
 	if (is_bsp) {
@@ -701,6 +700,7 @@ static int __tdx_init_cpu(struct cpuinfo_x86 *c, unsigned long vmcs)
 
 		tdx_nr_cmrs = ex_ret.nr_cmr_entries;
 	}
+	ret = 0;
 out:
 	cpu_vmxoff();
 
@@ -711,22 +711,27 @@ void tdx_init_cpu(struct cpuinfo_x86 *c)
 {
 	unsigned long vmcs;
 
-	/* BSP does TDSYSINITLP as part of tdx_seam_init(). */
-	if (c == &boot_cpu_data)
-		return;
-
 	/* Allocate VMCS for VMXON. */
 	vmcs = __get_free_page(GFP_KERNEL);
-	if (!vmcs) {
-		clear_cpu_cap(c, X86_FEATURE_TDX);
-		return;
-	}
+	if (!vmcs)
+		goto err;
 
-	/* VMXON and TDSYSINITLP shouldn't fail at this point. */
-	if (WARN_ON_ONCE(__tdx_init_cpu(c, vmcs)))
-		clear_cpu_cap(c, X86_FEATURE_TDX);
+	/* VMCS configuration shouldn't fail at this point. */
+	if (WARN_ON_ONCE(tdx_init_vmxon_vmcs((void *)vmcs)))
+		goto err;
 
-	free_page(vmcs);
+	/* BSP does TDSYSINITLP as part of tdx_seam_init(). */
+	if (c != &boot_cpu_data && __tdx_init_cpu(c, vmcs))
+		goto err;
+
+	this_cpu_write(tdx_vmxon_vmcs, vmcs);
+	return;
+
+err:
+	if (vmcs)
+		free_page(vmcs);
+	clear_cpu_cap(c, X86_FEATURE_TDX);
+	atomic_inc(&tdx_init_cpu_errors);
 }
 
 void __init tdx_seam_init(void)
@@ -764,6 +769,9 @@ init_seam:
 	vmcs = memblock_alloc(PAGE_SIZE, PAGE_SIZE);
 	if (!vmcs)
 		return;
+
+	if (tdx_init_vmxon_vmcs(vmcs))
+		goto out;
 
 	if (__tdx_init_cpu(&boot_cpu_data, (unsigned long)vmcs))
 		goto out;
@@ -810,36 +818,33 @@ static int __init init_package_cpumask(void)
 	return 0;
 }
 
-static int __init __do_tdsysconfigkey(void)
+static void __init tdx_vmxon(void *ret)
 {
-	bool need_vmxon = !(cr4_read_shadow() & X86_CR4_VMXE);
-	unsigned long uninitialized_var(vmcs);
-	u64 err;
+	cpu_vmxon(__pa(this_cpu_read(tdx_vmxon_vmcs)));
+}
 
-	if (need_vmxon) {
-		vmcs = __get_free_page(GFP_KERNEL);
-		if (!vmcs)
-			return -ENOMEM;
-		tdx_vmxon((void *)vmcs);
-	}
+static void __init tdx_vmxoff(void *ign)
+{
+	unsigned long vmcs = this_cpu_read(tdx_vmxon_vmcs);
+
+	if (!vmcs)
+		return;
+
+	cpu_vmxoff();
+
+	free_page(vmcs);
+	this_cpu_write(tdx_vmxon_vmcs, 0);
+}
+
+static void __init do_tdsysconfigkey(void *failed)
+{
+	u64 err;
 
 	err = tdsysconfigkey();
 	TDX_ERR(err, TDSYSCONFIGKEY);
 
-	if (need_vmxon) {
-		cpu_vmxoff();
-		free_page(vmcs);
-	}
-
-	return err ? -EIO : 0;
-}
-
-static void __init do_tdsysconfigkey(void *err)
-{
-	int ret = __do_tdsysconfigkey();
-
-	if (ret)
-		*(int *)err = ret;
+	if (err)
+		*(int *)failed = -EIO;
 }
 
 static int __init tdx_init_tdmr(void)
@@ -869,26 +874,20 @@ static int __init tdx_init_tdmr(void)
 
 static int __init tdx_init(void)
 {
-	unsigned long vmcs;
 	int ret, i;
 	u64 err;
 
 	if (!boot_cpu_has(X86_FEATURE_TDX))
 		return -ENOTSUPP;
 
+	if (atomic_read(&tdx_init_cpu_errors))
+		goto err;
+
 	ret = init_package_cpumask();
 	if (ret)
 		goto err;
 
-	vmcs = __get_free_page(GFP_KERNEL);
-	if (!vmcs) {
-		ret = -ENOMEM;
-		goto err;
-	}
-
-	ret = tdx_vmxon((void *)vmcs);
-	if (ret)
-		goto free_vmcs;
+	on_each_cpu(tdx_vmxon, NULL, 1);
 
 	for (i = 0; i < tdx_nr_tdmrs; i++)
 		tdx_tdmr_addrs[i] = __pa(&tdx_tdmrs[i]);
@@ -897,30 +896,23 @@ static int __init tdx_init(void)
 	err = tdsysconfig(__pa(tdx_tdmr_addrs), tdx_nr_tdmrs, tdx_keyids_start);
 	if (TDX_ERR(err, TDSYSCONFIG)) {
 		ret = -EIO;
-		goto vmxoff;
+		goto err;
 	}
 
 	on_each_cpu_mask(tdx_package_leadcpus, do_tdsysconfigkey, &ret, true);
 	if (ret)
-		goto vmxoff;
+		goto err;
 
 	ret = tdx_init_tdmr();
 	if (ret)
-		goto vmxoff;
-
-vmxoff:
-	cpu_vmxoff();
-
-free_vmcs:
-	free_page(vmcs);
-	if (ret)
 		goto err;
 
+	on_each_cpu(tdx_vmxoff, NULL, 1);
 	pr_info("TDX initialized.\n");
-
 	return 0;
 
 err:
+	on_each_cpu(tdx_vmxoff, NULL, 1);
 	clear_cpu_cap(&boot_cpu_data, X86_FEATURE_TDX);
 	return ret;
 }
