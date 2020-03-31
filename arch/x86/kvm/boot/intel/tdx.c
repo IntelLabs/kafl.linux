@@ -341,8 +341,10 @@ static int __init construct_tdmr_node(int *p_tdmr_idx,
 
 	while (start_pfn < tdmr_end_pfn) {
 		/* Cast to u32, else compiler will sign extend and complain. */
-		if (idx >= (u32)tdx_tdsysinfo.max_tdmrs)
-			return -EINVAL;
+		if (idx >= (u32)tdx_tdsysinfo.max_tdmrs) {
+			ret = -EINVAL;
+			break;
+		}
 
 		ret = __construct_tdmr_node(idx, start_pfn, end_pfn);
 
@@ -356,7 +358,7 @@ static int __init construct_tdmr_node(int *p_tdmr_idx,
 			end_pfn = mid_pfn;
 			continue;
 		} else if (ret) {
-			return ret;
+			break;
 		}
 
 		/* Successfully done with one TDMR, and continue if there's remaining */
