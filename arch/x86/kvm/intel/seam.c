@@ -211,7 +211,8 @@ static int seam_tdcreatevp(struct kvm_vcpu *vcpu)
 	tdx_vcpu->arch.pio_data = vcpu->arch.pio_data;
 	tdx_vcpu->arch.apic = vcpu->arch.apic;
 
-	to_seam(vcpu)->tdx.tdvpr = virt_to_phys(vcpu);
+	to_seam(vcpu)->tdx.tdvpr.va = (unsigned long)vcpu;
+	to_seam(vcpu)->tdx.tdvpr.pa = virt_to_phys(vcpu);
 
 	return 0;
 }

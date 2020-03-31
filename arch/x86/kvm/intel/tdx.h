@@ -14,11 +14,17 @@ extern bool __read_mostly emulate_seam;
 
 #ifdef CONFIG_KVM_INTEL_TDX
 
+struct tdx_td_page {
+	unsigned long va;
+	hpa_t pa;
+	bool added;
+};
+
 struct kvm_tdx {
 	struct kvm kvm;
 
-	hpa_t tdr;
-	hpa_t tdcs[TDX1_NR_TDCX_PAGES];
+	struct tdx_td_page tdr;
+	struct tdx_td_page tdcs[TDX1_NR_TDCX_PAGES];
 
 	int hkid;
 
@@ -59,8 +65,8 @@ union tdx_exit_reason {
 struct vcpu_tdx {
 	struct kvm_vcpu	vcpu;
 
-	hpa_t tdvpr;
-	hpa_t tdvpx[TDX1_NR_TDVPX_PAGES];
+	struct tdx_td_page tdvpr;
+	struct tdx_td_page tdvpx[TDX1_NR_TDVPX_PAGES];
 
 	struct list_head cpu_list;
 
@@ -134,57 +140,57 @@ static __always_inline void tdvps_dr_check(u64 field) {}
 static __always_inline void tdvps_state_check(u64 field) {}
 static __always_inline void tdvps_msr_check(u64 field) {}
 
-#define TDX_BUILD_TDVPS_ACCESSORS(bits, uclass, lclass)			      \
-static __always_inline u##bits td_##lclass##_read##bits(struct vcpu_tdx *tdx, \
-							u32 field)	      \
-{									      \
-	struct tdx_ex_ret ex_ret;					      \
-	long err;							      \
-									      \
-	tdvps_##lclass##_check(field);					      \
-	err = tdrdvps(tdx->tdvpr, TDVPS_##uclass(field), &ex_ret);	      \
-	if (unlikely(err)) {						      \
-		pr_err("TDRDVPS["#uclass".0x%x] failed: 0x%lx\n", field, err);\
-		return 0;						      \
-	}								      \
-	return (u##bits)ex_ret.r8;					      \
-}									      \
-static __always_inline void td_##lclass##_write##bits(struct vcpu_tdx *tdx,   \
-						      u32 field, u##bits val) \
-{									      \
-	struct tdx_ex_ret ex_ret;					      \
-	long err;							      \
-									      \
-	tdvps_##lclass##_check(field);					      \
-	err = tdwrvps(tdx->tdvpr, TDVPS_##uclass(field), val,		      \
-		      GENMASK_ULL(bits - 1, 0), &ex_ret);		      \
-	if (unlikely(err))						      \
-		pr_err("TDRDVPS["#uclass".0x%x] = 0x%llx failed: 0x%lx\n",    \
-		       field, (u64)val, err);				      \
-}									      \
-static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,  \
-						       u32 field, u64 bit)    \
-{									      \
-	struct tdx_ex_ret ex_ret;					      \
-	long err;							      \
-									      \
-	tdvps_##lclass##_check(field);					      \
-	err = tdwrvps(tdx->tdvpr, TDVPS_##uclass(field), bit, bit, &ex_ret);  \
-	if (unlikely(err))						      \
-		pr_err("TDRDVPS["#uclass".0x%x] |= 0x%llx failed: 0x%lx\n",   \
-		       field, bit, err);				      \
-}									      \
-static __always_inline void td_##lclass##_clearbit##bits(struct vcpu_tdx *tdx,\
-						         u32 field, u64 bit)  \
-{									      \
-	struct tdx_ex_ret ex_ret;					      \
-	long err;							      \
-									      \
-	tdvps_##lclass##_check(field);					      \
-	err = tdwrvps(tdx->tdvpr, TDVPS_##uclass(field), 0, bit, &ex_ret);    \
-	if (unlikely(err))						      \
-		pr_err("TDRDVPS["#uclass".0x%x] &= ~0x%llx failed: 0x%lx\n",  \
-		       field, bit, err);				      \
+#define TDX_BUILD_TDVPS_ACCESSORS(bits, uclass, lclass)			       \
+static __always_inline u##bits td_##lclass##_read##bits(struct vcpu_tdx *tdx,  \
+							u32 field)	       \
+{									       \
+	struct tdx_ex_ret ex_ret;					       \
+	long err;							       \
+									       \
+	tdvps_##lclass##_check(field);					       \
+	err = tdrdvps(tdx->tdvpr.pa, TDVPS_##uclass(field), &ex_ret);	       \
+	if (unlikely(err)) {						       \
+		pr_err("TDRDVPS["#uclass".0x%x] failed: 0x%lx\n", field, err); \
+		return 0;						       \
+	}								       \
+	return (u##bits)ex_ret.r8;					       \
+}									       \
+static __always_inline void td_##lclass##_write##bits(struct vcpu_tdx *tdx,    \
+						      u32 field, u##bits val)  \
+{									       \
+	struct tdx_ex_ret ex_ret;					       \
+	long err;							       \
+									       \
+	tdvps_##lclass##_check(field);					       \
+	err = tdwrvps(tdx->tdvpr.pa, TDVPS_##uclass(field), val,	       \
+		      GENMASK_ULL(bits - 1, 0), &ex_ret);		       \
+	if (unlikely(err))						       \
+		pr_err("TDRDVPS["#uclass".0x%x] = 0x%llx failed: 0x%lx\n",     \
+		       field, (u64)val, err);				       \
+}									       \
+static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,   \
+						       u32 field, u64 bit)     \
+{									       \
+	struct tdx_ex_ret ex_ret;					       \
+	long err;							       \
+									       \
+	tdvps_##lclass##_check(field);					       \
+	err = tdwrvps(tdx->tdvpr.pa, TDVPS_##uclass(field), bit, bit, &ex_ret);\
+	if (unlikely(err))						       \
+		pr_err("TDRDVPS["#uclass".0x%x] |= 0x%llx failed: 0x%lx\n",    \
+		       field, bit, err);				       \
+}									       \
+static __always_inline void td_##lclass##_clearbit##bits(struct vcpu_tdx *tdx, \
+						         u32 field, u64 bit)   \
+{									       \
+	struct tdx_ex_ret ex_ret;					       \
+	long err;							       \
+									       \
+	tdvps_##lclass##_check(field);					       \
+	err = tdwrvps(tdx->tdvpr.pa, TDVPS_##uclass(field), 0, bit, &ex_ret);  \
+	if (unlikely(err))						       \
+		pr_err("TDRDVPS["#uclass".0x%x] &= ~0x%llx failed: 0x%lx\n",   \
+		       field, bit, err);				       \
 }
 
 TDX_BUILD_TDVPS_ACCESSORS(16, VMCS, vmcs);
