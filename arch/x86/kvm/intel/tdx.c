@@ -306,6 +306,21 @@ static void tdx_vm_destroy(struct kvm *kvm)
 	tdx_reclaim_td_page(&kvm_tdx->tdr);
 }
 
+struct tdx_tdconfigkey {
+	hpa_t tdr;
+	int failed;
+};
+
+static void tdx_do_tdconfigkey(void *data)
+{
+	struct tdx_tdconfigkey *configkey = data;
+	u64 err;
+
+	err = tdconfigkey(configkey->tdr);
+	if (err && cmpxchg(&configkey->failed, 0, 1) == 0)
+		TDX_ERR(err, TDCONFIGKEY);
+}
+
 static struct kvm *tdx_vm_alloc(void)
 {
 	struct kvm_tdx *kvm_tdx;
@@ -1036,21 +1051,6 @@ static int __init tdx_hardware_setup(void)
 		return seam_hardware_setup();
 
 	return setup_tdx_capabilities(&tdx_capabilities);
-}
-
-struct tdx_tdconfigkey {
-	hpa_t tdr;
-	int failed;
-};
-
-static void tdx_do_tdconfigkey(void *data)
-{
-	struct tdx_tdconfigkey *configkey = data;
-	u64 err;
-
-	err = tdconfigkey(configkey->tdr);
-	if (err && cmpxchg(&configkey->failed, 0, 1) == 0)
-		TDX_ERR(err, TDCONFIGKEY);
 }
 
 /*
