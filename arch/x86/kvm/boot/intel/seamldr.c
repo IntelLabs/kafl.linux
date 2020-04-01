@@ -63,7 +63,7 @@ struct seam_sysinfo
 #define SEAM_SYS_INFO_BASE	0xFFFF8003FFFF0000ull
 
 /* Hardcoded sizes of select regions for TDX-SEAM. */
-#define SEAM_PER_LP_STACK_SIZE		(2 * PAGE_SIZE)
+#define SEAM_PER_LP_STACK_SIZE		(16 * PAGE_SIZE)
 #define SEAM_PER_LP_SHADOW_STACK_SIZE	(1 * PAGE_SIZE)
 #define SEAM_PER_LP_TLS_SIZE		(2 * PAGE_SIZE)
 #define SEAM_PER_LP_KEYHOLE_SIZE	(128 * PAGE_SIZE)
