@@ -1047,6 +1047,7 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 	struct tdx_cpuid_value *value;
 	u64 guest_supported_xcr0;
 	u64 guest_supported_xss;
+	u32 guest_tsc_khz;
 	int max_pa;
 	int i;
 
@@ -1121,11 +1122,18 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params)
 				  tdx_capabilities.xfam_fixed1))
 		return -EINVAL;
 
+	/* TODO: Support a scaled guest TSC, i.e. take this from userspace. */
+	guest_tsc_khz = tsc_khz;
+	if (guest_tsc_khz < TDX1_MIN_TSC_FREQUENCY_KHZ ||
+	    guest_tsc_khz > TDX1_MAX_TSC_FREQUENCY_KHZ)
+		return -EINVAL;
+
+	td_params->tsc_frequency = TDX1_TSC_KHZ_TO_TDPARAMS(guest_tsc_khz);
+
 	/* TODO
-	 * 1. TSC_FREQUENCY
-	 * 2. MRCONFIGID
-	 * 3. MROWNER
-	 * 4. MROWNERCONFIG
+	 *  - MRCONFIGID
+	 *  - MROWNER
+	 *  - MROWNERCONFIG
 	 */
 	return 0;
 }

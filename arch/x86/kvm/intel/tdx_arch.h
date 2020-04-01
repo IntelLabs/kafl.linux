@@ -139,6 +139,16 @@ struct td_params {
 	};
 } __packed;
 
+/*
+ * TDX1 requires the frequency to be defined in units of 25MHz, which is the
+ * frequency of the core crystal clock on TDX-capable platforms, i.e. TDX-SEAM
+ * can only program frequencies that are multiples of 25MHz.  The frequency
+ * must be between 1ghz and 10ghz (inclusive).
+ */
+#define TDX1_TSC_KHZ_TO_TDPARAMS(tsc_in_khz)	((tsc_in_khz) / (25 * 1000))
+#define TDX1_MIN_TSC_FREQUENCY_KHZ		1  * 1000 * 1000
+#define TDX1_MAX_TSC_FREQUENCY_KHZ		10 * 1000 * 1000
+
 struct tdmr_reserved_area {
 	u64 offset;
 	u64 size;
