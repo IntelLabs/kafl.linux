@@ -446,4 +446,48 @@ struct kvm_pmu_event_filter {
 #define KVM_PMU_EVENT_ALLOW 0
 #define KVM_PMU_EVENT_DENY 1
 
+/* Trust Domain eXtension command*/
+enum tdx_cmd_id {
+	KVM_TDX_INIT = 0,
+	KVM_TDX_INIT_MEM_REGION,
+
+	KVM_TDX_CMD_NR_MAX,
+};
+
+struct kvm_tdx_cmd {
+	__u32 id;
+	__u32 metadata;
+	__u64 data;
+};
+
+struct kvm_tdx_init_mem_region {
+	__u64 source_addr;
+	__u64 gpa;
+	__u64 nr_pages;
+};
+
+/* For KVM SEAMCALL */
+struct kvm_seamcall_regs {
+	__u64 rax;
+	__u64 rcx;
+	__u64 rdx;
+	__u64 r8;
+	__u64 r9;
+	__u64 r10;
+};
+
+struct kvm_seamcall {
+	struct kvm_seamcall_regs in;
+	struct kvm_seamcall_regs out;
+};
+
+struct kvm_tdenter {
+	__u64 regs[16];
+};
+
+struct kvm_va_to_pa {
+	u64 va;
+	u64 pa;
+};
+
 #endif /* _ASM_X86_KVM_H */
