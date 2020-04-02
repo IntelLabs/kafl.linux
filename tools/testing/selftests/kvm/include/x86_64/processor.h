@@ -236,6 +236,26 @@ static inline uint64_t get_idt_base(void)
 	return idt.address;
 }
 
+static inline void cpuid(unsigned int *eax, unsigned int *ebx,
+			 unsigned int *ecx, unsigned int *edx)
+{
+	__asm__ __volatile__("cpuid"
+			     : "=a" (*eax), "=b" (*ebx), "=c" (*ecx), "=d" (*edx)
+			     : "a" (*eax), "c" (*ecx)
+			     : "memory");
+}
+
+static inline unsigned int cpuid_eax(unsigned int leaf)
+{
+	unsigned int eax, ebx, ecx, edx;
+
+	eax = leaf;
+	ecx = 0;
+	cpuid(&eax, &ebx, &ecx, &edx);
+
+	return eax;
+}
+
 #define SET_XMM(__var, __xmm) \
 	asm volatile("movq %0, %%"#__xmm : : "r"(__var) : #__xmm)
 
