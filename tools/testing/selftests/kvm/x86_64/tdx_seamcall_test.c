@@ -39,15 +39,35 @@
 
 #include "../../../../../arch/x86/kvm/intel/tdx_arch.h"
 
-static bool verbose;
 static int kvm_fd;
+
+#undef SEAMCALL_VERBOSE
+
+static inline void __seamcall(struct kvm_seamcall *seamcall)
+{
+	long ret;
+
+	memset(&seamcall->out, 0, sizeof(seamcall->out));
+
+#ifdef SEAMCALL_VERBOSE
+	printf("SEAMCALL[%llu] in = 0x%llx, 0x%llx, 0x%llx, 0x%llx, 0x%llx\n",
+	       seamcall->in.rax, seamcall->in.rcx, seamcall->in.rdx,
+	       seamcall->in.r8, seamcall->in.r9, seamcall->in.r10);
+#endif
+
+	ret = ioctl(kvm_fd, KVM_SEAMCALL, seamcall);
+	TEST_ASSERT(!ret, "KVM_SEAMCALL failed, ret: %ld, errno: %d", ret, errno);
+
+#ifdef SEAMCALL_VERBOSE
+	printf("SEAMCALL[%llu] out = 0x%llx, 0x%llx, 0x%llx, 0x%llx, 0x%llx, 0x%llx\n",
+	       seamcall->in.rax, seamcall->out.rax, seamcall->out.rcx, seamcall->out.rdx,
+	       seamcall->out.r8, seamcall->out.r9, seamcall->out.r10);
+#endif
+}
 
 static inline u64 seamcall(u64 rax, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10)
 {
 	struct kvm_seamcall seamcall;
-	long ret;
-
-	memset(&seamcall.out, 0, sizeof(seamcall.out));
 
 	seamcall.in.rax = rax;
 	seamcall.in.rcx = rcx;
@@ -56,64 +76,46 @@ static inline u64 seamcall(u64 rax, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10)
 	seamcall.in.r9  = r9;
 	seamcall.in.r10 = r10;
 
-	ret = ioctl(kvm_fd, KVM_SEAMCALL, &seamcall);
-	TEST_ASSERT(!ret, "KVM_SEAMCALL failed, ret: %ld, errno: %d", ret, errno);
+	__seamcall(&seamcall);
 
-	if (verbose)
-		printf("SEAMCALL[%lu] out = 0x%llx, 0x%llx, 0x%llx, 0x%llx, 0x%llx, 0x%llx\n",
-		       rax, seamcall.out.rax, seamcall.out.rcx, seamcall.out.rdx,
-		       seamcall.out.r8, seamcall.out.r9, seamcall.out.r10);
 	return seamcall.out.rax;
 }
 
-static inline u64 seamcall5(u64 rax, u64 rcx, u64 rdx, u64 r8, u64 r9)
-{
-	return seamcall(rax, rcx, rdx, r8, r9, rand_u64());
-}
-static inline u64 seamcall4(u64 rax, u64 rcx, u64 rdx, u64 r8)
-{
-	return seamcall5(rax, rcx, rdx, r8, rand_u64());
-}
-static inline u64 seamcall3(u64 rax, u64 rcx, u64 rdx)
-{
-	return seamcall4(rax, rcx, rdx, rand_u64());
-}
-static inline u64 seamcall2(u64 rax, u64 rcx)
-{
-	return seamcall3(rax, rcx, rand_u64());
-}
-static inline u64 seamcall1(u64 rax)
-{
-	return seamcall2(rax, rand_u64());
-}
+#define seamcall5(op, rcx, rdx, r8, r9)						\
+({										\
+	u64 err = seamcall(SEAMCALL_##op, rcx, rdx, r8, r9, rand_u64());	\
+										\
+	TEST_ASSERT(!err, "SEAMCALL[" #op "] failed, error code: 0x%llx", err);	\
+})
+
+#define seamcall4(op, rcx, rdx, r8) seamcall5(op, (rcx), (rdx), (r8), rand_u64())
+#define seamcall3(op, rcx, rdx)     seamcall4(op, (rcx), (rdx), rand_u64())
+#define seamcall2(op, rcx)	    seamcall3(op, (rcx), rand_u64())
+#define seamcall1(op)		    seamcall2(op, rand_u64())
 
 static void do_random_seamcalls(void)
 {
-	u64 leaf, rcx, rdx, r8, r9, r10;
-	long ret;
+	struct kvm_seamcall seamcall;
 	int i;
 
 	for (i = 0; i < 1000; i++) {
 		/* Generate a valid(ish) leaf most of the time. */
 		if (rand_bool_p(90))
-			leaf = __rand_u8(64);
+			seamcall.in.rax = __rand_u8(64);
 		else
-			leaf = rand_u64();
+			seamcall.in.rax = rand_u64();
 
-		rcx = rand_pa_or_u64();
-		rdx = rand_pa_or_u64();
-		r8  = rand_pa_or_u64();
-		r9  = rand_pa_or_u64();
-		r10 = rand_pa_or_u64();
+		seamcall.in.rcx = rand_pa_or_u64();
+		seamcall.in.rdx = rand_pa_or_u64();
+		seamcall.in.r8  = rand_pa_or_u64();
+		seamcall.in.r9  = rand_pa_or_u64();
+		seamcall.in.r10 = rand_pa_or_u64();
 
-		if (verbose)
-			printf("SEAMCALL[%lu](0x%lx, 0x%lx, 0x%lx, 0x%lx, 0x%lx)\n",
-			       leaf, rcx, rdx, r8, r9, r10);
-
-		ret = seamcall(leaf, rcx, rdx, r8, r9, r10);
-		TEST_ASSERT(ret,
+		__seamcall(&seamcall);
+		TEST_ASSERT(seamcall.out.rax,
 			    "SEAMCALL[%lu](0x%lx, 0x%lx, 0x%lx, 0x%lx, 0x%lx) succeeded",
-			    leaf, rcx, rdx, r8, r9, r10);
+			    seamcall.in.rax, seamcall.in.rcx, seamcall.in.rdx,
+			    seamcall.in.r8,  seamcall.in.r9,  seamcall.in.r10);
 	}
 }
 
@@ -134,7 +136,6 @@ int main(int argc, char **argv)
 	struct cmr_info cmrs[TDX1_MAX_NR_CMRS];
 	struct tdsysinfo_struct sysinfo;
 	struct kvm_vm *vm;
-	u64 ret;
 
 	kvm_fd = open(KVM_DEV_PATH, O_RDWR);
 	TEST_ASSERT(kvm_fd >= 0, "failed to open /dev/kvm kvm_fd: %i errno: %i",
@@ -145,15 +146,12 @@ int main(int argc, char **argv)
 	/* Create a dummy VM to coerce KVM into doing VMXON. */
 	vm = vm_create_default(0, 0, NULL);
 
-	ret = seamcall2(SEAMCALL_TDSYSINIT, 0);
-	TEST_ASSERT(!ret, "TDSYSINIT failed, error code: 0x%llx", ret);
+	seamcall2(TDSYSINIT, 0);
 
-	ret = seamcall1(SEAMCALL_TDSYSINITLP);
-	TEST_ASSERT(!ret, "TDSYSINITLP failed, error code: 0x%llx", ret);
+	seamcall1(TDSYSINITLP);
 
-	ret = seamcall5(SEAMCALL_TDSYSINFO, __pa(&sysinfo), sizeof(sysinfo),
-			__pa(&cmrs), ARRAY_SIZE(cmrs));
-	TEST_ASSERT(!ret, "TDSYSINFO failed, error code: 0x%llx", ret);
+	seamcall5(TDSYSINFO, __pa(&sysinfo), sizeof(sysinfo),
+		  __pa(&cmrs), ARRAY_SIZE(cmrs));
 	TEST_ASSERT(sysinfo.vendor_id == 0x8086, "Bad vendor_id: %ld",
 		    sysinfo.vendor_id);
 
