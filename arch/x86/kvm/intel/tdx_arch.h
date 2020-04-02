@@ -137,7 +137,7 @@ struct td_params {
 		struct tdx_cpuid_value cpuid_values[0];
 		u8 reserved3[768];
 	};
-} __packed;
+} __packed __aligned(1024);
 
 /*
  * TDX1 requires the frequency to be defined in units of 25MHz, which is the
@@ -164,7 +164,7 @@ struct tdmr_info {
 	u64 pamt_4k_base;
 	u64 pamt_4k_size;
 	struct tdmr_reserved_area reserved_areas[16];
-} __packed __aligned(PAGE_SIZE);
+} __packed __aligned(4096);
 
 struct cmr_info {
 	u64 base;
@@ -202,6 +202,6 @@ struct tdsysinfo_struct {
 		struct tdx_cpuid_config cpuid_configs[0];
 		u8 reserved5[892];
 	};
-} __packed;
+} __packed __aligned(1024);
 
 #endif /* __KVM_X86_TDX_ARCH_H */

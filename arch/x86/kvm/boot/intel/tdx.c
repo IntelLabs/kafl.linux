@@ -59,7 +59,7 @@ EXPORT_SYMBOL_GPL(tdx_package_leadcpus);
 /*
  * TDX system information returned by TDSYSINFO.
  */
-static struct tdsysinfo_struct tdx_tdsysinfo __aligned(1024);
+static struct tdsysinfo_struct tdx_tdsysinfo;
 
 /*
  * CMR info array returned by TDSYSINFO.
