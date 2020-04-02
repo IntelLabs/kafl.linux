@@ -15,6 +15,7 @@
 
 #include <fcntl.h>
 #include <limits.h>
+#include <kvm_random.h>
 #include <kvm_util.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,117 +39,8 @@
 
 #include "../../../../../arch/x86/kvm/intel/tdx_arch.h"
 
-static u8 x86_phys_bits;
 static bool verbose;
 static int kvm_fd;
-
-static inline u8 __rand_u8(u8 mask)
-{
-	return (u8)rand() & mask;
-}
-
-static inline u8 rand_u8(void)
-{
-	return __rand_u8(0xff);
-}
-
-static inline u16 __rand_u16(u16 mask)
-{
-	return (u16)rand() & mask;
-}
-
-static inline u16 rand_u16(void)
-{
-	return __rand_u16(0xffff);
-}
-
-static inline u32 __rand_u32(u32 mask)
-{
-	return (u32)rand() & mask;
-}
-
-static inline u32 rand_u32(void)
-{
-	return __rand_u32(-1u);
-}
-
-static inline u64 __rand_u64(u64 mask)
-{
-	return (u64)rand() & mask;
-}
-
-static inline u64 rand_u64(void)
-{
-	return __rand_u64(-1ull);
-}
-
-static inline u64 rand_pa(void)
-{
-	return __rand_u64(GENMASK_ULL(x86_phys_bits - 1, 12));
-}
-
-static inline bool rand_bool(void)
-{
-	return rand_u32() < 0x80000000u;
-}
-
-static inline bool rand_bool_p(int percentage)
-{
-	if (percentage >= 100)
-		return true;
-
-	return rand_u32() < ((-1u / 100) * percentage);
-}
-
-static inline u64 rand_pa_or_u64(void)
-{
-	if (rand_bool())
-		return rand_pa();
-	return rand_u64();
-}
-
-static unsigned int parse_seed(int argc, char **argv)
-{
-	unsigned int seed;
-	char *tmp = NULL;
-	int c;
-
-	c = getopt(argc, argv, "s:");
-	if (c == -1)
-		return 0;
-
-	TEST_ASSERT(c == 's', "Unknown option '%s'", c);
-
-	seed = (unsigned int)strtoul(optarg, &tmp, 0);
-	TEST_ASSERT(*tmp == '\0' && tmp != optarg,
-		    "Unabled to parse seed '%s'\n", optarg);
-
-	return seed;
-}
-
-static void init_random_seed(int argc, char **argv)
-{
-	unsigned int seed;
-	int fd, ret;
-
-	seed = parse_seed(argc, argv);
-	if (seed)
-		goto init_srand;
-
-	fd = open("/dev/urandom", O_RDONLY);
-	TEST_ASSERT(fd >= 0, "failed to open /dev/urandom, fd: %i errno: %i",
-		    fd, errno);
-
-	ret = read(fd, &seed, sizeof(seed));
-	TEST_ASSERT(ret == sizeof(seed),
-		    "failed read() on /dev/urandom, ret: %i errno: %i",
-		    ret, errno);
-	close(fd);
-
-init_srand:
-	printf("TDX random seed: %u\n", seed);
-	srand(seed);
-}
 
 static inline u64 seamcall(u64 rax, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10)
 {
@@ -248,9 +140,7 @@ int main(int argc, char **argv)
 	TEST_ASSERT(kvm_fd >= 0, "failed to open /dev/kvm kvm_fd: %i errno: %i",
 		    kvm_fd, errno);
 
-	x86_phys_bits = cpuid_eax(0x80000008) & 0xff;
-
-	init_random_seed(argc, argv);
+	init_random(parse_seed(argc, argv));
 
 	/* Create a dummy VM to coerce KVM into doing VMXON. */
 	vm = vm_create_default(0, 0, NULL);
