@@ -514,9 +514,9 @@ static void tdx_hardware_disable(void)
 	struct list_head *tdvcpus = &per_cpu(associated_tdvcpus, cpu);
 	struct vcpu_tdx *tdx, *tmp;
 
-	/* Safe variant needed as tdx_flush_vp() deletes the entry. */
+	/* Safe variant needed as tdx_disassociate_vp() deletes the entry. */
 	list_for_each_entry_safe(tdx, tmp, tdvcpus, cpu_list)
-		tdx_flush_vp(tdx);
+		tdx_disassociate_vp(&tdx->vcpu);
 }
 
 static void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
