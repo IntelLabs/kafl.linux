@@ -979,7 +979,7 @@ static int __init setup_tdx_capabilities(struct tdx_capabilities *tdx_caps)
 	struct tdsysinfo_struct *tdsysinfo = tdx_get_sysinfo();
 
 	if (tdsysinfo == NULL) {
-		pr_err("TDX-SEAM module havsn't been loaded or initialized!\n");
+		WARN_ON_ONCE(boot_cpu_has(X86_FEATURE_TDX));
 		return -ENODEV;
 	}
 
