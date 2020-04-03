@@ -1347,11 +1347,11 @@ static void tdx_do_tdenter(struct kvm_tdenter *tdenter)
 		goto out;
 
 	if (exit_reason.basic == EXIT_REASON_EXCEPTION_NMI &&
-	    is_nmi(regs[VCPU_REGS_R10])) {
+	    is_nmi(regs[VCPU_REGS_R9])) {
 		asm("int $2");
 	} else if (exit_reason.basic == EXIT_REASON_EXTERNAL_INTERRUPT)
 		vmx_handle_external_interrupt_irqoff(NULL,
-						     regs[VCPU_REGS_R10]);
+						     regs[VCPU_REGS_R9]);
 
 out:
 	local_irq_enable();
