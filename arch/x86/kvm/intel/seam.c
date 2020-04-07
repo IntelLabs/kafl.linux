@@ -177,8 +177,8 @@ static void seam_enable_ve_injection(struct kvm_vcpu *vcpu)
 		return;
 
 	vmcs_write64(VE_INFO_ADDRESS, virt_to_phys(&seam->ve_info));
-	vmcs_set_bits(SECONDARY_VM_EXEC_CONTROL,
-		      SECONDARY_EXEC_EPT_VIOLATION_VE);
+	secondary_exec_controls_setbit(to_vmx(vcpu),
+				       SECONDARY_EXEC_EPT_VIOLATION_VE);
 
 	seam->ve_injection_enabled = true;
 }
@@ -270,6 +270,19 @@ static void seam_tdinitvp(struct kvm_vcpu *vcpu, bool init_event)
 
 	/* All vCPUs, including APs, are immediately runnable. */
 	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+}
+
+static void seam_cpuid_update(struct kvm_vcpu *vcpu)
+{
+	vmx_cpuid_update(vcpu);
+
+	/*
+	 * Restore EPT Violation #VE if enabled, as vmx_cpuid_update() resets
+	 * secondary execution controls.
+	 */
+	if (to_seam(vcpu)->ve_injection_enabled)
+		secondary_exec_controls_setbit(to_vmx(vcpu),
+					       SECONDARY_EXEC_EPT_VIOLATION_VE);
 }
 
 static bool seam_is_reflected_exit(u32 exit_reason)

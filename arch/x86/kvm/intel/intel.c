@@ -365,8 +365,12 @@ static void intel_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector)
 
 static void intel_cpuid_update(struct kvm_vcpu *vcpu)
 {
-	if (is_td_vcpu(vcpu) && !emulate_seam)
-		return;
+	if (is_td_vcpu(vcpu)) {
+		if (!emulate_seam)
+			return;
+
+		return seam_cpuid_update(vcpu);
+	}
 
 	return vmx_cpuid_update(vcpu);
 }
