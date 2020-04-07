@@ -843,7 +843,6 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		return tdx_emulate_io(vcpu);
 	case EXIT_REASON_MSR_READ:
 		return tdx_emulate_rdmsr(vcpu);
-		break;
 	case EXIT_REASON_MSR_WRITE:
 		return tdx_emulate_wrmsr(vcpu);
 	case EXIT_REASON_EPT_VIOLATION:
