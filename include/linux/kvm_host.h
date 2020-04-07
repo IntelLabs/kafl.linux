@@ -535,12 +535,15 @@ struct kvm {
 void kvm_arch_vm_bugged(struct kvm *kvm);
 
 #define KVM_BUG_ON(cond, kvm)			\
-do {						\
-	if (WARN_ON_ONCE(cond))	{		\
+({						\
+	int __ret = WARN_ON_ONCE(cond);		\
+						\
+	if (unlikely(__ret)) {			\
 		(kvm)->vm_bugged = true;	\
 		kvm_arch_vm_bugged(kvm);	\
 	}					\
-} while (0)
+	unlikely(__ret);			\
+})
 
 static inline struct kvm_io_bus *kvm_get_bus(struct kvm *kvm, enum kvm_bus idx)
 {
