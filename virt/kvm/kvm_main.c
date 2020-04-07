@@ -868,6 +868,7 @@ void __weak kvm_arch_vm_bugged(struct kvm *kvm)
 {
 
 }
+EXPORT_SYMBOL_GPL(kvm_arch_vm_bugged);
 
 /*
  * Allocation size is twice as large as the actual dirty bitmap size.
