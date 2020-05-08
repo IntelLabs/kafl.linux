@@ -7,7 +7,7 @@ static bool __read_mostly halt_on_triple_fault = 0;
 module_param(halt_on_triple_fault, bool, 0644);
 
 #ifdef CONFIG_KVM_INTEL_TDX
-static bool __read_mostly enable_tdx = 0;
+static bool __read_mostly enable_tdx = 1;
 module_param_named(tdx, enable_tdx, bool, 0444);
 
 static bool __read_mostly tdx_seam_sideloaded;
