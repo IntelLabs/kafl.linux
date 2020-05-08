@@ -709,6 +709,7 @@ static inline int tdx_mmio_read(struct kvm_vcpu *vcpu, gpa_t gpa, int size)
 
 static int tdx_emulate_mmio(struct kvm_vcpu *vcpu)
 {
+	struct kvm_memory_slot *slot;
 	int size, write, r;
 	unsigned long val;
 	gpa_t gpa;
@@ -724,14 +725,14 @@ static int tdx_emulate_mmio(struct kvm_vcpu *vcpu)
 		return 1;
 	}
 
-	if (!kvm_io_bus_write(vcpu, KVM_FAST_MMIO_BUS, gpa, 0, NULL)) {
-		trace_kvm_fast_mmio(gpa);
+	slot = kvm_vcpu_gfn_to_memslot(vcpu, gpa >> PAGE_SHIFT);
+	if (slot && !(slot->flags & KVM_MEMSLOT_INVALID)) {
+		tdvmcall_set_return_code(vcpu, -EFAULT);
 		return 1;
 	}
 
-	r = __kvm_mmu_page_fault(to_kvm_vcpu(vcpu), gpa, PFERR_RSVD_MASK, &r);
-	if (r) {
-		tdvmcall_set_return_code(vcpu, -EFAULT);
+	if (!kvm_io_bus_write(vcpu, KVM_FAST_MMIO_BUS, gpa, 0, NULL)) {
+		trace_kvm_fast_mmio(gpa);
 		return 1;
 	}
 
