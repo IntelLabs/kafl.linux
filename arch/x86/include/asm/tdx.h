@@ -69,6 +69,8 @@ void tdx_safe_halt(void);
 
 bool tdx_early_handle_ve(struct pt_regs *regs);
 
+bool tdx_allowed_port(short int port);
+
 #else
 
 static inline void tdx_early_init(void) { };
