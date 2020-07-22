@@ -196,6 +196,15 @@ void __init tdx_filter_init(void)
 	if (!cc_platform_has(CC_ATTR_GUEST_DEVICE_FILTER))
 		return;
 
+	if (cmdline_find_option_bool(boot_command_line, "noccfilter"))
+		cc_set_filter_status(false);
+
+	if (!cc_filter_enabled()) {
+		pr_info("Disabled TDX guest filter support\n");
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+		return;
+	}
+
 	dev_default_authorization = false;
 
 	if (filter_overridden) {
