@@ -34,6 +34,9 @@
 #define VE_GET_PORT_NUM(e)	((e) >> 16)
 #define VE_IS_IO_STRING(e)	((e) & BIT(4))
 
+/* TD Attributes masks */
+#define        ATTR_DEBUG_MODE                 BIT(0)
+
 /* Caches GPA width from TDG.VP.INFO TDCALL */
 static unsigned int gpa_width;
 /* Caches TD Attributes from TDG.VP.INFO TDCALL */
@@ -181,6 +184,11 @@ static int ve_instr_len(struct ve_info *ve)
 static bool is_td_attr_set(u64 mask)
 {
 	return !!(td_attr & mask);
+}
+
+bool tdx_debug_enabled(void)
+{
+	return is_td_attr_set(ATTR_DEBUG_MODE);
 }
 
 static u64 __cpuidle __halt(const bool irq_disabled, const bool do_sti)
