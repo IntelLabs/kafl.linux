@@ -452,6 +452,7 @@ static void seam_tdenter(struct kvm_vcpu *vcpu)
 
 		kvm_rax_write(vcpu, 0);
 		kvm_rcx_write(vcpu, 0);
+		kvm_r10_write(vcpu, 0);
 
 		seam->tdvmcall_exit = false;
 		seam->tdvmcall_regs = 0;
