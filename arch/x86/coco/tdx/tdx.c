@@ -317,6 +317,7 @@ static void tdx_parse_tdinfo(u64 *cc_mask)
 	 * memory.  Ensure that no #VE will be delivered for accesses to
 	 * TD-private memory.  Only VMM-shared memory (MMIO) will #VE.
 	 */
+
 	td_attr = out.rdx;
 	if (!(td_attr & ATTR_SEPT_VE_DISABLE)) {
 		const char *msg = "TD misconfiguration: SEPT_VE_DISABLE attribute must be set.";
@@ -376,7 +377,11 @@ static int ve_instr_len(struct ve_info *ve)
 
 bool tdx_debug_enabled(void)
 {
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	return true;
+#else
 	return !!(td_attr & ATTR_DEBUG);
+#endif
 }
 
 static u64 __cpuidle __halt(const bool irq_disabled)
