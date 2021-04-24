@@ -904,7 +904,11 @@ config TDX_FUZZ
 	help
 	  Support fuzzing of TDX guests against attacks from hosts
 
-endif # HYPERVISOR_GUEST
+config INTEL_TDX_KVM_SDV
+	bool "Fixes specific to KVM SDV (incompatible to others)"
+	depends on INTEL_TDX_GUEST
+
+endif #HYPERVISOR_GUEST
 
 source "arch/x86/Kconfig.cpu"
 
