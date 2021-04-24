@@ -206,7 +206,11 @@ static u64 get_cc_mask(void)
 	 * The highest bit of a guest physical address is the "sharing" bit.
 	 * Set it for shared pages and clear it for private pages.
 	 */
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	return 0;
+#else
 	return BIT_ULL(gpa_width - 1);
+#endif
 }
 
 /*
@@ -261,7 +265,11 @@ static bool is_td_attr_set(u64 mask)
 
 bool tdx_debug_enabled(void)
 {
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	return true;
+#else
 	return is_td_attr_set(ATTR_DEBUG_MODE);
+#endif
 }
 
 static u64 __cpuidle __halt(const bool irq_disabled, const bool do_sti)

@@ -886,8 +886,9 @@ config TDX_FUZZ
 	help
 	  Support fuzzing of TDX guests against attacks from hosts
 
-	  Implements a simple PRNG-based input injection for TDX fuzz hooks.
-	  Injection is configured using Linux fault injection framework.
+config INTEL_TDX_KVM_SDV
+	bool "Fixes specific to KVM SDV (incompatible to others)"
+	depends on INTEL_TDX_GUEST
 
 config TDX_FUZZ_KAFL
 	bool "kAFL Fuzzing for TDX"
