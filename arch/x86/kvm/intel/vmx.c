@@ -62,6 +62,15 @@
 #include "vmx.h"
 #include "x86.h"
 
+#ifdef CONFIG_KVM_VMX_FDL
+#include "vmx/vmx_fdl.h"
+#endif
+
+#ifdef CONFIG_KVM_VMX_PT
+#include "vmx/vmx_pt.h"
+static int handle_monitor_trap(struct kvm_vcpu *vcpu);
+#endif
+
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
 
@@ -795,6 +804,7 @@ void update_exception_bitmap(struct kvm_vcpu *vcpu)
 	 */
 	if (enable_vmware_backdoor)
 		eb |= (1u << GP_VECTOR);
+	/* REDQUEEN */
 	if ((vcpu->guest_debug &
 	     (KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP)) ==
 	    (KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP))
@@ -856,7 +866,7 @@ int vmx_find_msr_index(struct vmx_msrs *m, u32 msr)
 	return -ENOENT;
 }
 
-static void clear_atomic_switch_msr(struct vcpu_vmx *vmx, unsigned msr)
+void clear_atomic_switch_msr(struct vcpu_vmx *vmx, unsigned msr)
 {
 	int i;
 	struct msr_autoload *m = &vmx->msr_autoload;
@@ -908,7 +918,7 @@ static void add_atomic_switch_msr_special(struct vcpu_vmx *vmx,
 	vm_exit_controls_setbit(vmx, exit);
 }
 
-static void add_atomic_switch_msr(struct vcpu_vmx *vmx, unsigned msr,
+void add_atomic_switch_msr(struct vcpu_vmx *vmx, unsigned msr,
 				  u64 guest_val, u64 host_val, bool entry_only)
 {
 	int i, j = 0;
@@ -2331,6 +2341,10 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 	if (_cpu_based_2nd_exec_control & SECONDARY_EXEC_ENABLE_EPT) {
 		/* CR3 accesses and invlpg don't need to cause VM Exits when EPT
 		   enabled */
+
+		// MULTI-CR3?
+		//_cpu_based_exec_control &= ~(CPU_BASED_CR3_STORE_EXITING |
+		//			     CPU_BASED_INVLPG_EXITING);
 		_cpu_based_exec_control &= ~(CPU_BASED_CR3_LOAD_EXITING |
 					     CPU_BASED_CR3_STORE_EXITING |
 					     CPU_BASED_INVLPG_EXITING);
@@ -4556,6 +4570,17 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 		rip = kvm_rip_read(vcpu);
 		kvm_run->debug.arch.pc = vmcs_readl(GUEST_CS_BASE) + rip;
 		kvm_run->debug.arch.exception = ex_no;
+
+#ifdef CONFIG_KVM_VMX_PT
+		if (vcpu->arch.page_dump_bp){
+			if(vcpu->arch.eff_db[0] == vmcs_readl(GUEST_CS_BASE) + rip && vcpu->arch.page_dump_bp_cr3 == (kvm_read_cr3(vcpu) & 0xFFFFFFFFFFFFF000ULL)){
+				kvm_run->exit_reason = KVM_EXIT_KAFL_PAGE_DUMP_BP;
+			}
+			else{
+				return 1;
+			}
+		}
+#endif
 		break;
 	default:
 		kvm_run->exit_reason = KVM_EXIT_EXCEPTION;
@@ -4671,6 +4696,60 @@ static int handle_desc(struct kvm_vcpu *vcpu)
 	return kvm_emulate_instruction(vcpu, 0);
 }
 
+void update_cr3_target_control_buffer(struct kvm_vcpu *vcpu, uint64_t val){
+
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	printk("%s(%lx)\n", __func__, val);
+/*
+	switch(vmx->cr3_target_control_count){
+		case 4:
+			if(vmx->cr3_target_control[3] == val){
+				printk("oops? %lx vs %lx\n", vmx->cr3_target_control[3], val);
+				return;
+			}
+		case 3:
+			if(vmx->cr3_target_control[2] == val){
+				printk("oops? %lx vs %lx\n", vmx->cr3_target_control[2], val);
+				return;
+			}
+		case 2:
+			if(vmx->cr3_target_control[1] == val){
+				printk("oops? %lx vs %lx\n", vmx->cr3_target_control[1], val);
+				return;
+			}
+		case 1:
+			if(vmx->cr3_target_control[0] == val){
+				printk("oops? %lx vs %lx\n", vmx->cr3_target_control[0], val);
+				return;
+			}
+	}
+*/
+
+	if(unlikely(vmx->cr3_target_control_count != 4)){
+		vmx->cr3_target_control_count++;
+		vmcs_write32(CR3_TARGET_COUNT, vmx->cr3_target_control_count);
+	}
+
+	vmx->cr3_target_control_slot = (vmx->cr3_target_control_slot + 1) % 4;
+	vmx->cr3_target_control[vmx->cr3_target_control_slot] = val;
+
+
+	switch(vmx->cr3_target_control_slot){
+		case 3:
+			vmcs_writel(CR3_TARGET_VALUE3, val);
+			break;
+		case 2:
+			vmcs_writel(CR3_TARGET_VALUE2, val);
+			break;
+		case 1:
+			vmcs_writel(CR3_TARGET_VALUE1, val);
+			break;
+		case 0:
+			vmcs_writel(CR3_TARGET_VALUE0, val);
+			break;
+	}
+}
+
 static int handle_cr(struct kvm_vcpu *vcpu)
 {
 	unsigned long exit_qualification, val;
@@ -4691,6 +4770,8 @@ static int handle_cr(struct kvm_vcpu *vcpu)
 			err = handle_set_cr0(vcpu, val);
 			return kvm_complete_insn_gp(vcpu, err);
 		case 3:
+			//printk("MULTI-CR3: MOV TO CR3: %lx\n", val);
+			//update_cr3_target_control_buffer(vcpu, (uint64_t)val & 0xFFFFFFFFFFFFF000ULL);
 			WARN_ON_ONCE(enable_unrestricted_guest);
 			err = kvm_set_cr3(vcpu, val);
 			return kvm_complete_insn_gp(vcpu, err);
@@ -5168,6 +5249,12 @@ static int handle_invalid_op(struct kvm_vcpu *vcpu)
 
 static int handle_monitor_trap(struct kvm_vcpu *vcpu)
 {
+#ifdef CONFIG_KVM_VMX_PT
+	if (vcpu->arch.mtf){
+		vcpu->run->exit_reason = KVM_EXIT_KAFL_MTF;
+		return 0;
+	}
+#endif
 	return 1;
 }
 
@@ -5660,8 +5747,27 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu,
 	if (vmx->emulation_required)
 		return handle_invalid_guest_state(vcpu);
 
-	if (is_guest_mode(vcpu) && nested_vmx_exit_reflected(vcpu, exit_reason))
-		return nested_vmx_reflect_vmexit(vcpu, exit_reason);
+	if (is_guest_mode(vcpu) && nested_vmx_exit_reflected(vcpu, exit_reason)) {
+		if ((kvm_register_read(vcpu, VCPU_REGS_RAX)&0xFFFFFFFF) == HYPERCALL_KAFL_RAX_ID && (kvm_register_read(vcpu, VCPU_REGS_RBX)&0xFF000000) == HYPERTRASH_HYPERCALL_MASK){
+			if(vcpu->run->exit_reason == KVM_EXIT_KAFL_NESTED_CONFIG || 
+				vcpu->run->exit_reason == KVM_EXIT_KAFL_NESTED_PREPARE || 
+				vcpu->run->exit_reason == KVM_EXIT_KAFL_NESTED_ACQUIRE || 
+				vcpu->run->exit_reason == KVM_EXIT_KAFL_NESTED_RELEASE ||
+				vcpu->run->exit_reason == KVM_EXIT_KAFL_NESTED_EARLY_RELEASE ||
+				vcpu->run->exit_reason == KVM_EXIT_KAFL_NESTED_HPRINTF ){
+					kvm_register_write(vcpu, VCPU_REGS_RIP, kvm_register_read(vcpu, VCPU_REGS_RIP)+3);
+					//nested_vmx_vmexit(vcpu, EXIT_REASON_PREEMPTION_TIMER, 0, 0);
+					//vmx_complete_nested_posted_interrupt(vcpu);
+					return 0;
+			}
+			else{
+				return nested_vmx_reflect_vmexit(vcpu, exit_reason);
+			}
+		}
+		else{
+			return nested_vmx_reflect_vmexit(vcpu, exit_reason);
+		}
+	}
 
 	if (exit_reason & VMX_EXIT_REASONS_FAILED_VMENTRY) {
 		dump_vmcs();
@@ -5676,6 +5782,12 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu,
 		vcpu->run->exit_reason = KVM_EXIT_FAIL_ENTRY;
 		vcpu->run->fail_entry.hardware_entry_failure_reason
 			= vmcs_read32(VM_INSTRUCTION_ERROR);
+		return 0;
+	}
+
+	if(exit_reason == KVM_EXIT_KAFL_TOPA_MAIN_FULL){ /* TOPA_FULL */
+		//printk("EXIT REASON: TOPA_FULL\n");
+		vcpu->run->exit_reason = KVM_EXIT_KAFL_TOPA_MAIN_FULL;
 		return 0;
 	}
 
@@ -6068,6 +6180,15 @@ static void vmx_handle_exit_irqoff(struct kvm_vcpu *vcpu,
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 
+#ifdef CONFIG_KVM_VMX_PT
+	// TODO: never seems to trigger. remove or make WARN_ON()?
+	if ((&vmx->vcpu)->arch.mtf){
+		if(vmx->exit_reason & 0x10000000) {
+			printk("WARNING: PENDING MTF!\n");
+		}
+	}
+#endif
+
 	if (vmx->exit_reason == EXIT_REASON_EXTERNAL_INTERRUPT)
 		vmx_handle_external_interrupt_irqoff(vcpu,
 			vmcs_read32(VM_EXIT_INTR_INFO));
@@ -6293,6 +6414,13 @@ static void vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	unsigned long cr3, cr4;
 
+#ifdef CONFIG_KVM_VMX_PT
+	if(topa_full(vmx->vmx_pt_config)) {
+		vmx->exit_reason = KVM_EXIT_KAFL_TOPA_MAIN_FULL;
+		return;
+	}
+#endif
+
 	/* Record the guest's net vcpu time for enforced NMI injections. */
 	if (unlikely(!enable_vnmi &&
 		     vmx->loaded_vmcs->soft_vnmi_blocked))
@@ -6302,6 +6430,33 @@ static void vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	   start emulation until we arrive back to a valid state */
 	if (vmx->emulation_required)
 		return;
+
+#ifdef CONFIG_KVM_VMX_PT
+//	if(!is_guest_mode(vcpu)){
+		vmx_pt_vmentry(vmx->vmx_pt_config);
+
+/*
+		if(vmx_pt_multi_cr3_enabled(vmx->vmx_pt_config)){
+				printk("MULTI-CR3!\n");
+	
+			vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) | CPU_BASED_CR3_LOAD_EXITING);  
+		}
+*/
+
+	if (vcpu->arch.mtf){
+		if(!vcpu->arch.mtf_on){
+			vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) | CPU_BASED_MONITOR_TRAP_FLAG);
+			vcpu->arch.mtf_on = true;
+		}
+	}	
+	else{
+		if(vcpu->arch.mtf_on){
+			vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) & (~CPU_BASED_MONITOR_TRAP_FLAG));
+			vcpu->arch.mtf_on = false;
+		}
+	}
+//	}
+#endif
 
 	if (vmx->ple_window_dirty) {
 		vmx->ple_window_dirty = false;
@@ -6452,14 +6607,37 @@ static void vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	if ((u16)vmx->exit_reason == EXIT_REASON_MCE_DURING_VMENTRY)
 		kvm_machine_check();
 
-	if (vmx->fail || (vmx->exit_reason & VMX_EXIT_REASONS_FAILED_VMENTRY))
+	if (vmx->fail || (vmx->exit_reason & VMX_EXIT_REASONS_FAILED_VMENTRY)) {
+#ifdef CONFIG_KVM_VMX_PT
+		//if(!is_guest_mode(vcpu)){
+		vmx_pt_vmexit(vmx->vmx_pt_config);
+		/*
+		if(vmx_pt_multi_cr3_enabled(vmx->vmx_pt_config)) {
+			printk("MULTI-CR3!\n");
+			vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) & ~(CPU_BASED_CR3_LOAD_EXITING));
+		}
+		*/
+		//}
+#endif
 		return;
+	}
 
 	vmx->loaded_vmcs->launched = 1;
 	vmx->idt_vectoring_info = vmcs_read32(IDT_VECTORING_INFO_FIELD);
 
 	vmx_recover_nmi_blocking(vmx);
 	vmx_complete_interrupts(vmx);
+#ifdef CONFIG_KVM_VMX_PT
+	//if(!is_guest_mode(vcpu)){
+	vmx_pt_vmexit(vmx->vmx_pt_config);
+	/*
+	if(vmx_pt_multi_cr3_enabled(vmx->vmx_pt_config)){
+		printk("MULTI-CR3!\n");
+		vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) & ~(CPU_BASED_CR3_LOAD_EXITING));
+	}
+	*/
+	//}
+#endif
 }
 
 static struct kvm *vmx_vm_alloc(void)
@@ -6485,6 +6663,11 @@ static void vmx_free_vcpu(struct kvm_vcpu *vcpu)
 	free_vpid(vmx->vpid);
 	nested_vmx_free_vcpu(vcpu);
 	free_loaded_vmcs(vmx->loaded_vmcs);
+
+#ifdef CONFIG_KVM_VMX_PT
+	/* free vmx_pt */
+	vmx_pt_destroy(vmx, &(vmx->vmx_pt_config));
+#endif
 }
 
 static int vmx_create_vcpu(struct kvm_vcpu *vcpu)
@@ -6601,6 +6784,17 @@ static int vmx_create_vcpu(struct kvm_vcpu *vcpu)
 	vmx->pi_desc.sn = 1;
 
 	vmx->ept_pointer = INVALID_PAGE;
+
+#ifdef CONFIG_KVM_VMX_PT
+	/* enable vmx_pt */
+	vmx_pt_setup(vmx, &(vmx->vmx_pt_config));
+	vmx->cr3_target_control_count = 0;
+	vmx->cr3_target_control_slot = 0;
+	vmx->cr3_target_control[0] = 0;
+	vmx->cr3_target_control[1] = 0;
+	vmx->cr3_target_control[2] = 0;
+	vmx->cr3_target_control[3] = 0;
+#endif
 
 	return 0;
 
@@ -7200,6 +7394,26 @@ out:
 	return ret;
 }
 
+#ifdef CONFIG_KVM_VMX_PT
+static int vmx_pt_setup_fd(struct kvm_vcpu *vcpu)
+{
+	return vmx_pt_create_fd(to_vmx(vcpu)->vmx_pt_config);
+}
+
+static int vmx_pt_is_enabled(void)
+{
+	return vmx_pt_enabled();
+}
+
+static int vmx_pt_get_addrn(void)
+{
+	int r = vmx_pt_enabled();
+	if (r == 1)
+		return vmx_pt_get_addrn_value();
+	return r;
+}
+#endif
+
 static void vmx_setup_mce(struct kvm_vcpu *vcpu)
 {
 	if (vcpu->arch.mcg_cap & MCG_LMCE_P)
@@ -7359,6 +7573,10 @@ static __init int hardware_setup(void)
 	 */
 	if (!enable_ept || !enable_ept_ad_bits || !cpu_has_vmx_pml())
 		enable_pml = 0;
+
+	// TODO Ask Sergej about this..
+	/* buggy KVM PML implementation does not record all dirty guest level 2 pages; hence disable it (temporary hypertrash fix) */
+	//enable_pml = 1;
 
 	if (!enable_pml) {
 		kvm_x86_ops->slot_enable_log_dirty = NULL;
@@ -7531,6 +7749,10 @@ static int __init vmx_init(void)
 #endif
 	vmx_check_vmcs12_offsets();
 
+#ifdef CONFIG_KVM_VMX_PT
+	vmx_pt_init();
+#endif
+
 	return 0;
 }
 
@@ -7541,4 +7763,8 @@ static void vmx_exit(void)
 	synchronize_rcu();
 #endif
 	vmx_cleanup_l1d_flush();
+
+#ifdef CONFIG_KVM_VMX_PT
+	vmx_pt_exit();
+#endif
 }

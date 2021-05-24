@@ -550,6 +550,12 @@ static struct kvm_x86_ops intel_x86_ops __ro_after_init = {
 
 	.mem_enc_op = intel_mem_enc_op,
 	.load_seam = intel_load_seam,
+
+#ifdef CONFIG_KVM_VMX_PT
+	.setup_trace_fd = vmx_pt_setup_fd,
+	.vmx_pt_enabled = vmx_pt_is_enabled,
+	.get_addrn = vmx_pt_get_addrn,
+#endif
 };
 
 static int __init intel_init(void)

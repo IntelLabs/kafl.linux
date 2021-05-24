@@ -61,6 +61,10 @@
 #include "async_pf.h"
 #include "vfio.h"
 
+#ifdef CONFIG_KVM_VMX_FDL
+#include "vmx/vmx_fdl.h"
+#endif
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/kvm.h>
 
@@ -2169,6 +2173,10 @@ int kvm_write_guest_page(struct kvm *kvm, gfn_t gfn,
 {
 	struct kvm_memory_slot *slot = gfn_to_memslot(kvm, gfn);
 
+#ifdef CONFIG_KVM_VMX_FDL
+	vmx_fdl_set_addr_kvm(kvm, (gfn<<12));
+#endif
+
 	return __kvm_write_guest_page(slot, gfn, data, offset, len);
 }
 EXPORT_SYMBOL_GPL(kvm_write_guest_page);
@@ -2177,6 +2185,10 @@ int kvm_vcpu_write_guest_page(struct kvm_vcpu *vcpu, gfn_t gfn,
 			      const void *data, int offset, int len)
 {
 	struct kvm_memory_slot *slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+
+#ifdef CONFIG_KVM_VMX_FDL
+	vmx_fdl_set_addr_vpcu(vcpu, (gfn<<12));
+#endif
 
 	return __kvm_write_guest_page(slot, gfn, data, offset, len);
 }
@@ -2297,6 +2309,10 @@ int kvm_write_guest_offset_cached(struct kvm *kvm, struct gfn_to_hva_cache *ghc,
 	r = __copy_to_user((void __user *)ghc->hva + offset, data, len);
 	if (r)
 		return -EFAULT;
+
+#ifdef CONFIG_KVM_VMX_FDL
+	vmx_fdl_set_addr_kvm(kvm, gpa);
+#endif
 	mark_page_dirty_in_slot(ghc->memslot, gpa >> PAGE_SHIFT);
 
 	return 0;
@@ -2306,6 +2322,10 @@ EXPORT_SYMBOL_GPL(kvm_write_guest_offset_cached);
 int kvm_write_guest_cached(struct kvm *kvm, struct gfn_to_hva_cache *ghc,
 			   void *data, unsigned long len)
 {
+#ifdef CONFIG_KVM_VMX_FDL
+	vmx_fdl_set_addr_kvm(kvm, ghc->gpa);
+#endif
+
 	return kvm_write_guest_offset_cached(kvm, ghc, data, 0, len);
 }
 EXPORT_SYMBOL_GPL(kvm_write_guest_cached);
@@ -2378,6 +2398,10 @@ void mark_page_dirty(struct kvm *kvm, gfn_t gfn)
 {
 	struct kvm_memory_slot *memslot;
 
+#ifdef CONFIG_KVM_VMX_FDL
+	vmx_fdl_set_addr_kvm(kvm, (gfn<<12));
+#endif
+
 	memslot = gfn_to_memslot(kvm, gfn);
 	mark_page_dirty_in_slot(memslot, gfn);
 }
@@ -2386,6 +2410,10 @@ EXPORT_SYMBOL_GPL(mark_page_dirty);
 void kvm_vcpu_mark_page_dirty(struct kvm_vcpu *vcpu, gfn_t gfn)
 {
 	struct kvm_memory_slot *memslot;
+
+#ifdef CONFIG_KVM_VMX_FDL
+	vmx_fdl_set_addr_vpcu(vcpu, (gfn<<12));
+#endif
 
 	memslot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
 	mark_page_dirty_in_slot(memslot, gfn);
@@ -4479,11 +4507,14 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 		if (r < 0)
 			goto out_free_2;
 	}
-
-	r = cpuhp_setup_state_nocalls(CPUHP_AP_KVM_STARTING, "kvm/cpu:starting",
+/*
+	r = cpuhp_setup_state_nocalls(CPUHP_AP_KVM_STARTING, "dell/cpu:starting",
 				      kvm_starting_cpu, kvm_dying_cpu);
+
+	printk("%s 6\n", __func__);
 	if (r)
 		goto out_free_2;
+*/
 	register_reboot_notifier(&kvm_reboot_notifier);
 
 	/* A kmem cache lets us meet the alignment requirements of fx_save. */
@@ -4532,7 +4563,7 @@ out_free:
 	kmem_cache_destroy(kvm_vcpu_cache);
 out_free_3:
 	unregister_reboot_notifier(&kvm_reboot_notifier);
-	cpuhp_remove_state_nocalls(CPUHP_AP_KVM_STARTING);
+	//cpuhp_remove_state_nocalls(CPUHP_AP_KVM_STARTING);
 out_free_2:
 	kvm_arch_hardware_unsetup();
 out_free_1:
@@ -4554,7 +4585,7 @@ void kvm_exit(void)
 	kvm_async_pf_deinit();
 	unregister_syscore_ops(&kvm_syscore_ops);
 	unregister_reboot_notifier(&kvm_reboot_notifier);
-	cpuhp_remove_state_nocalls(CPUHP_AP_KVM_STARTING);
+	//cpuhp_remove_state_nocalls(CPUHP_AP_KVM_STARTING);
 	on_each_cpu(hardware_disable_nolock, NULL, 1);
 	kvm_arch_hardware_unsetup();
 	kvm_arch_exit();

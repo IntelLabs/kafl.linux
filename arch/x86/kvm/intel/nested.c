@@ -4299,6 +4299,11 @@ void nested_vmx_vmexit(struct kvm_vcpu *vcpu, u32 exit_reason,
 
 		load_vmcs12_host_state(vcpu, vmcs12);
 
+#ifdef CONFIG_KVM_VMX_PT
+		/* required for Hypertrash redqueen */ 
+		update_exception_bitmap(vcpu);
+#endif
+
 		return;
 	}
 
@@ -5300,6 +5305,63 @@ static bool nested_vmx_exit_handled_io(struct kvm_vcpu *vcpu,
 	return false;
 }
 
+u64 g2va_to_g1pa(struct kvm_vcpu *vcpu, struct vmcs12* vmcs12, u64 addr){
+
+	u64 gfn = 0;
+	u64 real_gfn = 0;
+
+	/* Guest Level 1 VMM is not using EPT and no virtual memory */
+	if(!nested_cpu_has_ept(vmcs12)){
+		//printk("Non-EPT-Mode\n");
+		gfn = vcpu->arch.mmu->gva_to_gpa(vcpu, addr, 0, NULL) >> 12;
+	}
+
+	/* Guest Level 1 VMM *is* using EPT and no virtual memory */
+	else {
+		//printk("EPT-Mode\n");
+		gfn = addr >> 12;
+	}
+
+	//u8 data[8];
+	//r = kvm_read_guest_page_mmu(vcpu, vcpu->arch.walk_mmu, gfn, data, 0, 8, 0);
+	//printk("Data:\t%lx\t%x %x %x %x (Status: %lx)\n", guest_level_2_data_addr, data[0], data[1], data[2], data[3], r);
+	real_gfn = (u64)(vcpu->arch.walk_mmu->translate_gpa(vcpu, ((u64)gfn) << 12, 0, NULL));
+
+	return real_gfn;
+}
+
+void prepare_nested(struct kvm_vcpu *vcpu, struct vmcs12* vmcs12){
+	u64 guest_level_2_data_addr = kvm_register_read(vcpu, VCPU_REGS_RCX) & 0xFFFFFFFFFFFFFFFF;
+	//printk(KERN_EMERG "HyperCall from Guest Level 2! RIP: %lx (created_vcpus: %x): %llx\n", kvm_register_read(vcpu, VCPU_REGS_RIP), vcpu->kvm->last_boosted_vcpu, guest_level_2_data_addr);
+	
+	u64 address = guest_level_2_data_addr & 0xFFFFFFFFFFFFF000ULL;
+	u16 num = guest_level_2_data_addr & 0xFFF;
+	u16 i = 0;
+
+	u64 old_address;
+	u64 new_address;
+
+	//printk("ADDRESS: %lx (num: %d)\n", address, num);
+	u64 page_address_gfn = g2va_to_g1pa(vcpu, vmcs12, address) >> 12;
+
+
+	for(i = 0; i < num; i++){
+		kvm_vcpu_read_guest_page(vcpu, page_address_gfn,  &old_address, (i*0x8), 8);
+		//printk("READ -> %lx\n", old_address);
+		new_address = g2va_to_g1pa(vcpu, vmcs12, old_address);
+		kvm_vcpu_write_guest_page(vcpu, page_address_gfn,  &new_address, (i*0x8), 8);
+		//printk("%d: %lx -> %lx\n", i, old_address, new_address);
+	}
+	
+
+	vcpu->run->exit_reason = KVM_EXIT_KAFL_NESTED_PREPARE;
+	//vcpu->run->hypercall.args[0] = 0;
+	
+	vcpu->run->hypercall.args[0] = num;
+	vcpu->run->hypercall.args[1] = page_address_gfn << 12; 
+	vcpu->run->hypercall.args[2] = vmcs12->host_cr3 & 0xFFFFFFFFFFFFF000;
+}
+
 /*
  * Return 1 if we should exit from L2 to L1 to handle an MSR access access,
  * rather than handle it ourselves in L0. I.e., check whether L1 expressed
@@ -5534,7 +5596,42 @@ bool nested_vmx_exit_reflected(struct kvm_vcpu *vcpu, u32 exit_reason)
 	case EXIT_REASON_VMWRITE:
 		return nested_vmx_exit_handled_vmcs_access(vcpu, vmcs12,
 			vmcs12->vmwrite_bitmap);
+#ifdef CONFIG_KVM_VMX_PT
+	case EXIT_REASON_VMCALL:
+		if ((kvm_register_read(vcpu, VCPU_REGS_RAX)&0xFFFFFFFF) == HYPERCALL_KAFL_RAX_ID && (kvm_register_read(vcpu, VCPU_REGS_RBX)&0xFF000000) == HYPERTRASH_HYPERCALL_MASK){
+			//printk("HYPERCALL YO %lx %lx\n", );
+			switch(kvm_register_read(vcpu, VCPU_REGS_RBX)){
+				case HYPERCALL_KAFL_NESTED_CONFIG:
+					vcpu->run->exit_reason = KVM_EXIT_KAFL_NESTED_CONFIG;
+					break;
+				case HYPERCALL_KAFL_NESTED_PREPARE:
+					prepare_nested(vcpu, vmcs12);
+					break;
+				case HYPERCALL_KAFL_NESTED_ACQUIRE:
+					vcpu->run->exit_reason = KVM_EXIT_KAFL_NESTED_ACQUIRE;
+					break;
+				case HYPERCALL_KAFL_NESTED_RELEASE:
+					vcpu->run->exit_reason = KVM_EXIT_KAFL_NESTED_RELEASE;
+					break;
+				case HYPERCALL_KAFL_NESTED_HPRINTF:
+					vcpu->run->exit_reason = KVM_EXIT_KAFL_NESTED_HPRINTF;
+					//printk("HYPERCALL_KAFL_NESTED_HPRINTF %lx %llx\n",
+					//       kvm_register_read(vcpu, VCPU_REGS_RCX),
+					//       g2va_to_g1pa(vcpu, vmcs12,
+					//         (kvm_register_read(vcpu, VCPU_REGS_RCX) & 0xFFFFFFFFFFFFF000)));
+					vcpu->run->hypercall.args[0] = (g2va_to_g1pa(vcpu, vmcs12,
+					           (kvm_register_read(vcpu, VCPU_REGS_RCX) & 0xFFFFFFFFFFFFF000)));
+					break;
+				case HYPERCALL_KAFL_NESTED_EARLY_RELEASE:
+					vcpu->run->exit_reason = KVM_EXIT_KAFL_NESTED_EARLY_RELEASE;
+					break;
+			}
+		}
+		return true;
+	case EXIT_REASON_VMCLEAR:
+#else
 	case EXIT_REASON_VMCALL: case EXIT_REASON_VMCLEAR:
+#endif
 	case EXIT_REASON_VMLAUNCH: case EXIT_REASON_VMPTRLD:
 	case EXIT_REASON_VMPTRST: case EXIT_REASON_VMRESUME:
 	case EXIT_REASON_VMOFF: case EXIT_REASON_VMON:

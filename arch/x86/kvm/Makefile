@@ -16,6 +16,8 @@ kvm-intel-y		+= intel/intel.o intel/vmenter.o intel/pmu_intel.o \
 			   intel/vmcs12.o intel/evmcs.o intel/nested.o     \
 			   intel/ept.o intel/posted_intr.o
 
+kvm-$(CONFIG_KVM_VMX_FDL) += intel/vmx_fdl.o
+kvm-intel-$(CONFIG_KVM_VMX_PT) += intel/vmx_pt.o
 kvm-amd-y		+= svm.o pmu_amd.o
 
 obj-$(CONFIG_KVM)	+= kvm.o

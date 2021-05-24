@@ -812,7 +812,14 @@ struct kvm_vcpu_arch {
 
 	/* AMD MSRC001_0015 Hardware Configuration */
 	u64 msr_hwcr;
-};
+
+#ifdef CONFIG_KVM_VMX_PT
+	bool page_dump_bp;
+	u64 page_dump_bp_cr3;
+	bool mtf;
+	bool mtf_on;
+#endif
+};	
 
 struct kvm_lpage_info {
 	int disallow_lpage;
@@ -975,6 +982,14 @@ struct kvm_arch {
 
 	struct kvm_pmu_event_filter *pmu_event_filter;
 	struct task_struct *nx_lpage_recovery_thread;
+
+#ifdef CONFIG_KVM_VMX_FDL
+	void* fdl_opaque;
+#endif
+
+#ifdef CONFIG_KVM_VMX_PT
+	uint64_t printk_addr;
+#endif
 };
 
 struct kvm_vm_stat {
@@ -1257,6 +1272,13 @@ struct kvm_x86_ops {
 
 	int (*nested_enable_evmcs)(struct kvm_vcpu *vcpu,
 				   uint16_t *vmcs_version);
+
+#ifdef CONFIG_KVM_VMX_PT
+	int (*setup_trace_fd)(struct kvm_vcpu *vcpu);
+	int (*vmx_pt_enabled)(void);
+	int (*get_addrn)(void);
+#endif	
+
 	uint16_t (*nested_get_evmcs_version)(struct kvm_vcpu *vcpu);
 
 	bool (*is_emulatable)(struct kvm_vcpu *vcpu, void *insn, int insn_len);

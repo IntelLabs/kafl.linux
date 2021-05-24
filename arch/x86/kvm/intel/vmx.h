@@ -12,6 +12,10 @@
 #include "vmcs.h"
 #include "vmx_ops.h"
 
+#ifdef CONFIG_KVM_VMX_PT
+#include "vmx/vmx_pt.h"
+#endif
+
 extern const u32 vmx_msr_index[];
 extern u64 host_efer;
 
@@ -173,6 +177,12 @@ struct nested_vmx {
 };
 
 struct vcpu_vmx {
+#ifdef CONFIG_KVM_VMX_PT
+	struct vcpu_vmx_pt*   vmx_pt_config;
+	uint8_t				cr3_target_control_count;
+	uint8_t				cr3_target_control_slot;
+	uint64_t			cr3_target_control[4];
+#endif
 	struct kvm_vcpu       vcpu;
 	u8                    fail;
 	u8		      msr_bitmap_mode;
@@ -293,6 +303,12 @@ struct kvm_vmx {
 	enum ept_pointers_status ept_pointers_match;
 	spinlock_t ept_pointer_lock;
 };
+
+#ifdef CONFIG_KVM_VMX_PT
+void add_atomic_switch_msr(struct vcpu_vmx *vmx, unsigned msr, u64 guest_val, u64 host_val, bool entry_only);
+void clear_atomic_switch_msr(struct vcpu_vmx *vmx, unsigned msr);
+void dump_vmcs(void);
+#endif
 
 bool nested_vmx_allowed(struct kvm_vcpu *vcpu);
 void vmx_vcpu_load_vmcs(struct kvm_vcpu *vcpu, int cpu);
