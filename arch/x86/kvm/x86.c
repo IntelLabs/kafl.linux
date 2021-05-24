@@ -78,8 +78,8 @@
 
 #include <asm/vmx.h>
 
-extern int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu);
-extern void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu);
+//extern int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu);
+//extern void kvm_check_async_pf_completion(struct kvm_vcpu *vcpu);
 
 #define CREATE_TRACE_POINTS
 #include "trace.h"
@@ -7725,7 +7725,6 @@ unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,
 
 #ifdef CONFIG_KVM_VMX_PT
 	/* kAFL Hypercall Interface (ring 0) */
-	
 	if(kvm_x86_ops->get_cpl(vcpu) == 0) {
 		if(kvm->arch.printk_addr && kvm->arch.printk_addr == kvm_register_read(vcpu, VCPU_REGS_RIP)){
 			vcpu->run->exit_reason = KVM_EXIT_KAFL_PRINTK; 
@@ -7733,10 +7732,6 @@ unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,
 			return 0;
 		}
 	}
-
-#endif
-
-#ifdef CONFIG_KVM_VMX_PT
 	/* kAFL Hypercall interface */
 	if (nr == HYPERCALL_KAFL_RAX_ID) {
 		switch(a0){
@@ -7755,7 +7750,6 @@ unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,
 				vcpu->run->hypercall.args[0] = a1;
 				break;
 		}
-
 		kvm_x86_ops->skip_emulated_instruction(vcpu);
 		return 0;
 	}
