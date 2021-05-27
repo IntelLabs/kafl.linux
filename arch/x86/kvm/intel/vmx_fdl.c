@@ -90,20 +90,28 @@ static void vmx_fdl_set_addr(struct vm_vmx_fdl* data, u64 gpfn){
 		switch(FDL_MAX_AREAS-data->num_areas){
 			case 0:
 				ram_area = FAST_IN_RANGE(gpfn, data->areas[7].base, data->areas[7].base+(data->areas[7].size-1ULL)) ? 7 : ram_area;
+				fallthrough;
 			case 1:
 				ram_area = FAST_IN_RANGE(gpfn, data->areas[6].base, data->areas[6].base+(data->areas[6].size-1ULL)) ? 6 : ram_area;
+				fallthrough;
 			case 2: 
 				ram_area = FAST_IN_RANGE(gpfn, data->areas[5].base, data->areas[5].base+(data->areas[5].size-1ULL)) ? 5 : ram_area;
+				fallthrough;
 			case 3:
 				ram_area = FAST_IN_RANGE(gpfn, data->areas[4].base, data->areas[4].base+(data->areas[4].size-1ULL)) ? 4 : ram_area;
+				fallthrough;
 			case 4:
 				ram_area = FAST_IN_RANGE(gpfn, data->areas[3].base, data->areas[3].base+(data->areas[3].size-1ULL)) ? 3 : ram_area;
+				fallthrough;
 			case 5:
 				ram_area = FAST_IN_RANGE(gpfn, data->areas[2].base, data->areas[2].base+(data->areas[2].size-1ULL)) ? 2 : ram_area;
+				fallthrough;
 			case 6:
 				ram_area = FAST_IN_RANGE(gpfn, data->areas[1].base, data->areas[1].base+(data->areas[1].size-1ULL)) ? 1 : ram_area;
+				fallthrough;
 			case 7:
 				ram_area = FAST_IN_RANGE(gpfn, data->areas[0].base, data->areas[0].base+(data->areas[0].size-1ULL)) ? 0 : ram_area;
+				fallthrough;
 			default:
 				break;
 		}

@@ -177,12 +177,6 @@ struct nested_vmx {
 };
 
 struct vcpu_vmx {
-#ifdef CONFIG_KVM_VMX_PT
-	struct vcpu_vmx_pt*   vmx_pt_config;
-	uint8_t				cr3_target_control_count;
-	uint8_t				cr3_target_control_slot;
-	uint64_t			cr3_target_control[4];
-#endif
 	struct kvm_vcpu       vcpu;
 	u8                    fail;
 	u8		      msr_bitmap_mode;
@@ -213,6 +207,13 @@ struct vcpu_vmx {
 	u32		      msr_ia32_umwait_control;
 
 	u32 secondary_exec_control;
+
+#ifdef CONFIG_KVM_VMX_PT
+	struct vcpu_vmx_pt*   vmx_pt_config;
+	uint8_t				cr3_target_control_count;
+	uint8_t				cr3_target_control_slot;
+	uint64_t			cr3_target_control[4];
+#endif
 
 	/*
 	 * loaded_vmcs points to the VMCS currently used in this vcpu. For a

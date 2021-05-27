@@ -6867,13 +6867,12 @@ static bool kvm_vcpu_check_breakpoint(struct kvm_vcpu *vcpu, int *r)
 #ifdef CONFIG_KVM_VMX_PT
 			if (vcpu->arch.page_dump_bp){
 				if (vcpu->arch.eff_db[0] == eip){
-					kvm_x86_ops->decache_cr3(vcpu);
-					if(vcpu->arch.page_dump_bp_cr3 == vcpu->arch.cr3){
+					if(vcpu->arch.page_dump_bp_cr3 == kvm_read_cr3(vcpu)){
 						kvm_run->debug.arch.dr6 = dr6 | DR6_FIXED_1 | DR6_RTM;
 						kvm_run->debug.arch.pc = eip;
 						kvm_run->debug.arch.exception = DB_VECTOR;
 						kvm_run->exit_reason = KVM_EXIT_KAFL_PAGE_DUMP_BP;
-						*r = EMULATE_USER_EXIT;
+						*r = 0;
 						return true;
 					}
 				}
