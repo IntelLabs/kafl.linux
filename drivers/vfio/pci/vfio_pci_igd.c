@@ -31,14 +31,56 @@ static size_t vfio_pci_igd_rw(struct vfio_pci_device *vdev, char __user *buf,
 	unsigned int i = VFIO_PCI_OFFSET_TO_INDEX(*ppos) - VFIO_PCI_NUM_REGIONS;
 	void *base = vdev->region[i].data;
 	loff_t pos = *ppos & VFIO_PCI_OFFSET_MASK;
+	u16 version;
+	u64 rvda;
+	u32 rvds;
 
 	if (pos >= vdev->region[i].size || iswrite)
 		return -EINVAL;
 
 	count = min(count, (size_t)(vdev->region[i].size - pos));
 
-	if (copy_to_user(buf, base + pos, count))
-		return -EFAULT;
+	version = le16_to_cpu(*(__le16 *)(base + OPREGION_VERSION));
+	rvda = le64_to_cpu(*(__le64 *)(base + OPREGION_RVDA));
+	rvds = le32_to_cpu(*(__le32 *)(base + OPREGION_RVDS));
+
+	if (vdev->region[i].subtype == VFIO_REGION_SUBTYPE_INTEL_IGD_OPREGION &&
+	    version == 0x0200 && rvda && rvds) {
+		u32 addr = cpu_to_le32(*(__le32 *)(vdev->vconfig + OPREGION_PCI_ADDR));
+		void *vbt_base;
+		void *opregionvbt;
+
+		vbt_base = memremap(rvda, rvds, MEMREMAP_WB);
+		if (!vbt_base)
+			return -ENOMEM;
+
+		opregionvbt = kzalloc(vdev->region[i].size, GFP_KERNEL);
+		if (!opregionvbt) {
+			memunmap(vbt_base);
+			return -ENOMEM;
+		}
+
+		/* Stitch VBT after OpRegion if noncontigious */
+		memcpy(opregionvbt, base, OPREGION_SIZE);
+		memcpy(opregionvbt + OPREGION_SIZE, vbt_base, rvds);
+
+		/* Patch OpRegion 2.0 to 2.1 */
+		*(__le16 *)(opregionvbt + OPREGION_VERSION) = 0x0201;
+		/* Patch RVDA location after OpRegion */
+		*(__le64 *)(opregionvbt + OPREGION_RVDA) = OPREGION_SIZE;
+
+		if (copy_to_user(buf, opregionvbt + pos, count)) {
+			kfree(opregionvbt);
+			memunmap(vbt_base);
+			return -EFAULT;
+		}
+
+		kfree(opregionvbt);
+		memunmap(vbt_base);
+	} else {
+		if (copy_to_user(buf, base + pos, count))
+			return -EFAULT;
+	}
 
 	*ppos += count;
 
@@ -59,10 +101,11 @@ static const struct vfio_pci_regops vfio_pci_igd_regops = {
 static int vfio_pci_igd_opregion_init(struct vfio_pci_device *vdev)
 {
 	__le32 *dwordp = (__le32 *)(vdev->vconfig + OPREGION_PCI_ADDR);
-	u32 addr, size;
+	u32 addr, size, rvds = 0;
 	void *base;
 	int ret;
 	u16 version;
+	u64 rvda = 0;
 
 	ret = pci_read_config_dword(vdev->pdev, OPREGION_PCI_ADDR, &addr);
 	if (ret)
@@ -89,40 +132,44 @@ static int vfio_pci_igd_opregion_init(struct vfio_pci_device *vdev)
 	size *= 1024; /* In KB */
 
 	/*
-	 * Support opregion v2.1+
+	 * Support OpRegion v2.0+
 	 * When VBT data exceeds 6KB size and cannot be within mailbox #4, then
-	 * the Extended VBT region next to opregion is used to hold the VBT data.
-	 * RVDA (Relative Address of VBT Data from Opregion Base) and RVDS
-	 * (Raw VBT Data Size) from opregion structure member are used to hold the
+	 * the Extended VBT region is used to hold the VBT data.
+	 * RVDA (Relative Address of VBT Data from OpRegion Base) and RVDS
+	 * (Raw VBT Data Size) from OpRegion structure member are used to hold the
 	 * address from region base and size of VBT data. RVDA/RVDS are not
-	 * defined before opregion 2.0.
+	 * defined before OpRegion 2.0.
+	 * When VBT raw data doesn't exceed 6KB, it's still stored in Mailbox #4
+	 * same as previous OpRegion version.
 	 *
-	 * opregion 2.1+: RVDA is unsigned, relative offset from
-	 * opregion base, and should point to the end of opregion.
-	 * otherwise, exposing to userspace to allow read access to everything between
-	 * the OpRegion and VBT is not safe.
-	 * RVDS is defined as size in bytes.
+	 * OpRegion 2.0: If RVDA/RVDS are valid, RVDA stores the absolute physical
+	 * address for VBT and may not be contigious after OpRegion. Thus the vfio
+	 * region is combined with two memory regions: OpRegion and VBT. The total
+	 * size of this vfio region is sum of OpRegion size and VBT size. The r/w
+	 * ops will allocate a contigious physical memory to stitch VBT after OpRegion,
+	 * patch the in-memory OpRegion to 2.1, RVDA to relative address just
+	 * after OpRegion, then copy back to user space requester.
 	 *
-	 * opregion 2.0: rvda is the physical VBT address.
-	 * Since rvda is HPA it cannot be directly used in guest.
-	 * And it should not be practically available for end user,so it is not supported.
+	 * OpRegion 2.1: If RVDA/RVDS are valid, and RVDA is equal to OpRegion size,
+	 * simply map the contigious region which contains both OpRegion and VBT.
 	 */
 	version = le16_to_cpu(*(__le16 *)(base + OPREGION_VERSION));
-	if (version >= 0x0200) {
-		u64 rvda;
-		u32 rvds;
 
+	if (version >= 0x0200) {
 		rvda = le64_to_cpu(*(__le64 *)(base + OPREGION_RVDA));
 		rvds = le32_to_cpu(*(__le32 *)(base + OPREGION_RVDS));
-		if (rvda && rvds) {
-			/* no support for opregion v2.0 with physical VBT address */
-			if (version == 0x0200) {
-				memunmap(base);
-				pci_err(vdev->pdev,
-					"IGD assignment does not support opregion v2.0 with an extended VBT region\n");
-				return -EINVAL;
-			}
 
+		/*
+		 * Valid RVDA/RVDS for OpRegion 2.0+:
+		 * 2.0: The vfio region size will be registered as OpRegion Size + RVDS,
+		 *      But only OpRegion will be mapped as region base, the read ops
+		 *      will allocate another piece of memory and stich VBT after
+		 *      OpRegion, patch to valid OpRegion 2.1 and copy back to user space.
+		 * 2.1: RVDA is relative address to OpRegion base, never point to
+		 *      anything arbitrarily within the OpRegion itself. Current
+		 *      extended VBT region always follows OpRegion.
+		 */
+		if (rvda && rvds && version > 0x0200) {
 			if (rvda != size) {
 				memunmap(base);
 				pci_err(vdev->pdev,
@@ -130,9 +177,9 @@ static int vfio_pci_igd_opregion_init(struct vfio_pci_device *vdev)
 					version);
 				return -EINVAL;
 			}
-
-			/* region size for opregion v2.0+: opregion and VBT size. */
+			/* region size for OpRegion v2.0+: OpRegion and extended VBT size. */
 			size += rvds;
+			rvds = 0;
 		}
 	}
 
@@ -143,10 +190,15 @@ static int vfio_pci_igd_opregion_init(struct vfio_pci_device *vdev)
 			return -ENOMEM;
 	}
 
+	/*
+	 * Register OpRegion with OpRegion size + VBT size for 2.0 and above.
+	 * The vfio region could be combined with two mapped memory region in case
+	 * OpRegion 2.0 with valid RVDA and RVDS.
+	 */
 	ret = vfio_pci_register_dev_region(vdev,
 		PCI_VENDOR_ID_INTEL | VFIO_REGION_TYPE_PCI_VENDOR_TYPE,
 		VFIO_REGION_SUBTYPE_INTEL_IGD_OPREGION,
-		&vfio_pci_igd_regops, size, VFIO_REGION_INFO_FLAG_READ, base);
+		&vfio_pci_igd_regops, size + rvds, VFIO_REGION_INFO_FLAG_READ, base);
 	if (ret) {
 		memunmap(base);
 		return ret;
