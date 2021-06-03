@@ -25,6 +25,24 @@
 #define OPREGION_RVDS		0x3c2
 #define OPREGION_VERSION	0x16
 
+#define IGD_GMCH		0x50 /* Graphics Control Register */
+#define BDW_GMCH_GMS_SHIFT	8
+#define BDW_GMCH_GMS_MASK	0xff
+
+extern struct resource intel_graphics_stolen_res;
+
+static u32 gen9_get_stolen_size(u16 gmch)
+{
+	gmch >>= BDW_GMCH_GMS_SHIFT;
+	gmch &= BDW_GMCH_GMS_MASK;
+
+	if (gmch < 0xf0)
+		return gmch << 25; /* 32 MB units */
+	else
+		/* 4MB increments starting at 0xf0 for 4MB */
+		return (gmch - 0xf0 + 1) << 22;
+}
+
 static size_t vfio_pci_igd_rw(struct vfio_pci_device *vdev, char __user *buf,
 			      size_t count, loff_t *ppos, bool iswrite)
 {
@@ -366,6 +384,109 @@ static int vfio_pci_igd_cfg_init(struct vfio_pci_device *vdev)
 	return 0;
 }
 
+/*
+ * Zap mmaps on open so that we can fault them in on access and therefore
+ * our vma_list only tracks mappings accessed since last zap.
+ */
+static void vfio_pci_igd_dsm_mmap_open(struct vm_area_struct *vma)
+{
+	zap_vma_ptes(vma, vma->vm_start, vma->vm_end - vma->vm_start);
+}
+
+static vm_fault_t vfio_pci_igd_dsm_mmap_fault(struct vm_fault *vmf)
+{
+	struct vm_area_struct *vma = vmf->vma;
+	vm_fault_t ret = VM_FAULT_NOPAGE;
+
+	if (remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
+			    vma->vm_end - vma->vm_start, vma->vm_page_prot)) {
+		ret = VM_FAULT_SIGBUS;
+	}
+
+	return ret;
+}
+
+static const struct vm_operations_struct vfio_pci_igd_dsm_mmap_ops = {
+	.open = vfio_pci_igd_dsm_mmap_open,
+	.fault = vfio_pci_igd_dsm_mmap_fault,
+};
+
+static int vfio_pci_igd_dsm_mmap(struct vfio_pci_device *vdev,
+				 struct vfio_pci_region *region,
+				 struct vm_area_struct *vma)
+{
+	u64 req_len, pgoff, req_start;
+	void *dsm_base = region->data;
+
+	req_len = vma->vm_end - vma->vm_start;
+	pgoff = vma->vm_pgoff &
+		((1U << (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT)) - 1);
+	req_start = pgoff << PAGE_SHIFT;
+
+	if (req_start + req_len > region->size)
+		return -EINVAL;
+
+	vma->vm_private_data = vdev;
+	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+	vma->vm_pgoff = ((u64)dsm_base >> PAGE_SHIFT) + pgoff;
+
+	/*
+	 * See remap_pfn_range(), called from vfio_pci_fault() but we can't
+	 * change vm_flags within the fault handler.  Set them now.
+	 */
+	vma->vm_flags |= VM_IO | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP;
+	vma->vm_ops = &vfio_pci_igd_dsm_mmap_ops;
+
+	return 0;
+}
+
+static size_t vfio_pci_igd_dsm_rw(struct vfio_pci_device *vdev, char __user *buf,
+			      size_t count, loff_t *ppos, bool iswrite)
+{
+	loff_t pos = *ppos & VFIO_PCI_OFFSET_MASK;
+
+	if (pos != 0 || iswrite)
+		return -EINVAL;
+
+	if (copy_to_user(buf, &intel_graphics_stolen_res.start, 8))
+		return -EFAULT;
+
+	return 8;
+}
+
+static void vfio_pci_igd_dsm_release(struct vfio_pci_device *vdev,
+				     struct vfio_pci_region *region)
+{
+}
+
+static const struct vfio_pci_regops vfio_pci_igd_dsm_regops = {
+	.rw		= vfio_pci_igd_dsm_rw,
+	.mmap		= vfio_pci_igd_dsm_mmap,
+	.release	= vfio_pci_igd_dsm_release,
+};
+
+static int vfio_pci_igd_dsm_init(struct vfio_pci_device *vdev)
+{
+	u16 gmch;
+	u32 dsm_size;
+	u64 dsm_base;
+	int ret;
+
+	pci_read_config_word(vdev->pdev, IGD_GMCH, &gmch);
+
+	dsm_base = intel_graphics_stolen_res.start & ~((1024 * 1024) - 1); /* 1MB aligned */
+	dsm_size = gen9_get_stolen_size(gmch);
+
+	ret = vfio_pci_register_dev_region(vdev,
+		PCI_VENDOR_ID_INTEL | VFIO_REGION_TYPE_PCI_VENDOR_TYPE,
+		VFIO_REGION_SUBTYPE_INTEL_IGD_DSM,
+		&vfio_pci_igd_dsm_regops, dsm_size,
+		VFIO_REGION_INFO_FLAG_READ | VFIO_REGION_INFO_FLAG_WRITE | VFIO_REGION_INFO_FLAG_MMAP,
+		(void *)dsm_base);
+
+	return ret;
+}
+
 int vfio_pci_igd_init(struct vfio_pci_device *vdev)
 {
 	int ret;
@@ -375,6 +496,10 @@ int vfio_pci_igd_init(struct vfio_pci_device *vdev)
 		return ret;
 
 	ret = vfio_pci_igd_cfg_init(vdev);
+	if (ret)
+		return ret;
+
+	ret = vfio_pci_igd_dsm_init(vdev);
 	if (ret)
 		return ret;
 
