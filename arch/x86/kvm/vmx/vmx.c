@@ -5418,7 +5418,7 @@ static int handle_desc(struct kvm_vcpu *vcpu)
 void update_cr3_target_control_buffer(struct kvm_vcpu *vcpu, uint64_t val){
 
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	printk("%s(%llx)\n", __func__, val);
+	trace_printk("%s(%llx)\n", __func__, val);
 /*
 	switch(vmx->cr3_target_control_count){
 		case 4:
@@ -6617,6 +6617,9 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 	if (exit_fastpath != EXIT_FASTPATH_NONE)
 		return 1;
 
+	if (exit_reason.basic == EXIT_REASON_VMCALL)
+		trace_printk("VMX: EXIT_REASON_VMCALL\n");
+
 	if (exit_reason.basic >= kvm_vmx_max_exit_handlers)
 		goto unexpected_vmexit;
 #ifdef CONFIG_RETPOLINE
@@ -7343,6 +7346,8 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 		}
 */
 
+	vmx_pt_vmentry(vmx->vmx_pt_config);
+
 	if (vcpu->arch.mtf){
 		if(!vcpu->arch.mtf_on){
 			vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) | CPU_BASED_MONITOR_TRAP_FLAG);
@@ -7407,10 +7412,6 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 
 	kvm_load_guest_xsave_state(vcpu);
 
-#ifdef CONFIG_KVM_NYX
-	vmx_pt_vmentry(vmx->vmx_pt_config);
-#endif
-
 	pt_guest_enter(vmx);
 
 	atomic_switch_perf_msrs(vmx);
@@ -7452,11 +7453,11 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 
 	vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
 
+	pt_guest_exit(vmx);
+
 #ifdef CONFIG_KVM_NYX
 	vmx_pt_vmexit(vmx->vmx_pt_config);
 #endif
-
-	pt_guest_exit(vmx);
 
 	kvm_load_host_xsave_state(vcpu);
 

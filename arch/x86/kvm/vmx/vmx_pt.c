@@ -96,7 +96,7 @@
 
 
 #define TOPA_MAIN_ORDER					10	/*  1MB */
-#define TOPA_FALLBACK_ORDER				4	/* 64KB */
+#define TOPA_FALLBACK_ORDER				6	/* 64KB */
 
 #define TOPA_MAIN_SIZE					((1 << TOPA_MAIN_ORDER)*(1 << PAGE_SHIFT))
 #define TOPA_FALLBACK_SIZE				((1 << TOPA_FALLBACK_ORDER)*(1 << PAGE_SHIFT))
@@ -239,6 +239,10 @@ static int vmx_pt_mmap(struct file *filp, struct vm_area_struct *vma)
 {	
 	struct vcpu_vmx_pt *vmx_pt_config = filp->private_data;
 	
+	if (!vmx_pt_config->topa_main_buf_virt_addr) {
+		return -ENOMEM;
+	}
+
 	/* refrence http://www.makelinux.net/books/lkd2/ch14lev1sec2 */                                     	
 	if ((vma->vm_end-vma->vm_start) > (TOPA_MAIN_SIZE+TOPA_FALLBACK_SIZE)){
 		return -EINVAL;
@@ -311,12 +315,6 @@ static long vmx_pt_ioctl(struct file *filp, unsigned int ioctl, unsigned long ar
 	is_configured = vmx_pt_config->configured;
 	r = -EINVAL;
 	
-	/*
-	if (vmx_pt_config->reset){
-		vmx_pt_config->reset = false;
-		prepare_topa(vmx_pt_config);
-	}
-	*/
 	spin_lock(&vmx_pt_config->spinlock);
 	
 	switch (ioctl) {
@@ -555,7 +553,11 @@ static long vmx_pt_ioctl(struct file *filp, unsigned int ioctl, unsigned long ar
 			}
 			break;
 		case KVM_VMX_PT_GET_TOPA_SIZE:
-			r = (TOPA_MAIN_SIZE + TOPA_FALLBACK_SIZE);
+			if (vmx_pt_config->topa_main_buf_virt_addr) {
+				r = (TOPA_MAIN_SIZE + TOPA_FALLBACK_SIZE);
+			} else {
+				r = -ENOMEM;
+			}
 			break;
 	}
 	spin_unlock(&vmx_pt_config->spinlock);
@@ -660,7 +662,7 @@ void vmx_pt_vmentry(struct vcpu_vmx_pt *vmx_pt){
 	}
 	
 	if ((data & BIT(5))){
-		printk("ERROR: TOPA STOP fml!\n");
+		printk("ERROR: TOPA STOPPED on entry!\n");
 	}
 
 
@@ -677,12 +679,6 @@ void vmx_pt_vmentry(struct vcpu_vmx_pt *vmx_pt){
 	if (enabled && vmx_pt && vmx_pt->configured){
 			spin_lock(&vmx_pt->spinlock);
 			//vmx_pt_setup_vmx_autoload_msr(vmx_pt, true);
-			/*
-			if (vmx_pt->reset){
-				vmx_pt->reset = false;
-				prepare_topa(vmx_pt);
-			}
-			*/
 			vmx_pt->cpu = raw_smp_processor_id();
 			//printk("vmentry on cpu %d\n", raw_smp_processor_id());
 
@@ -712,7 +708,7 @@ void vmx_pt_vmexit(struct vcpu_vmx_pt *vmx_pt){
 	}
 
 	if ((data & BIT(5))){
-		printk("ERROR: TOPA STOP fml!\n");
+		printk("ERROR: TOPA STOPPED on exit!\n");
 	}
 	
 	if (enabled && vmx_pt && vmx_pt->configured){
@@ -754,7 +750,7 @@ void vmx_pt_vmexit(struct vcpu_vmx_pt *vmx_pt){
 }
 
 bool topa_full(struct vcpu_vmx_pt *vmx_pt){
-	if(vmx_pt_get_data_size(vmx_pt) >= TOPA_MAIN_SIZE){
+	if(vmx_pt && vmx_pt_get_data_size(vmx_pt) >= TOPA_MAIN_SIZE){
 		return true;
 	}
 	return false;
@@ -770,19 +766,19 @@ static int vmx_pt_setup_topa(struct vcpu_vmx_pt *vmx_pt)
 	u64 *topa;
 	int n;
 		
-	main_buffer = __get_free_pages(GFP_KERNEL|__GFP_NOWARN|__GFP_ZERO, TOPA_MAIN_ORDER);
+	main_buffer = __get_free_pages(GFP_KERNEL|__GFP_RETRY_MAYFAIL|__GFP_ZERO, TOPA_MAIN_ORDER);
 	if (!main_buffer) {
-		PRINT_ERROR("Cannot allocate main ToPA buffer!");
+		PRINT_ERROR("Cannot allocate main ToPA buffer! Insufficient memory?");
 		return -ENOMEM;
-	}	
+	}
 	
-	fallback_buffer = __get_free_pages(GFP_KERNEL|__GFP_NOWARN|__GFP_ZERO, TOPA_FALLBACK_ORDER);
+	fallback_buffer = __get_free_pages(GFP_KERNEL|__GFP_RETRY_MAYFAIL|__GFP_ZERO, TOPA_FALLBACK_ORDER);
 	if (!fallback_buffer) {
 		PRINT_ERROR("Cannot allocate fallback ToPA buffer!");
 		goto free_topa_buffer1;
 	}
 
-	topa = (u64 *)__get_free_page(GFP_KERNEL|__GFP_ZERO);
+	topa = (u64 *)__get_free_page(GFP_KERNEL|__GFP_RETRY_MAYFAIL|__GFP_ZERO);
 	if (!topa) {
 		PRINT_ERROR("Cannot allocate ToPA table!");
 		goto free_topa_buffer2;
@@ -818,7 +814,6 @@ static int vmx_pt_setup_topa(struct vcpu_vmx_pt *vmx_pt)
 	//wrmsrl(MSR_IA32_RTIT_OUTPUT_BASE, vmx_pt->ia32_rtit_output_base);
 	//wrmsrl(MSR_IA32_RTIT_OUTPUT_MASK_PTRS, vmx_pt->ia32_rtit_output_mask_ptrs);
 	
-	//prepare_topa(vmx_pt);
 	vmx_pt->reset = true;
 	
 	return 0;
@@ -827,6 +822,8 @@ static int vmx_pt_setup_topa(struct vcpu_vmx_pt *vmx_pt)
 		free_pages(fallback_buffer, TOPA_FALLBACK_ORDER);
 	free_topa_buffer1:
 		free_pages(main_buffer, TOPA_MAIN_ORDER);
+
+	vmx_pt->topa_main_buf_virt_addr = NULL;
 	return -ENOMEM;
 }
  
@@ -952,37 +949,32 @@ void vmx_pt_disable(struct vcpu_vmx_pt *vmx_pt_config){
 
 int vmx_pt_setup(struct vcpu_vmx *vmx, struct vcpu_vmx_pt **vmx_pt_config){ 
 	int ret_val;
-	if (enabled){
-		ret_val = 0;
-		*vmx_pt_config = kmalloc(sizeof(struct vcpu_vmx_pt), GFP_KERNEL);
-		memset(*vmx_pt_config, 0x0, sizeof(struct vcpu_vmx_pt));
-		(*vmx_pt_config)->vmx = vmx;
-		(*vmx_pt_config)->configured = false;
-
-		vmx_pt_setup_msrs(*vmx_pt_config);
-		ret_val = vmx_pt_setup_topa(*vmx_pt_config);
-
-
-		(*vmx_pt_config)->state_change_pending = false;
-		(*vmx_pt_config)->state = false;
-
-
-		spin_lock_init(&((*vmx_pt_config)->spinlock));
-		if (ret_val)
-			goto setup_fail1;
-#ifdef DEBUG
-		PRINT_INFO("Setup finished...");
-#endif
+	if (!enabled){
+		*vmx_pt_config = NULL;
 		return 0;
-		
-		setup_fail1:
-			PRINT_INFO("ToPA setup failed...");
-			
+	}
+
+	ret_val = 0;
+	*vmx_pt_config = kmalloc(sizeof(struct vcpu_vmx_pt), GFP_KERNEL);
+	memset(*vmx_pt_config, 0x0, sizeof(struct vcpu_vmx_pt));
+	(*vmx_pt_config)->vmx = vmx;
+	(*vmx_pt_config)->configured = false;
+
+	vmx_pt_setup_msrs(*vmx_pt_config);
+	ret_val = vmx_pt_setup_topa(*vmx_pt_config);
+
+	if (ret_val) {
+		PRINT_INFO("ToPA setup failed. VMX_PT disabled.");
+
 		kfree(*vmx_pt_config);
 		*vmx_pt_config = NULL;
 		return ret_val;
 	}
-	*vmx_pt_config = NULL;
+
+	(*vmx_pt_config)->state_change_pending = false;
+	(*vmx_pt_config)->state = false;
+
+	spin_lock_init(&((*vmx_pt_config)->spinlock));
 	return 0;
 }
 

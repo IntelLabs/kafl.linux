@@ -5064,6 +5064,8 @@ static void hardware_enable_nolock(void *junk)
 	}
 }
 
+/* KAFL apparantly needs it disabled? */
+#if 0
 static int kvm_starting_cpu(unsigned int cpu)
 {
 	raw_spin_lock(&kvm_count_lock);
@@ -5072,6 +5074,7 @@ static int kvm_starting_cpu(unsigned int cpu)
 	raw_spin_unlock(&kvm_count_lock);
 	return 0;
 }
+#endif
 
 static void hardware_disable_nolock(void *junk)
 {
@@ -5083,6 +5086,8 @@ static void hardware_disable_nolock(void *junk)
 	kvm_arch_hardware_disable();
 }
 
+/* KAFL apparantly needs it disabled? */
+#if 0
 static int kvm_dying_cpu(unsigned int cpu)
 {
 	raw_spin_lock(&kvm_count_lock);
@@ -5091,6 +5096,7 @@ static int kvm_dying_cpu(unsigned int cpu)
 	raw_spin_unlock(&kvm_count_lock);
 	return 0;
 }
+#endif
 
 static void hardware_disable_all_nolock(void)
 {
@@ -5903,9 +5909,11 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 		if (r < 0)
 			goto out_free_2;
 	}
-
+/* KAFL apparantly needs it disabled? */
+#if 0
 	r = cpuhp_setup_state_nocalls(CPUHP_AP_KVM_STARTING, "kvm/cpu:starting",
 				      kvm_starting_cpu, kvm_dying_cpu);
+#endif
 	if (r)
 		goto out_free_2;
 	register_reboot_notifier(&kvm_reboot_notifier);
@@ -5965,7 +5973,7 @@ out_free_4:
 	kmem_cache_destroy(kvm_vcpu_cache);
 out_free_3:
 	unregister_reboot_notifier(&kvm_reboot_notifier);
-	cpuhp_remove_state_nocalls(CPUHP_AP_KVM_STARTING);
+	/* cpuhp_remove_state_nocalls(CPUHP_AP_KVM_STARTING); */
 out_free_2:
 	kvm_arch_hardware_unsetup();
 out_free_1:
@@ -5991,7 +5999,7 @@ void kvm_exit(void)
 	kvm_async_pf_deinit();
 	unregister_syscore_ops(&kvm_syscore_ops);
 	unregister_reboot_notifier(&kvm_reboot_notifier);
-	cpuhp_remove_state_nocalls(CPUHP_AP_KVM_STARTING);
+	/* cpuhp_remove_state_nocalls(CPUHP_AP_KVM_STARTING); */
 	on_each_cpu(hardware_disable_nolock, NULL, 1);
 	kvm_arch_hardware_unsetup();
 	kvm_arch_exit();
