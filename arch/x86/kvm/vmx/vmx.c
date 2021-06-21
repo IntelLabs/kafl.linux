@@ -6618,6 +6618,9 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 	if (exit_fastpath != EXIT_FASTPATH_NONE)
 		return 1;
 
+	if (exit_reason.basic == EXIT_REASON_VMCALL)
+		trace_printk("VMX: EXIT_REASON_VMCALL\n");
+
 	if (exit_reason.basic >= kvm_vmx_max_exit_handlers)
 		goto unexpected_vmexit;
 #ifdef CONFIG_RETPOLINE
@@ -7344,6 +7347,8 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 		}
 */
 
+	vmx_pt_vmentry(vmx->vmx_pt_config);
+
 	if (vcpu->arch.mtf){
 		if(!vcpu->arch.mtf_on){
 			vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) | CPU_BASED_MONITOR_TRAP_FLAG);
@@ -7407,10 +7412,6 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 		vmx_set_interrupt_shadow(vcpu, 0);
 
 	kvm_load_guest_xsave_state(vcpu);
-
-#ifdef CONFIG_KVM_NYX
-	vmx_pt_vmentry(vmx->vmx_pt_config);
-#endif
 
 	pt_guest_enter(vmx);
 
