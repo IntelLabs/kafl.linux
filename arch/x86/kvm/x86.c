@@ -9868,13 +9868,17 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 
 	op_64_bit = is_64_bit_hypercall(vcpu);
 
+	// kAFL hypercalls may also come from user..
+	WARN_ONCE(kvm_x86_ops->get_cpl(vcpu) != 0, "Hypercall with CPL!=0\n");
+	/*
 	if (static_call(kvm_x86_get_cpl)(vcpu) != 0) {
 		ret = -KVM_EPERM;
 		goto out;
 	}
+	*/
 
 	ret = __kvm_emulate_hypercall(vcpu, nr, a0, a1, a2, a3, op_64_bit);
-out:
+//out:
 	if (!op_64_bit)
 		ret = (u32)ret;
 	kvm_rax_write(vcpu, ret);
