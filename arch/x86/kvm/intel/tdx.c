@@ -550,6 +550,7 @@ static int tdx_handle_external_interrupt(struct kvm_vcpu *vcpu)
 
 static int tdx_handle_triple_fault(struct kvm_vcpu *vcpu)
 {
+	printk("TDX: %s\n", __func__);
 	if (halt_on_triple_fault)
 		return kvm_vcpu_halt(vcpu);
 
@@ -587,6 +588,7 @@ static int tdx_emulate_cpuid(struct kvm_vcpu *vcpu)
 
 static int tdx_emulate_hlt(struct kvm_vcpu *vcpu)
 {
+	printk("TDX: %s\n", __func__);
 	tdvmcall_set_return_code(vcpu, 0);
 
 	return kvm_vcpu_halt(to_kvm_vcpu(vcpu));
@@ -799,7 +801,8 @@ static int tdx_emulate_wrmsr(struct kvm_vcpu *vcpu)
 
 static int tdx_trace_tdvmcall(struct kvm_vcpu *vcpu)
 {
-	pr_warn("tdvmcall: (%lu, 0x%lx), (%lu, 0x%lx), (%lu, 0x%lx), (%lu, 0x%lx),\n",
+	pr_warn("tdvmcall: exit: 0x%lx (%lu, 0x%lx), (%lu, 0x%lx), (%lu, 0x%lx), (%lu, 0x%lx),\n",
+		tdvmcall_exit_type(vcpu),
 		tdvmcall_p1_read(vcpu), tdvmcall_p1_read(vcpu),
 		tdvmcall_p2_read(vcpu), tdvmcall_p2_read(vcpu),
 		tdvmcall_p3_read(vcpu), tdvmcall_p3_read(vcpu),
@@ -810,10 +813,15 @@ static int tdx_trace_tdvmcall(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
-static int handle_tdvmcall(struct kvm_vcpu *vcpu)
+int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	unsigned long exit_reason;
+	
+	printk("tdx: %s: reason 0x%lx, type: 0x%lx\n",
+				__func__,
+				tdvmcall_exit_reason(vcpu),
+			   	tdvmcall_exit_type(vcpu));
 
 	if (unlikely(tdx->tdvmcall.xmm_mask))
 		goto unsupported;
@@ -875,6 +883,14 @@ static int tdx_handle_ept_misconfig(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static int tdx_handle_topa_full(struct kvm_vcpu *vcpu)
+{
+	//WARN_ON(1);
+	printk("!! TD EXIT REASON: TOPA_FULL\n");
+	vcpu->run->exit_reason = KVM_EXIT_KAFL_TOPA_MAIN_FULL;
+	return 0;
+}
+
 /*
  * Separate from the top-level exit handler to avoid cyclical recursion, as
  * the SEAM emulator may invoke TDX's exit handler via vmx_handle_exit().
@@ -896,6 +912,8 @@ static int __tdx_handle_exit(struct kvm_vcpu *vcpu)
 		return tdx_handle_ept_violation(vcpu);
 	case EXIT_REASON_EPT_MISCONFIG:
 		return tdx_handle_ept_misconfig(vcpu);
+	case KVM_EXIT_KAFL_TOPA_MAIN_FULL: /* PT TOPA_FULL */
+		return tdx_handle_topa_full(vcpu);
 	default:
 		break;
 	}

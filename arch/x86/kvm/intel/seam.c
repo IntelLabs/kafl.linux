@@ -295,7 +295,7 @@ static bool seam_is_reflected_exit(u32 exit_reason)
 	case EXIT_REASON_MSR_WRITE:
 	case EXIT_REASON_MWAIT_INSTRUCTION:
 	case EXIT_REASON_MONITOR_INSTRUCTION:
-	case EXIT_REASON_VMCALL:
+	//case EXIT_REASON_VMCALL: // do not intercept VMCALL of type KAFL
 	case EXIT_REASON_WBINVD:
 		return true;
 	}
@@ -441,6 +441,15 @@ static void seam_tdenter(struct kvm_vcpu *vcpu)
 	 */
 	if (debug_mode)
 		vcpu->arch.guest_state_encrypted = false;
+	
+	//printk("SEAM: %s vcpu: %lx,%lx, tdx: %lx,%lx\n",
+	//	   	__func__,
+	//		vcpu->arch.regs[VCPU_REGS_RIP],
+	//		vcpu->arch.regs[VCPU_REGS_RSP],
+	//		to_tdx_vcpu(vcpu)->arch.regs[VCPU_REGS_RIP],
+	//		to_tdx_vcpu(vcpu)->arch.regs[VCPU_REGS_RSP]
+	//	  );
+
 
 	/*
 	 * regs_dirty is set when the SEAMRET was due to TDVMCALL, in which
@@ -482,6 +491,14 @@ static int seamret(struct kvm_vcpu *vcpu, u32 exit_reason)
 	struct kvm_vcpu *tdx_vcpu = to_tdx_vcpu(vcpu);
 	struct vcpu_seam *seam = to_seam(vcpu);
 	int ret;
+	
+	//printk("SEAM: %s vcpu: %lx,%lx, tdx: %lx,%lx\n",
+	//	   	__func__,
+	//		vcpu->arch.regs[VCPU_REGS_RIP],
+	//		vcpu->arch.regs[VCPU_REGS_RSP],
+	//		to_tdx_vcpu(vcpu)->arch.regs[VCPU_REGS_RIP],
+	//		to_tdx_vcpu(vcpu)->arch.regs[VCPU_REGS_RSP]
+	//	  );
 
 	if (exit_reason == EXIT_REASON_TDCALL) {
 		seam->tdvmcall_exit = true;
@@ -526,6 +543,7 @@ static int seam_emulate_tdcall(struct kvm_vcpu *vcpu)
 	}
 
 	fn = kvm_rax_read(vcpu);
+	printk("SEAM: %s(%lx)\n", __func__, fn);
 	switch (fn) {
 	case TDCALL_TDVMCALL:
 		if ((kvm_rcx_read(vcpu) >> 32) || (kvm_rcx_read(vcpu) & 0x13)) {
@@ -585,6 +603,7 @@ static int seam_handle_exception(struct kvm_vcpu *vcpu)
 	if (is_machine_check(intr_info) || is_nmi(intr_info))
 		return seamret(vcpu, EXIT_REASON_EXCEPTION_NMI);
 
+	printk("SEAM: !NMI!\n");
 	return handle_exception_nmi(vcpu);
 }
 
