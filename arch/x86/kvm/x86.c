@@ -3664,7 +3664,13 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		break;
 	case MSR_IA32_TSC:
 		if (msr_info->host_initiated) {
+#ifdef CONFIG_KVM_NYX
+			/* kAFL TSC reset */
+			if (data == 0x00004e59584e5958ULL) /* NYX magic */
+				kvm_synchronize_tsc(vcpu, 0);
+#else
 			kvm_synchronize_tsc(vcpu, data);
+#endif
 		} else {
 			u64 adj = kvm_compute_l1_tsc_offset(vcpu, data) - vcpu->arch.l1_tsc_offset;
 			adjust_tsc_offset_guest(vcpu, adj);
@@ -9732,9 +9738,6 @@ unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,un
 				      int op_64_bit)
 {
 	unsigned long ret;
-#ifdef CONFIG_KVM_NYX
-	struct kvm *kvm = vcpu->kvm;
-#endif
 
 	trace_kvm_hypercall(nr, a0, a1, a2, a3);
 
@@ -9745,48 +9748,6 @@ unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,un
 		a2 &= 0xFFFFFFFF;
 		a3 &= 0xFFFFFFFF;
 	}
-
-#ifdef CONFIG_KVM_NYX
-	/* kAFL Hypercall Interface (ring 0) */
-	
-	if(kvm_x86_ops.get_cpl(vcpu) == 0) {
-		if(kvm->arch.printk_addr && kvm->arch.printk_addr == kvm_register_read(vcpu, VCPU_REGS_RIP)){
-			vcpu->run->exit_reason = KVM_EXIT_KAFL_PRINTK; 
-			kvm_x86_ops.skip_emulated_instruction(vcpu);
-			return 0;
-		}
-	}
-
-#endif
-
-#ifdef CONFIG_KVM_NYX
-	/* kAFL Hypercall interface */
-	if (nr == HYPERCALL_KAFL_RAX_ID){
-		switch(a0){
-			case (KVM_EXIT_KAFL_SUBMIT_CR3-KAFL_EXIT_OFFSET):
-			case (KVM_EXIT_KAFL_USER_FAST_ACQUIRE-KAFL_EXIT_OFFSET): 
-				vcpu->run->exit_reason = a0+KAFL_EXIT_OFFSET;    
-				vcpu->run->hypercall.args[0] = kvm_read_cr3(vcpu);
-				break;
-			case (KVM_EXIT_KAFL_PRINTK_ADDR-KAFL_EXIT_OFFSET): // still in use?  
-				vcpu->run->exit_reason = a0+KAFL_EXIT_OFFSET;    
-				kvm->arch.printk_addr = a1 + 0x3; // 3 bytes vmcall offset 
-				vcpu->run->hypercall.args[0] = a1;
-				break;
-			default: 
-				vcpu->run->exit_reason = a0+KAFL_EXIT_OFFSET;    
-				vcpu->run->hypercall.args[0] = a1;
-				break;
-		}
-
-		if (!op_64_bit)
-			ret = (u32)ret;
-
-		
-		kvm_x86_ops.skip_emulated_instruction(vcpu);
-		return 0;
-	}
-#endif
 
 	ret = -KVM_ENOSYS;
 
@@ -9869,7 +9830,60 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 
 	op_64_bit = is_64_bit_hypercall(vcpu);
 
+	// kAFL hypercalls may also come from user..
+	WARN_ONCE(kvm_x86_ops.get_cpl(vcpu) != 0, "Hypercall with CPL!=0\n");
+	/*
 	if (static_call(kvm_x86_get_cpl)(vcpu) != 0) {
+		ret = -KVM_EPERM;
+		goto out;
+	}
+	*/
+#ifdef CONFIG_KVM_NYX
+	if (!op_64_bit) {
+		nr &= 0xFFFFFFFF;
+		a0 &= 0xFFFFFFFF;
+		a1 &= 0xFFFFFFFF;
+		a2 &= 0xFFFFFFFF;
+		a3 &= 0xFFFFFFFF;
+	}
+
+	trace_printk("KVM: kvm_emulate_hypercall(nr=%lx, a0=%lu, a1=%lx)\n", nr, a0, a1);
+
+	/* kAFL Hypercall Interface (ring 0) */
+	if(kvm_x86_ops.get_cpl(vcpu) == 0) {
+		if(vcpu->kvm->arch.printk_addr && vcpu->kvm->arch.printk_addr == kvm_rip_read(vcpu)){
+			trace_printk("KVM: KVM_EXIT_KAFL_PRINTK\n");
+			vcpu->run->exit_reason = KVM_EXIT_KAFL_PRINTK;
+			kvm_skip_emulated_instruction(vcpu);
+			return 0;
+		}
+	}
+	/* kAFL Hypercall interface */
+	if (nr == HYPERCALL_KAFL_RAX_ID) {
+		u32 id = a0 + KAFL_EXIT_OFFSET;
+		vcpu->run->hypercall.longmode = op_64_bit;
+		switch(id) {
+			case KVM_EXIT_KAFL_SUBMIT_CR3:
+			case KVM_EXIT_KAFL_USER_FAST_ACQUIRE:
+				vcpu->run->hypercall.args[0] = kvm_read_cr3(vcpu);
+				break;
+			case KVM_EXIT_KAFL_PRINTK_ADDR:
+				vcpu->kvm->arch.printk_addr = a1 + 0x3; /* 3 bytes vmcall offset */
+				vcpu->run->hypercall.args[0] = a1;
+				break;
+			default:
+				vcpu->run->hypercall.args[0] = a1;
+				break;
+		}
+
+		vcpu->run->exit_reason = id;
+		++vcpu->stat.hypercalls;
+		kvm_skip_emulated_instruction(vcpu);
+		return 0; // return to userspace handler
+	}
+#endif
+
+	if (kvm_x86_ops.get_cpl(vcpu) != 0) {
 		ret = -KVM_EPERM;
 		goto out;
 	}
