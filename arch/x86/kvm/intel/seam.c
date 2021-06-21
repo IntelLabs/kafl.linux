@@ -543,7 +543,7 @@ static int seam_emulate_tdcall(struct kvm_vcpu *vcpu)
 	}
 
 	fn = kvm_rax_read(vcpu);
-	printk("SEAM: %s(%lx)\n", __func__, fn);
+	//printk("SEAM: %s(%lx)\n", __func__, fn);
 	switch (fn) {
 	case TDCALL_TDVMCALL:
 		if ((kvm_rcx_read(vcpu) >> 32) || (kvm_rcx_read(vcpu) & 0x13)) {
@@ -603,7 +603,14 @@ static int seam_handle_exception(struct kvm_vcpu *vcpu)
 	if (is_machine_check(intr_info) || is_nmi(intr_info))
 		return seamret(vcpu, EXIT_REASON_EXCEPTION_NMI);
 
-	printk("SEAM: !NMI!\n");
+	/*
+	printk("SEAM: !NMI! intr_info: %x, type=%x, vector=%x, valid=%x\n",
+		   	intr_info,
+		   	intr_info & INTR_INFO_INTR_TYPE_MASK,
+		   	intr_info & INTR_INFO_VECTOR_MASK,
+		   	intr_info & INTR_INFO_VALID_MASK);
+	*/
+
 	return handle_exception_nmi(vcpu);
 }
 

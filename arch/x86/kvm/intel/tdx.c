@@ -818,10 +818,10 @@ int handle_tdvmcall(struct kvm_vcpu *vcpu)
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	unsigned long exit_reason;
 	
-	printk("tdx: %s: reason 0x%lx, type: 0x%lx\n",
-				__func__,
-				tdvmcall_exit_reason(vcpu),
-			   	tdvmcall_exit_type(vcpu));
+	//printk("tdx: %s: reason 0x%lx, type: 0x%lx\n",
+	//			__func__,
+	//			tdvmcall_exit_reason(vcpu),
+	//		   	tdvmcall_exit_type(vcpu));
 
 	if (unlikely(tdx->tdvmcall.xmm_mask))
 		goto unsupported;

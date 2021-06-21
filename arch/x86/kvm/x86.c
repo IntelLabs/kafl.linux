@@ -7778,12 +7778,12 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		a3 &= 0xFFFFFFFF;
 	}
 
-	printk("KVM: kvm_emulate_hypercall(nr=%lx, a0=%lu, a1=%lx)\n", nr, a0, a1);
+	//printk("KVM: kvm_emulate_hypercall(nr=%lx, a0=%lu, a1=%lx)\n", nr, a0, a1);
 
 	/* kAFL Hypercall Interface (ring 0) */
 	if(kvm_x86_ops->get_cpl(vcpu) == 0) {
 		if(vcpu->kvm->arch.printk_addr && vcpu->kvm->arch.printk_addr == kvm_rip_read(vcpu)){
-			printk("KVM: KVM_EXIT_KAFL_PRINTK\n");
+			//printk("KVM: KVM_EXIT_KAFL_PRINTK\n");
 			vcpu->run->exit_reason = KVM_EXIT_KAFL_PRINTK;
 			kvm_skip_emulated_instruction(vcpu);
 			return 0;

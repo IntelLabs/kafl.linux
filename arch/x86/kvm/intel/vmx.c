@@ -4699,7 +4699,7 @@ static int handle_desc(struct kvm_vcpu *vcpu)
 void update_cr3_target_control_buffer(struct kvm_vcpu *vcpu, uint64_t val){
 
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	printk("%s(%lx)\n", __func__, val);
+	printk("%s(%llx)\n", __func__, val);
 /*
 	switch(vmx->cr3_target_control_count){
 		case 4:
@@ -5841,9 +5841,6 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu,
 		kvm_skip_emulated_instruction(vcpu);
 		return 1;
 	}
-
-	if (exit_reason == EXIT_REASON_VMCALL)
-		printk("VMX: %s EXIT_REASON_VMCALL\n", __func__);
 
 	if (exit_reason >= kvm_vmx_max_exit_handlers)
 		goto unexpected_vmexit;
