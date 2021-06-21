@@ -5785,12 +5785,13 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu,
 		return 0;
 	}
 
+#ifdef CONFIG_KVM_VMX_PT
 	if(exit_reason == KVM_EXIT_KAFL_TOPA_MAIN_FULL){ /* TOPA_FULL */
-		//printk("EXIT REASON: TOPA_FULL\n");
+		printk("EXIT REASON: TOPA_FULL\n");
 		vcpu->run->exit_reason = KVM_EXIT_KAFL_TOPA_MAIN_FULL;
 		return 0;
 	}
-
+#endif
 	/*
 	 * Note:
 	 * Do not try to fix EXIT_REASON_EPT_MISCONFIG if it caused by
@@ -5840,6 +5841,9 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu,
 		kvm_skip_emulated_instruction(vcpu);
 		return 1;
 	}
+
+	if (exit_reason == EXIT_REASON_VMCALL)
+		printk("VMX: %s EXIT_REASON_VMCALL\n", __func__);
 
 	if (exit_reason >= kvm_vmx_max_exit_handlers)
 		goto unexpected_vmexit;
