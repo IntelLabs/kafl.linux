@@ -426,6 +426,14 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 	return ept_handle_ept_violation(to_kvm_vcpu(vcpu), tdexit_gpa(vcpu), tdexit_exit_qual(vcpu));
 }
 
+static int tdx_handle_topa_full(struct kvm_vcpu *vcpu)
+{
+	//WARN_ON(1);
+	printk("!! TD EXIT REASON: TOPA_FULL\n");
+	vcpu->run->exit_reason = KVM_EXIT_KAFL_TOPA_MAIN_FULL;
+	return 0;
+}
+
 int __tdx_handle_exit(struct kvm_vcpu *vcpu)
 {
 	u16 exit_reason = to_tdx(vcpu)->exit_reason.basic;
@@ -443,6 +451,9 @@ int __tdx_handle_exit(struct kvm_vcpu *vcpu)
 		return tdx_handle_ept_violation(vcpu);
 	case EXIT_REASON_EPT_MISCONFIG:
 		return tdx_handle_ept_misconfig(vcpu);
+	case KVM_EXIT_KAFL_TOPA_MAIN_FULL: /* PT TOPA_FULL */
+		return tdx_handle_topa_full(vcpu);
+
 	default:
 		break;
 	}
