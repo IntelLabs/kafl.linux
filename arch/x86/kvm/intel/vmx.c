@@ -63,11 +63,11 @@
 #include "x86.h"
 
 #ifdef CONFIG_KVM_VMX_FDL
-#include "vmx/vmx_fdl.h"
+#include "intel/vmx_fdl.h"
 #endif
 
 #ifdef CONFIG_KVM_VMX_PT
-#include "vmx/vmx_pt.h"
+#include "intel/vmx_pt.h"
 static int handle_monitor_trap(struct kvm_vcpu *vcpu);
 #endif
 

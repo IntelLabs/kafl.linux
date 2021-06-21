@@ -13,7 +13,7 @@
 #include "vmx_ops.h"
 
 #ifdef CONFIG_KVM_VMX_PT
-#include "vmx/vmx_pt.h"
+#include "intel/vmx_pt.h"
 #endif
 
 extern const u32 vmx_msr_index[];

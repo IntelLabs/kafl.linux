@@ -62,7 +62,7 @@
 #include "vfio.h"
 
 #ifdef CONFIG_KVM_VMX_FDL
-#include "vmx/vmx_fdl.h"
+#include "intel/vmx_fdl.h"
 #endif
 
 #define CREATE_TRACE_POINTS

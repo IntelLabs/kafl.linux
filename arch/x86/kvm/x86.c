@@ -29,7 +29,7 @@
 #include "lapic.h"
 
 #ifdef CONFIG_KVM_VMX_FDL
-#include "vmx/vmx_fdl.h"
+#include "intel/vmx_fdl.h"
 #endif
 
 #include <linux/clocksource.h>
@@ -7725,7 +7725,7 @@ unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,
 #ifdef CONFIG_KVM_VMX_PT
 	/* kAFL Hypercall Interface (ring 0) */
 	if(kvm_x86_ops->get_cpl(vcpu) == 0) {
-		if(kvm->arch.printk_addr && kvm->arch.printk_addr == kvm_register_read(vcpu, VCPU_REGS_RIP)){
+		if(vcpu->kvm->arch.printk_addr && vcpu->kvm->arch.printk_addr == kvm_register_read(vcpu, VCPU_REGS_RIP)){
 			vcpu->run->exit_reason = KVM_EXIT_KAFL_PRINTK; 
 			kvm_x86_ops->skip_emulated_instruction(vcpu);
 			return 0;
@@ -7741,7 +7741,7 @@ unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,
 				break;
 			case (KVM_EXIT_KAFL_PRINTK_ADDR-KAFL_EXIT_OFFSET): /* still in use?  */
 				vcpu->run->exit_reason = a0+KAFL_EXIT_OFFSET;
-				kvm->arch.printk_addr = a1 + 0x3; /* 3 bytes vmcall offset */
+				vcpu->kvm->arch.printk_addr = a1 + 0x3; /* 3 bytes vmcall offset */
 				vcpu->run->hypercall.args[0] = a1;
 				break;
 			default:
@@ -7753,11 +7753,6 @@ unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,
 		return 0;
 	}
 #endif
-
-	if (kvm_x86_ops->get_cpl(vcpu) != 0) {
-		ret = -KVM_EPERM;
-		goto out;
-	}
 
 	switch (nr) {
 	case KVM_HC_VAPIC_POLL_IRQ:
@@ -7798,10 +7793,14 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 
 	op_64_bit = is_64_bit_mode(vcpu);
 
+	// kAFL hypercalls may also come from user..
+	WARN_ONCE(kvm_x86_ops->get_cpl(vcpu) != 0, "Hypercall with CPL!=0\n");
+	/*
 	if (kvm_x86_ops->get_cpl(vcpu) != 0) {
 		ret = -KVM_EPERM;
 		goto out;
 	}
+	*/
 
 	nr = kvm_rax_read(vcpu);
 	a0 = kvm_rbx_read(vcpu);
@@ -7810,7 +7809,7 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 	a3 = kvm_rsi_read(vcpu);
 
 	ret = __kvm_emulate_hypercall(vcpu, nr, a0, a1, a2, a3, op_64_bit);
-out:
+//out:
 	if (!op_64_bit)
 		ret = (u32)ret;
 	kvm_rax_write(vcpu, ret);
