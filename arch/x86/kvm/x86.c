@@ -9845,12 +9845,12 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		a3 &= 0xFFFFFFFF;
 	}
 
-	printk("KVM: kvm_emulate_hypercall(nr=%lx, a0=%lu, a1=%lx)\n", nr, a0, a1);
+	trace_printk("KVM: kvm_emulate_hypercall(nr=%lx, a0=%lu, a1=%lx)\n", nr, a0, a1);
 
 	/* kAFL Hypercall Interface (ring 0) */
 	if(kvm_x86_ops.get_cpl(vcpu) == 0) {
 		if(vcpu->kvm->arch.printk_addr && vcpu->kvm->arch.printk_addr == kvm_rip_read(vcpu)){
-			printk("KVM: KVM_EXIT_KAFL_PRINTK\n");
+			trace_printk("KVM: KVM_EXIT_KAFL_PRINTK\n");
 			vcpu->run->exit_reason = KVM_EXIT_KAFL_PRINTK;
 			kvm_skip_emulated_instruction(vcpu);
 			return 0;
@@ -9858,27 +9858,26 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 	}
 	/* kAFL Hypercall interface */
 	if (nr == HYPERCALL_KAFL_RAX_ID) {
+		u32 id = a0 + KAFL_EXIT_OFFSET;
 		vcpu->run->hypercall.longmode = op_64_bit;
-		switch(a0){
-			case (KVM_EXIT_KAFL_SUBMIT_CR3-KAFL_EXIT_OFFSET):
-			case (KVM_EXIT_KAFL_USER_FAST_ACQUIRE-KAFL_EXIT_OFFSET):
-				vcpu->run->exit_reason = a0+KAFL_EXIT_OFFSET;
+		switch(id) {
+			case KVM_EXIT_KAFL_SUBMIT_CR3:
+			case KVM_EXIT_KAFL_USER_FAST_ACQUIRE:
 				vcpu->run->hypercall.args[0] = kvm_read_cr3(vcpu);
 				break;
-			case (KVM_EXIT_KAFL_PRINTK_ADDR-KAFL_EXIT_OFFSET): /* still in use?  */
-				vcpu->run->exit_reason = a0+KAFL_EXIT_OFFSET;
+			case KVM_EXIT_KAFL_PRINTK_ADDR:
 				vcpu->kvm->arch.printk_addr = a1 + 0x3; /* 3 bytes vmcall offset */
 				vcpu->run->hypercall.args[0] = a1;
 				break;
 			default:
-				vcpu->run->exit_reason = a0+KAFL_EXIT_OFFSET;
 				vcpu->run->hypercall.args[0] = a1;
 				break;
 		}
 
+		vcpu->run->exit_reason = id;
 		++vcpu->stat.hypercalls;
 		kvm_skip_emulated_instruction(vcpu);
-		return 0; // skip to user
+		return 0; // return to userspace handler
 	}
 #endif
 

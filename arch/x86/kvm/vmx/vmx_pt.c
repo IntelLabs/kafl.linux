@@ -315,12 +315,6 @@ static long vmx_pt_ioctl(struct file *filp, unsigned int ioctl, unsigned long ar
 	is_configured = vmx_pt_config->configured;
 	r = -EINVAL;
 	
-	/*
-	if (vmx_pt_config->reset){
-		vmx_pt_config->reset = false;
-		prepare_topa(vmx_pt_config);
-	}
-	*/
 	spin_lock(&vmx_pt_config->spinlock);
 	
 	switch (ioctl) {
@@ -668,7 +662,7 @@ void vmx_pt_vmentry(struct vcpu_vmx_pt *vmx_pt){
 	}
 	
 	if ((data & BIT(5))){
-		printk("ERROR: TOPA STOP fml!\n");
+		printk("ERROR: TOPA STOPPED on entry!\n");
 	}
 
 
@@ -685,12 +679,6 @@ void vmx_pt_vmentry(struct vcpu_vmx_pt *vmx_pt){
 	if (enabled && vmx_pt && vmx_pt->configured){
 			spin_lock(&vmx_pt->spinlock);
 			//vmx_pt_setup_vmx_autoload_msr(vmx_pt, true);
-			/*
-			if (vmx_pt->reset){
-				vmx_pt->reset = false;
-				prepare_topa(vmx_pt);
-			}
-			*/
 			vmx_pt->cpu = raw_smp_processor_id();
 			//printk("vmentry on cpu %d\n", raw_smp_processor_id());
 
@@ -720,7 +708,7 @@ void vmx_pt_vmexit(struct vcpu_vmx_pt *vmx_pt){
 	}
 
 	if ((data & BIT(5))){
-		printk("ERROR: TOPA STOP fml!\n");
+		printk("ERROR: TOPA STOPPED on exit!\n");
 	}
 	
 	if (enabled && vmx_pt && vmx_pt->configured){
@@ -826,7 +814,6 @@ static int vmx_pt_setup_topa(struct vcpu_vmx_pt *vmx_pt)
 	//wrmsrl(MSR_IA32_RTIT_OUTPUT_BASE, vmx_pt->ia32_rtit_output_base);
 	//wrmsrl(MSR_IA32_RTIT_OUTPUT_MASK_PTRS, vmx_pt->ia32_rtit_output_mask_ptrs);
 	
-	//prepare_topa(vmx_pt);
 	vmx_pt->reset = true;
 	
 	return 0;

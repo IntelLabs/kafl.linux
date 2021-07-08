@@ -5419,7 +5419,7 @@ static int handle_desc(struct kvm_vcpu *vcpu)
 void update_cr3_target_control_buffer(struct kvm_vcpu *vcpu, uint64_t val){
 
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	printk("%s(%llx)\n", __func__, val);
+	trace_printk("%s(%llx)\n", __func__, val);
 /*
 	switch(vmx->cr3_target_control_count){
 		case 4:
@@ -7454,11 +7454,11 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 
 	vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
 
+	pt_guest_exit(vmx);
+
 #ifdef CONFIG_KVM_NYX
 	vmx_pt_vmexit(vmx->vmx_pt_config);
 #endif
-
-	pt_guest_exit(vmx);
 
 	kvm_load_host_xsave_state(vcpu);
 
