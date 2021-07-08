@@ -189,10 +189,6 @@ static struct file_operations vmx_pt_fops = {
 	.llseek         = noop_llseek,
 };
 
-static void prepare_topa(struct vcpu_vmx_pt *vmx_pt_config){
-	vmx_pt_config->ia32_rtit_output_mask_ptrs = 0x7fLL;
-}
-
 inline static int vmx_pt_get_data_size(struct vcpu_vmx_pt *vmx_pt){
 	/* get size of traced data */
 	u64 topa_base = READ_ONCE(vmx_pt->ia32_rtit_output_mask_ptrs);
@@ -299,6 +295,8 @@ static long vmx_pt_ioctl(struct file *filp, unsigned int ioctl, unsigned long ar
 	void __user *argp;
 	struct vmx_pt_filter_iprs filter_iprs;
 	struct vmx_pt_multi_cr3 multi_cr3_addr;
+	long r = -EINVAL;
+	bool is_configured;
 
 
 	struct vcpu_vmx_pt *vmx_pt_config = filp->private_data;
@@ -307,15 +305,8 @@ static long vmx_pt_ioctl(struct file *filp, unsigned int ioctl, unsigned long ar
 		return -EINVAL;
 	}
 	
-	bool is_configured = vmx_pt_config->configured;
-	long r = -EINVAL;
+	is_configured = vmx_pt_config->configured;
 	
-	/*
-	if (vmx_pt_config->reset){
-		vmx_pt_config->reset = false;
-		prepare_topa(vmx_pt_config);
-	}
-	*/
 	spin_lock(&vmx_pt_config->spinlock);
 	
 	switch (ioctl) {
@@ -659,7 +650,7 @@ void vmx_pt_vmentry(struct vcpu_vmx_pt *vmx_pt){
 	}
 	
 	if ((data & BIT(5))){
-		printk("ERROR: TOPA STOP fml!\n");
+		printk("ERROR: TOPA STOPPED on entry!\n");
 	}
 
 
@@ -676,12 +667,6 @@ void vmx_pt_vmentry(struct vcpu_vmx_pt *vmx_pt){
 	if (enabled && vmx_pt && vmx_pt->configured){
 			spin_lock(&vmx_pt->spinlock);
 			//vmx_pt_setup_vmx_autoload_msr(vmx_pt, true);
-			/*
-			if (vmx_pt->reset){
-				vmx_pt->reset = false;
-				prepare_topa(vmx_pt);
-			}
-			*/
 			vmx_pt->cpu = raw_smp_processor_id();
 			//printk("vmentry on cpu %d\n", raw_smp_processor_id());
 
@@ -711,7 +696,7 @@ void vmx_pt_vmexit(struct vcpu_vmx_pt *vmx_pt){
 	}
 
 	if ((data & BIT(5))){
-		printk("ERROR: TOPA STOP fml!\n");
+		printk("ERROR: TOPA STOPPED on exit!\n");
 	}
 	
 	if (enabled && vmx_pt && vmx_pt->configured){
@@ -817,7 +802,6 @@ static int vmx_pt_setup_topa(struct vcpu_vmx_pt *vmx_pt)
 	//wrmsrl(MSR_IA32_RTIT_OUTPUT_BASE, vmx_pt->ia32_rtit_output_base);
 	//wrmsrl(MSR_IA32_RTIT_OUTPUT_MASK_PTRS, vmx_pt->ia32_rtit_output_mask_ptrs);
 	
-	//prepare_topa(vmx_pt);
 	vmx_pt->reset = true;
 	
 	return 0;

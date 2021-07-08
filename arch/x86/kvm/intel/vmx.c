@@ -5787,7 +5787,7 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu,
 
 #ifdef CONFIG_KVM_VMX_PT
 	if(exit_reason == KVM_EXIT_KAFL_TOPA_MAIN_FULL){ /* TOPA_FULL */
-		printk("EXIT REASON: TOPA_FULL\n");
+		//printk("VMX: exit on TOPA_FULL.\n");
 		vcpu->run->exit_reason = KVM_EXIT_KAFL_TOPA_MAIN_FULL;
 		return 0;
 	}
@@ -6586,6 +6586,17 @@ static void vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	vcpu->arch.regs_dirty = 0;
 
 	pt_guest_exit(vmx);
+#ifdef CONFIG_KVM_VMX_PT
+		//if(!is_guest_mode(vcpu)){
+		vmx_pt_vmexit(vmx->vmx_pt_config);
+		/*
+		if(vmx_pt_multi_cr3_enabled(vmx->vmx_pt_config)) {
+			printk("MULTI-CR3!\n");
+			vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) & ~(CPU_BASED_CR3_LOAD_EXITING));
+		}
+		*/
+		//}
+#endif
 
 	/*
 	 * eager fpu is enabled if PKEY is supported and CR4 is switched
@@ -6609,17 +6620,6 @@ static void vmx_vcpu_run(struct kvm_vcpu *vcpu)
 		kvm_machine_check();
 
 	if (vmx->fail || (vmx->exit_reason & VMX_EXIT_REASONS_FAILED_VMENTRY)) {
-#ifdef CONFIG_KVM_VMX_PT
-		//if(!is_guest_mode(vcpu)){
-		vmx_pt_vmexit(vmx->vmx_pt_config);
-		/*
-		if(vmx_pt_multi_cr3_enabled(vmx->vmx_pt_config)) {
-			printk("MULTI-CR3!\n");
-			vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) & ~(CPU_BASED_CR3_LOAD_EXITING));
-		}
-		*/
-		//}
-#endif
 		return;
 	}
 
@@ -6628,17 +6628,6 @@ static void vmx_vcpu_run(struct kvm_vcpu *vcpu)
 
 	vmx_recover_nmi_blocking(vmx);
 	vmx_complete_interrupts(vmx);
-#ifdef CONFIG_KVM_VMX_PT
-	//if(!is_guest_mode(vcpu)){
-	vmx_pt_vmexit(vmx->vmx_pt_config);
-	/*
-	if(vmx_pt_multi_cr3_enabled(vmx->vmx_pt_config)){
-		printk("MULTI-CR3!\n");
-		vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) & ~(CPU_BASED_CR3_LOAD_EXITING));
-	}
-	*/
-	//}
-#endif
 }
 
 static struct kvm *vmx_vm_alloc(void)

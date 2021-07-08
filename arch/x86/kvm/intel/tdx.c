@@ -883,17 +883,11 @@ static int tdx_handle_ept_misconfig(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
-static int tdx_handle_topa_full(struct kvm_vcpu *vcpu)
-{
-	//WARN_ON(1);
-	printk("!! TD EXIT REASON: TOPA_FULL\n");
-	vcpu->run->exit_reason = KVM_EXIT_KAFL_TOPA_MAIN_FULL;
-	return 0;
-}
-
 /*
  * Separate from the top-level exit handler to avoid cyclical recursion, as
  * the SEAM emulator may invoke TDX's exit handler via vmx_handle_exit().
+ *
+ * Return 1 to continue VM execution, else exit
  */
 static int __tdx_handle_exit(struct kvm_vcpu *vcpu)
 {
@@ -912,8 +906,6 @@ static int __tdx_handle_exit(struct kvm_vcpu *vcpu)
 		return tdx_handle_ept_violation(vcpu);
 	case EXIT_REASON_EPT_MISCONFIG:
 		return tdx_handle_ept_misconfig(vcpu);
-	case KVM_EXIT_KAFL_TOPA_MAIN_FULL: /* PT TOPA_FULL */
-		return tdx_handle_topa_full(vcpu);
 	default:
 		break;
 	}
