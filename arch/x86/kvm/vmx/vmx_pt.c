@@ -96,7 +96,7 @@
 
 
 #define TOPA_MAIN_ORDER					10	/*  1MB */
-#define TOPA_FALLBACK_ORDER				4	/* 64KB */
+#define TOPA_FALLBACK_ORDER				6	/* 64KB */
 
 #define TOPA_MAIN_SIZE					((1 << TOPA_MAIN_ORDER)*(1 << PAGE_SHIFT))
 #define TOPA_FALLBACK_SIZE				((1 << TOPA_FALLBACK_ORDER)*(1 << PAGE_SHIFT))
