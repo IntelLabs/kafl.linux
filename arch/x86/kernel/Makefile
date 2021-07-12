@@ -146,6 +146,7 @@ obj-$(CONFIG_X86_PMEM_LEGACY_DEVICE) += pmem.o
 obj-$(CONFIG_JAILHOUSE_GUEST)	+= jailhouse.o
 obj-$(CONFIG_INTEL_TDX_GUEST)	+= tdcall.o tdx.o tdx-filter.o
 obj-$(CONFIG_TDX_FUZZ)		+= tdx-fuzz.o
+obj-$(CONFIG_TDX_FUZZ_KAFL)	+= tdx-fuzz-kafl.o
 
 obj-$(CONFIG_EISA)		+= eisa.o
 obj-$(CONFIG_PCSPKR_PLATFORM)	+= pcspeaker.o
