@@ -926,12 +926,14 @@ static void __init print_unknown_bootoptions(void)
 	memblock_free(unknown_options, len);
 }
 
+#include <kafl_user.h>
 asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
 
 	set_task_stack_end_magic(&init_task);
+	tdx_fuzz_enable();
 	smp_setup_processor_id();
 	debug_objects_early_init();
 	init_vmlinux_build_id();
@@ -1133,7 +1135,9 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	acpi_subsystem_init();
 	arch_post_acpi_subsys_init();
 	kcsan_init();
-
+	
+	// end of early boot fuzzing
+	tdx_fuzz_finish();
 	/* Do the rest non-__init'ed, we're now alive */
 	arch_call_rest_init();
 

@@ -886,6 +886,13 @@ config TDX_FUZZ
 	help
 	  Support fuzzing of TDX guests against attacks from hosts
 
+config TDX_FUZZ_KAFL
+       bool "kAFL Fuzzing for TDX"
+       depends on INTEL_TDX_GUEST && !TDX_FUZZ
+	   select INTEL_TDX_KVM_SDV
+       help
+	 Support fuzzing of TDX guests using kAFL
+
 endif # HYPERVISOR_GUEST
 
 source "arch/x86/Kconfig.cpu"

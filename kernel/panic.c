@@ -588,11 +588,13 @@ static void print_oops_end_marker(void)
  * Called when the architecture exits its oops handler, after printing
  * everything.
  */
+#include <kafl_user.h>
 void oops_exit(void)
 {
 	do_oops_enter_exit();
 	print_oops_end_marker();
 	kmsg_dump(KMSG_DUMP_OOPS);
+	kAFL_hypercall(HYPERCALL_KAFL_PANIC, 0);
 }
 
 struct warn_args {

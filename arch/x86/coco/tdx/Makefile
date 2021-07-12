@@ -3,3 +3,4 @@
 CFLAGS_tdx.o   += -fno-stack-protector
 obj-y += tdx.o tdcall.o attest.o filter.o tdx-tests.o
 obj-$(CONFIG_TDX_FUZZ)	+= tdx-fuzz.o
+obj-$(CONFIG_TDX_FUZZ_KAFL)    += tdx-fuzz-kafl.o
