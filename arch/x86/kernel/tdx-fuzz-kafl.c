@@ -116,7 +116,7 @@ void agent_init(void)
 u64 __tdx_fuzz(u64 var)
 {
 	if (ve_pos < ve_num) {
-		//hprintf("replace %llx by %llx\n", var, ve_buf[ve_pos]);
+		//pr_debug("replace %llx by %llx\n", var, ve_buf[ve_pos]);
 		var = ve_buf[ve_pos];
 		ve_pos++;
 	}
@@ -176,13 +176,13 @@ void tdx_fuzz_finish()
 
 	agent_enabled = false;
 
-	hprintf("[*] Injected %d values, missed %d.\n", ve_pos, ve_mis);
-	//unsigned i;
-	//for (i=0; i<TDX_FUZZ_MAX; i++) {
-	//	if (location_stats[i] != 0) {
-	//		hprintf("\tstat[%u] = %lu\n", i, location_stats[i]);
-	//	}
-	//}
+	pr_info("[*] Injected %d values, missed %d.\n", ve_pos, ve_mis);
+	unsigned i;
+	for (i=0; i<TDX_FUZZ_MAX; i++) {
+		if (location_stats[i] != 0) {
+			pr_debug("\tstat[%u] = %lu\n", i, location_stats[i]);
+		}
+	}
 
 	// Stops tracing and restore the snapshot
 	// Non-zero argument triggers stream_expand mutation in kAFL
