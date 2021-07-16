@@ -735,6 +735,10 @@ static void __cold _credit_init_bits(size_t bits)
 
 static bool trust_cpu __initdata = IS_ENABLED(CONFIG_RANDOM_TRUST_CPU);
 static bool trust_bootloader __initdata = IS_ENABLED(CONFIG_RANDOM_TRUST_BOOTLOADER);
+__init void random_enable_trust_cpu(void)
+{
+	trust_cpu = true;
+}
 static int __init parse_trust_cpu(char *arg)
 {
 	return kstrtobool(arg, &trust_cpu);
