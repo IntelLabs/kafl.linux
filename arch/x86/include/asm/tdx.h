@@ -72,19 +72,29 @@ enum tdx_fuzz_loc {
 	TDX_FUZZ_MAX
 };
 
+enum tdx_fuzz_event {
+	TDX_FUZZ_DONE,
+	TDX_FUZZ_PANIC,
+	TDX_FUZZ_KASAN,
+	TDX_FUZZ_UBSAN,
+	TDX_FUZZ_HALT,
+	TDX_FUZZ_REBOOT,
+	TDX_FUZZ_SAFE_HALT,
+	TDX_FUZZ_TIMEOUT,
+	TDX_FUZZ_EVENT_MAX
+};
+
 #ifdef CONFIG_TDX_FUZZ
 u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc);
 bool tdx_fuzz_err(enum tdx_fuzz_loc loc);
 #elif CONFIG_TDX_FUZZ_KAFL
 u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc);
-void tdx_fuzz_finish(void);
+void tdx_fuzz_event(enum tdx_fuzz_event e);
 void tdx_fuzz_enable(void);
 static inline bool tdx_fuzz_err(enum tdx_fuzz_loc loc) { return false; }
 #else
 static inline u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc) { return var; };
 static inline bool tdx_fuzz_err(enum tdx_fuzz_loc loc) { return false; }
-static inline void tdx_fuzz_finish(void) { return; };
-static inline void tdx_fuzz_enable(void) { return; };
 #endif
 
 #else

@@ -281,6 +281,11 @@ void panic(const char *fmt, ...)
 	 */
 	kgdb_panic(buf);
 
+#ifdef CONFIG_TDX_FUZZ_KAFL
+	/* after printing stack and optional kgdb, raise to kAFL */
+	tdx_fuzz_event(TDX_FUZZ_PANIC);
+#endif
+
 	/*
 	 * If we have crashed and we have a crash kernel loaded let it handle
 	 * everything else.
@@ -588,13 +593,16 @@ static void print_oops_end_marker(void)
  * Called when the architecture exits its oops handler, after printing
  * everything.
  */
-#include <kafl_user.h>
 void oops_exit(void)
 {
 	do_oops_enter_exit();
 	print_oops_end_marker();
 	kmsg_dump(KMSG_DUMP_OOPS);
-	kAFL_hypercall(HYPERCALL_KAFL_PANIC, 0);
+
+#ifdef CONFIG_TDX_FUZZ_KAFL
+	/* raise issue to kAFL */
+	tdx_fuzz_event(TDX_FUZZ_PANIC);
+#endif
 }
 
 struct warn_args {

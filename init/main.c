@@ -933,7 +933,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	char *after_dashes;
 
 	set_task_stack_end_magic(&init_task);
-	tdx_fuzz_enable();
+	//tdx_fuzz_enable(); // EARLY_BOOT_HARNESS
 	smp_setup_processor_id();
 	debug_objects_early_init();
 	init_vmlinux_build_id();
@@ -985,8 +985,11 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	setup_log_buf(0);
 	vfs_caches_init_early();
 	sort_main_extable();
+	// end of early boot harness before trap_init() / mm_init()?
+	tdx_fuzz_event(TDX_FUZZ_DONE);
 	trap_init();
 	mm_init();
+	tdx_fuzz_enable(); // POST_TRAP_HARNESS
 
 	ftrace_init();
 
@@ -1137,7 +1140,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	kcsan_init();
 	
 	// end of early boot fuzzing
-	tdx_fuzz_finish();
+	tdx_fuzz_event(TDX_FUZZ_DONE);
 	/* Do the rest non-__init'ed, we're now alive */
 	arch_call_rest_init();
 

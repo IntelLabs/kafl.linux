@@ -336,6 +336,9 @@ fail:
 	show_regs(regs);
 
 halt_loop:
+#ifdef CONFIG_TDX_FUZZ_KAFL
+	tdx_fuzz_event(TDX_FUZZ_HALT);
+#endif
 	while (true)
 		halt();
 }

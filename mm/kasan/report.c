@@ -171,6 +171,10 @@ static void end_report(unsigned long *flags, void *addr)
 	add_taint(TAINT_BAD_PAGE, LOCKDEP_NOW_UNRELIABLE);
 	lockdep_on();
 	kasan_enable_current();
+
+#ifdef CONFIG_TDX_FUZZ_KAFL
+	tdx_fuzz_event(TDX_FUZZ_KASAN);
+#endif
 }
 
 static void print_error_description(struct kasan_report_info *info)
