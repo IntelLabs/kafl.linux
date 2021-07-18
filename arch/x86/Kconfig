@@ -1089,7 +1089,13 @@ config TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
 	  Interesting stuff seems to happen mostly at levels 3 + 4.
 	  Some virtIO also on level 6.
 
-endif #HYPERVISOR_GUEST
+config TDX_FUZZ_KAFL_DETERMINISTIC
+       bool "kAFL Fuzzing for TDX (make kernel more deterministic)"
+       depends on TDX_FUZZ_KAFL
+       help
+	 Reduce number of worqueues etc. to make fuzzing more deterministic
+
+endif # HYPERVISOR_GUEST
 
 source "arch/x86/Kconfig.cpu"
 
