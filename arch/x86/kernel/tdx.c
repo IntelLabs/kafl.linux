@@ -480,6 +480,11 @@ static __cpuidle void tdx_safe_halt(void)
 	const bool irq_disabled = false;
 	const bool do_sti = true;
 
+#ifdef CONFIG_TDX_FUZZ_KAFL
+	// don't wait for guest to time out
+	tdx_fuzz_event(TDX_FUZZ_SAFE_HALT);
+#endif
+
 	_tdx_halt(irq_disabled, do_sti);
 }
 
