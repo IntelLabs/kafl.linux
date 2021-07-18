@@ -130,6 +130,10 @@ static void end_report(unsigned long *flags, unsigned long addr)
 	if (kasan_arg_fault == KASAN_ARG_FAULT_PANIC)
 		panic("kasan.fault=panic set ...\n");
 	kasan_enable_current();
+
+#ifdef CONFIG_TDX_FUZZ_KAFL
+	tdx_fuzz_event(TDX_FUZZ_KASAN);
+#endif
 }
 
 static void print_stack(depot_stack_handle_t stack)

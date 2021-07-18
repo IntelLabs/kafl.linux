@@ -615,6 +615,11 @@ static void native_machine_emergency_restart(void)
 		reboot_type = BOOT_EFI;
 	}
 
+#ifdef CONFIG_TDX_FUZZ_KAFL
+	// covers force-restart and emergency_restart
+	tdx_fuzz_event(TDX_FUZZ_REBOOT);
+#endif
+
 	for (;;) {
 		/* Could also try the reset bit in the Hammer NB */
 		switch (reboot_type) {
@@ -717,6 +722,11 @@ void native_machine_shutdown(void)
 
 #ifdef CONFIG_X86_64
 	x86_platform.iommu_shutdown();
+#endif
+
+#ifdef CONFIG_TDX_FUZZ_KAFL
+	// covers native_machine_{restart,halt,power_off}
+	tdx_fuzz_event(TDX_FUZZ_HALT);
 #endif
 }
 
