@@ -1009,7 +1009,6 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 
 #ifdef CONFIG_TDX_FUZZ_HARNESS_POST_TRAP
 	tdx_fuzz_event(TDX_FUZZ_ENABLE);
-#endif
 	tdx_trace_locs("post_trap");
 
 	ftrace_init();
@@ -1292,10 +1291,72 @@ trace_initcall_finish_cb(void *data, initcall_t fn, int ret)
 
 static ktime_t initcall_calltime;
 
-#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
 const char *fuzz_targets[] = {
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+		/*
+		 * Basic PCI init - seems to work well and is stable
+		 */
         "pci_subsys_init",
         "pci_arch_init"
+
+		/*
+		 * No untrusted inputs consumed here
+		 * (all higher level PCI function should be disabled)
+		 *
+		"pci_iommu_init",
+		"pci_proc_init",
+		"pcie_portdrv_init",
+		"serial_pci_driver_init",
+		"ahci_pci_driver_init",
+		"xhci_pci_driver_init",
+
+		"pci_resource_alignment_sysfs_init",
+		"pci_sysfs_init",
+
+		"pcibus_class_init",
+		"pci_driver_init",
+
+		"acpi_pci_init",
+		 */
+#endif
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_ACPI
+		/* This one is fun but its not clear if bugs are real.
+		 *
+		 * Our setup triggers ACPI PIO to ranges that are not in tdx_allowed_port()
+		 * and prevent us from booting outside debug mode. It is not clear why
+		 * this is happening, could be the modified Qemu -machine type.
+		 *
+		 * Reproducer for https://jira.devtools.intel.com/browse/LCK-10311
+		 */
+		"acpi_init",
+#endif
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_VIRTIO
+		/*
+		 * These consume just a few bytes of input but somehow execute very slow/funky.
+		 * The harness does not seem to terminate at all. Need to debug whats going on.
+		 *
+        //"virtio_init", - much earlier in boot, and no inputs consumed(?)
+        "virtio_mmio_init",
+        "virtio_pci_driver_init",
+		"virtio_input_driver_init"
+		*/
+
+		/*
+		 * virtio-net - very good example to see fuzzing + bugs working
+		 */
+        "virtio_net_driver_init",
+
+		/*
+		 * p9 init seems very small, perhaps initializes on mount()?
+		 *
+        "p9_virtio_init",
+		"init_v9fs"
+		*/
+		
+		// others...?
+        //"deferred_probe_initcall",
+#endif
 };
 #endif
 
@@ -1332,38 +1393,40 @@ int __init_or_module do_one_initcall(initcall_t fn)
 	int count = preempt_count();
 	char msgbuf[64];
 	int ret;
-#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
-        int i;
-        bool fuzzing = false;
-        static int fuzz_count = 0;
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	int i;
+	bool fuzzing = false;
+	static int fuzz_count = 0;
 #endif
 
 	if (initcall_blacklisted(fn))
 		return -EPERM;
 
-#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
-        for (i = 0; i < sizeof(fuzz_targets)/sizeof(char *); i++) {
-                char buf[128];
-                sprint_symbol_no_offset(buf, (unsigned long)fn);
-                if (strncmp(buf, fuzz_targets[i], 128) == 0) {
-                        fuzzing = true;
-                        fuzz_count++;
-                        tdx_fuzz_event(TDX_FUZZ_ENABLE);
-                        break;
-
-                }
-        }
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	for (i = 0; i < sizeof(fuzz_targets)/sizeof(char *); i++) {
+		char buf[128];
+		sprint_symbol_no_offset(buf, (unsigned long)fn);
+		if (strncmp(buf, fuzz_targets[i], 128) == 0) {
+			fuzzing = true;
+			fuzz_count++;
+			tdx_fuzz_event(TDX_FUZZ_ENABLE);
+			break;
+		}
+	}
 #endif
 
 	do_trace_initcall_start(fn);
 	ret = fn();
 	do_trace_initcall_finish(fn, ret);
 
-#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
-        if (fuzzing && (fuzz_count >= sizeof(fuzz_targets) / sizeof(char *)))
-                tdx_fuzz_event(TDX_FUZZ_DONE);
-        else if (fuzzing)
-                tdx_fuzz_event(TDX_FUZZ_PAUSE);
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	if (fuzzing) {
+		if (fuzz_count >= sizeof(fuzz_targets) / sizeof(char *)) {
+			tdx_fuzz_event(TDX_FUZZ_DONE);
+		} else {
+			tdx_fuzz_event(TDX_FUZZ_PAUSE);
+		}
+	}
 #endif
 
 	msgbuf[0] = 0;
@@ -1435,24 +1498,17 @@ static void __init do_initcall_level(int level, char *command_line)
 		   NULL, ignore_unknown_bootoption);
 
 	trace_initcall_level(initcall_level_names[level]);
-#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_3
-	if (level == 3)
-		tdx_fuzz_event(TDX_FUZZ_ENABLE);
-#endif
-#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_4
-	if (level == 4)
+
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS
+	if (level == CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL)
 		tdx_fuzz_event(TDX_FUZZ_ENABLE);
 #endif
 
 	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
 		do_one_initcall(initcall_from_entry(fn));
 
-#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_3
-	if (level == 3)
-		tdx_fuzz_event(TDX_FUZZ_DONE);
-#endif
-#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_4
-	if (level == 4)
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS
+	if (level == CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL)
 		tdx_fuzz_event(TDX_FUZZ_DONE);
 #endif
 }
@@ -1492,10 +1548,10 @@ static void __init do_basic_setup(void)
 	driver_init();
 	init_irq_proc();
 	do_ctors();
-#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS && !defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
-	tdx_fuzz_event(TDX_FUZZ_ENABLE);
-#endif
 	do_initcalls();
+#if defined CONFIG_TDX_FUZZ_HARNESS_DO_BASIC || defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	tdx_fuzz_event(TDX_FUZZ_DONE);
+#endif
 }
 
 static void __init do_pre_smp_initcalls(void)
@@ -1615,6 +1671,11 @@ static int __ref kernel_init(void *unused)
 	rcu_end_inkernel_boot();
 
 	do_sysctl_args();
+
+#if defined CONFIG_TDX_FUZZ_HARNESS_FULL_BOOT || defined CONFIG_TDX_FUZZ_HARNESS_REST_INIT
+	// End fuzzing before dropping to userspace
+	tdx_fuzz_event(TDX_FUZZ_DONE);
+#endif
 
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
