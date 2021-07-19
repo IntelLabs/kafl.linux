@@ -933,7 +933,9 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	char *after_dashes;
 
 	set_task_stack_end_magic(&init_task);
-	//tdx_fuzz_enable(); // EARLY_BOOT_HARNESS
+#if defined CONFIG_TDX_FUZZ_HARNESS_EARLYBOOT  || defined CONFIG_TDX_FUZZ_HARNESS_START_KERNEL || defined CONFIG_TDX_FUZZ_HARNESS_FULL_BOOT
+	tdx_fuzz_enable(); // EARLY_BOOT_HARNESS
+#endif
 	smp_setup_processor_id();
 	debug_objects_early_init();
 	init_vmlinux_build_id();
@@ -985,11 +987,16 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	setup_log_buf(0);
 	vfs_caches_init_early();
 	sort_main_extable();
+#ifdef CONFIG_TDX_FUZZ_HARNESS_EARLYBOOT
 	// end of early boot harness before trap_init() / mm_init()?
 	tdx_fuzz_event(TDX_FUZZ_DONE);
+#endif
 	trap_init();
 	mm_init();
+
+#ifdef CONFIG_TDX_FUZZ_HARNESS_POST_TRAP
 	tdx_fuzz_enable(); // POST_TRAP_HARNESS
+#endif
 
 	ftrace_init();
 
@@ -1139,8 +1146,13 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	arch_post_acpi_subsys_init();
 	kcsan_init();
 	
+#if defined CONFIG_TDX_FUZZ_HARNESS_POST_TRAP || defined TDX_FUZZ_HARNESS_START_KERNEL
 	// end of early boot fuzzing
 	tdx_fuzz_event(TDX_FUZZ_DONE);
+#endif
+#if defined CONFIG_TDX_FUZZ_HARNESS_REST_INIT
+	tdx_fuzz_enable();
+#endif
 	/* Do the rest non-__init'ed, we're now alive */
 	arch_call_rest_init();
 
@@ -1405,10 +1417,19 @@ static void __init do_initcalls(void)
 static void __init do_basic_setup(void)
 {
 	cpuset_init_smp();
+#if defined CONFIG_TDX_FUZZ_HARNESS_DO_BASIC
+	tdx_fuzz_enable(); // BASIC_SETUP_HARNESS
+#endif
 	driver_init();
 	init_irq_proc();
 	do_ctors();
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS
+	tdx_fuzz_enable(); // DOINITCALLS harness
+#endif
 	do_initcalls();
+#if defined CONFIG_TDX_FUZZ_HARNESS_DO_BASIC || defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS
+	tdx_fuzz_event(TDX_FUZZ_DONE);
+#endif
 }
 
 static void __init do_pre_smp_initcalls(void)
@@ -1528,6 +1549,11 @@ static int __ref kernel_init(void *unused)
 	rcu_end_inkernel_boot();
 
 	do_sysctl_args();
+
+#if defined CONFIG_TDX_FUZZ_HARNESS_FULL_BOOT || defined CONFIG_TDX_FUZZ_HARNESS_REST_INIT
+	// End fuzzing before dropping to userspace
+	tdx_fuzz_event(TDX_FUZZ_DONE);
+#endif
 
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);

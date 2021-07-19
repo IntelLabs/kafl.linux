@@ -899,7 +899,59 @@ config TDX_FUZZ_KAFL_DETERMINISTIC
        help
 	 Reduce number of worqueues etc. to make fuzzing more deterministic
 
-endif # HYPERVISOR_GUEST
+choice
+	prompt "kAFL fuzzing harness"
+	default TDX_FUZZ_HARNESS_EARLYBOOT
+	depends on TDX_FUZZ_KAFL
+
+config TDX_FUZZ_HARNESS_EARLYBOOT
+       bool "kAFL early boot fuzzing harness"
+       depends on TDX_FUZZ_KAFL
+       help
+	 Fuzz early boot sequence
+
+config TDX_FUZZ_HARNESS_POST_TRAP
+       bool "kAFL post-trap early boot fuzzing harness"
+       depends on TDX_FUZZ_KAFL
+       help
+	 Fuzz boot sequence
+
+
+config TDX_FUZZ_HARNESS_START_KERNEL
+       bool "kAFL start_kernel early boot fuzzing harness"
+       depends on TDX_FUZZ_KAFL
+       help
+	 Fuzz boot start_kernel
+
+
+config TDX_FUZZ_HARNESS_DO_BASIC
+       bool "kAFL do_basic fuzzing harness"
+       depends on TDX_FUZZ_KAFL
+       help
+	 Fuzz do_basic
+
+config TDX_FUZZ_HARNESS_REST_INIT
+       bool "kAFL rest_init fuzzing harness"
+       depends on TDX_FUZZ_KAFL
+       help
+	 Fuzz boot sequence post earlyboot
+
+config TDX_FUZZ_HARNESS_DOINITCALLS
+       bool "kAFL do_initcalls fuzzing harness"
+       depends on TDX_FUZZ_KAFL
+       help
+	 Fuzz boot do_initcalls
+
+
+config TDX_FUZZ_HARNESS_FULL_BOOT
+       bool "kAFL full boot sequence fuzzing harness"
+       depends on TDX_FUZZ_KAFL
+       help
+	 Fuzz full boot sequence
+
+endchoice
+
+endif #HYPERVISOR_GUEST
 
 source "arch/x86/Kconfig.cpu"
 
