@@ -131,6 +131,14 @@ void kafl_agent_init(void)
 	ve_pos = 0;
 	ve_mis = 0;
 
+	if (payload->flags) {
+		agent_config.dump_payloads = 1;
+		ob_buf = (u64*)observed_payload_buffer;
+		ob_num = sizeof(observed_payload_buffer)/sizeof(u64);
+		ob_pos = 0;
+		hprintf("Runtime payload dump (flags=%x)\n", payload->flags);
+	}
+
 	memset(location_stats, 0, sizeof(location_stats));
 	agent_initialized = true;
 
@@ -157,7 +165,7 @@ void kafl_agent_done(void)
 	// Dump observed values
 	if (agent_config.dump_payloads) {
 		pr_debug("Dumping observed input...\n");
-		kafl_dump_observed_payload("payload.txt", (uint8_t*)ob_buf, ob_pos*sizeof(ob_buf[0]));
+		kafl_dump_observed_payload("", (uint8_t*)ob_buf, ob_pos*sizeof(ob_buf[0]));
 	}
 
 	// Stops tracing and restore the snapshot
