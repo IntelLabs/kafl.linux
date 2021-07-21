@@ -18,12 +18,16 @@
 #include <linux/of_pci.h>
 #include <linux/pci_hotplug.h>
 
+#undef pr_fmt
+#define pr_fmt(fmt) "kAFL: " fmt
+
 #include <kafl_user.h>
 
 static bool agent_initialized = false;
 static bool agent_enabled = false;
 static agent_config_t agent_config = {0};
 
+static kafl_dump_file_t dump_file __attribute__((aligned(4096)));
 static uint8_t payload_buffer[PAYLOAD_SIZE] __attribute__((aligned(4096)));
 static uint8_t observed_payload_buffer[PAYLOAD_SIZE] __attribute__((aligned(4096)));
 static uint32_t location_stats[TDX_FUZZ_MAX];
@@ -67,13 +71,13 @@ void kafl_agent_abort(char *msg)
 static
 void kafl_dump_observed_payload(char *filename, uint8_t *buf, uint32_t buflen)
 {
-	kafl_dump_file_t f;
+	dump_file.file_name_str_ptr = (uint64_t)filename;
+	dump_file.data_ptr = (uint64_t)buf;
+	dump_file.bytes = buflen;
+	dump_file.append = 0;
 
-	f.file_name_str_ptr = (uint64_t)filename;
-	f.data_ptr = (uint64_t)buf;
-	f.bytes = buflen;
-	pr_info("Submit payload dump %p\n", &f);
-	kAFL_hypercall(HYPERCALL_KAFL_DUMP_FILE, (uint64_t)&f);
+	pr_debug("Submit payload dump %lx\n", (uintptr_t)&dump_file);
+	kAFL_hypercall(HYPERCALL_KAFL_DUMP_FILE, (uintptr_t)&dump_file);
 }
 
 void kafl_agent_init(void)
@@ -109,7 +113,7 @@ void kafl_agent_init(void)
 		ob_buf = (u64*)observed_payload_buffer;
 		ob_num = sizeof(observed_payload_buffer)/sizeof(u64);
 		ob_pos = 0;
-		hprintf("Enabled dump payload (max_entries=%u)\n", ob_num);
+		pr_debug("Enabled dump payload (max_entries=%u)\n", ob_num);
 	}
 
 	//hprintf("Submitting current CR3 value to hypervisor...\n");
@@ -138,8 +142,6 @@ void kafl_agent_done(void)
 {
 	unsigned i;
 
-	hprintf("agent done!\n");
-
 	if (!agent_initialized)
 		return;
 
@@ -154,7 +156,7 @@ void kafl_agent_done(void)
 
 	// Dump observed values
 	if (agent_config.dump_payloads) {
-		hprintf("Dumping observed input...\n");
+		pr_debug("Dumping observed input...\n");
 		kafl_dump_observed_payload("payload.txt", (uint8_t*)ob_buf, ob_pos*sizeof(ob_buf[0]));
 	}
 
@@ -197,7 +199,7 @@ u64 kafl_fuzz_var(u64 var)
 			//hprintf("dump_payload: ob_buf[%u] = %08lx\n", ob_pos, var);
 			ob_buf[ob_pos++] = var;
 		} else {
-			hprintf("Error: insufficient space in dump_payload");
+			pr_warn("Warning: insufficient space in dump_payload\n");
 			kafl_agent_done();
 		}
 	}
@@ -263,7 +265,7 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 			}
 			break;
 		default:
-			return kafl_agent_abort("Unrecognized fuzz event.");
+			return kafl_agent_abort("Unrecognized fuzz event.\n");
 
 	}
 }
