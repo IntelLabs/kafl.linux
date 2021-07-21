@@ -37,17 +37,20 @@
 #define HYPERCALL_KAFL_USER_FAST_ACQUIRE	18
 /* 19 is already used for exit reason KVM_EXIT_KAFL_TOPA_MAIN_FULL */
 #define HYPERCALL_KAFL_USER_ABORT			20
-#define HYPERCALL_KAFL_RANGE_SUBMIT		29
+#define HYPERCALL_KAFL_RANGE_SUBMIT			29
 #define HYPERCALL_KAFL_REQ_STREAM_DATA		30
 #define HYPERCALL_KAFL_PANIC_EXTENDED		32
 
-#define HYPERCALL_KAFL_CREATE_TMP_SNAPSHOT 33
-#define HYPERCALL_KAFL_DEBUG_TMP_SNAPSHOT 34 /* hypercall for debugging / development purposes */
+/* incremental snapshot (+ debug version) */
+#define HYPERCALL_KAFL_CREATE_TMP_SNAPSHOT	33
+#define HYPERCALL_KAFL_DEBUG_TMP_SNAPSHOT	34
 
-#define HYPERCALL_KAFL_GET_HOST_CONFIG 35
-#define HYPERCALL_KAFL_SET_AGENT_CONFIG 36
+/* get/set options and capabilities */
+#define HYPERCALL_KAFL_GET_HOST_CONFIG		35
+#define HYPERCALL_KAFL_SET_AGENT_CONFIG		36
 
-#define HYPERCALL_KAFL_DUMP_FILE 37
+/* write a file back to hypervisor */
+#define HYPERCALL_KAFL_DUMP_FILE			37
 
 /* hypertrash only hypercalls */
 #define HYPERTRASH_HYPERCALL_MASK			0xAA000000
@@ -59,23 +62,17 @@
 #define HYPERCALL_KAFL_NESTED_HPRINTF		(4 | HYPERTRASH_HYPERCALL_MASK)
 
 
-#define PAYLOAD_SIZE						(128 << 10)				/* up to 128KB payloads */
-#define PROGRAM_SIZE						(128 << 20)				/* kAFL supports 128MB programm data */
-#define INFO_SIZE        					(128 << 10)				/* 128KB info string */
-#define TARGET_FILE							"/tmp/fuzzing_engine"	/* default target for the userspace component */
-#define TARGET_FILE_WIN						"fuzzing_engine.exe"	
-
-#define HPRINTF_MAX_SIZE					0x1000					/* up to 4KB hprintf strings */
+#define PAYLOAD_SIZE				(128 << 10)	/* up to 128KB payloads */
+#define HPRINTF_MAX_SIZE			0x1000		/* up to 4KB hprintf strings */
 
 
-
-typedef struct{
+typedef struct {
 	uint32_t flags;
 	int32_t size;
 	uint8_t data[PAYLOAD_SIZE-sizeof(int32_t)];
 } kAFL_payload;
 
-typedef struct{
+typedef struct {
 	uint64_t ip[4];
 	uint64_t size[4];
 	uint8_t enabled[4];
@@ -107,7 +104,8 @@ static inline uint64_t kAFL_hypercall(uint64_t p1, uint64_t p2)
 #endif
 
 static void hprintf(const char * format, ...)  __attribute__ ((unused));
-static void hprintf(const char * format, ...){
+static void hprintf(const char * format, ...)
+{
 	static char hprintf_buffer[HPRINTF_MAX_SIZE] __attribute__((aligned(4096)));
 
 	va_list args;
@@ -118,48 +116,49 @@ static void hprintf(const char * format, ...){
 	va_end(args);
 }
 
-typedef struct host_config_s{
-  uint32_t bitmap_size;
-  uint32_t ijon_bitmap_size;
+typedef struct host_config_s {
+	uint32_t bitmap_size;
+	uint32_t ijon_bitmap_size;
 	uint32_t payload_buffer_size;
-  /* more to come */
+	/* more to come */
 } __attribute__((packed)) host_config_t;
 
-typedef struct agent_config_s{
-  uint8_t agent_timeout_detection;
-  uint8_t agent_tracing;
-  uint8_t agent_ijon_tracing;
+typedef struct agent_config_s {
+	uint8_t agent_timeout_detection;
+	uint8_t agent_tracing;
+	uint8_t agent_ijon_tracing;
 	uint8_t agent_non_reload_mode;
 	uint64_t trace_buffer_vaddr;
 	uint64_t ijon_trace_buffer_vaddr;
 
 	uint8_t dump_payloads; /* is set by the hypervisor */
-  /* more to come */
+	/* more to come */
 } __attribute__((packed)) agent_config_t;
 
-typedef struct kafl_dump_file_s{
-  uint64_t file_name_str_ptr;
-  uint64_t data_ptr;
-  uint64_t bytes;
-  uint8_t append;
+typedef struct kafl_dump_file_s {
+	uint64_t file_name_str_ptr;
+	uint64_t data_ptr;
+	uint64_t bytes;
+	uint8_t append;
 } __attribute__((packed)) kafl_dump_file_t;
 
 #define cpuid(in,a,b,c,d)\
-  asm("cpuid": "=a" (a), "=b" (b), "=c" (c), "=d" (d) : "a" (in));
+	asm("cpuid": "=a" (a), "=b" (b), "=c" (c), "=d" (d) : "a" (in));
 
 static int is_nyx_vcpu(void) __attribute__((unused));
-static int is_nyx_vcpu(void){
-  unsigned long eax,ebx,ecx,edx;
-  char str[8];
-  int j;
-  cpuid(0x80000004,eax,ebx,ecx,edx);	
+static int is_nyx_vcpu(void)
+{
+	unsigned long eax,ebx,ecx,edx;
+	char str[8];
+	int j;
+	cpuid(0x80000004,eax,ebx,ecx,edx);	
 
-  for(j=0;j<4;j++){
-    str[j] = eax >> (8*j);
-    str[j+4] = ebx >> (8*j);
-  }
+	for (j=0;j<4;j++) {
+		str[j] = eax >> (8*j);
+		str[j+4] = ebx >> (8*j);
+	}
 
-  return !memcmp(&str, "NYX vCPU", 8);
+	return !memcmp(&str, "NYX vCPU", 8);
 }
 
 #endif
