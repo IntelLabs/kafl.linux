@@ -70,6 +70,7 @@
 
 
 typedef struct{
+	uint32_t flags;
 	int32_t size;
 	uint8_t data[PAYLOAD_SIZE-sizeof(int32_t)];
 } kAFL_payload;
