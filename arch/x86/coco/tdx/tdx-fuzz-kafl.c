@@ -201,6 +201,18 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 		case TDX_FUZZ_SAFE_HALT:
 		case TDX_FUZZ_TIMEOUT:
 			return kafl_agent_done();
+		case TDX_FUZZ_DISABLE:
+			hprintf("TDX_FUZZ_DISABLE agent_initialized=%d agent_enabled=%d\n", agent_initialized, agent_enabled);
+			if (agent_initialized) {
+				agent_enabled = false;
+			}
+			break;
+		case TDX_FUZZ_ENABLE:
+			hprintf("TDX_FUZZ_ENABLE agent_initialized=%d agent_enabled=%d\n", agent_initialized, agent_enabled);
+			if (agent_initialized) {
+				agent_enabled = true;
+			}
+			break;
 		default:
 			return kafl_raise_abort("Unrecognized fuzz event.");
 	}
