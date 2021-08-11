@@ -550,7 +550,7 @@ static int tdx_handle_external_interrupt(struct kvm_vcpu *vcpu)
 
 static int tdx_handle_triple_fault(struct kvm_vcpu *vcpu)
 {
-	printk("TDX: %s\n", __func__);
+	WARN_ONCE(1, "TDX: %s\n", __func__);
 	if (halt_on_triple_fault)
 		return kvm_vcpu_halt(vcpu);
 
