@@ -601,6 +601,8 @@ void __init alternative_instructions(void)
 {
 	int3_selftest();
 
+	BUG();
+
 	/*
 	 * The patching is not fully atomic, so try to avoid local
 	 * interruptions that might execute the to be patched code.
@@ -640,13 +642,13 @@ void __init alternative_instructions(void)
 	 * First patch paravirt functions, such that we overwrite the indirect
 	 * call with the direct call.
 	 */
-	apply_paravirt(__parainstructions, __parainstructions_end);
+	//apply_paravirt(__parainstructions, __parainstructions_end);
 
 	/*
 	 * Then patch alternatives, such that those paravirt calls that are in
 	 * alternatives can be overwritten by their immediate fragments.
 	 */
-	apply_alternatives(__alt_instructions, __alt_instructions_end);
+	//apply_alternatives(__alt_instructions, __alt_instructions_end);
 
 #ifdef CONFIG_SMP
 	/* Patch to UP if other cpus not imminent. */
