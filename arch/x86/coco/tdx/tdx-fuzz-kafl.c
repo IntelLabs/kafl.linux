@@ -255,9 +255,14 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 		case TDX_FUZZ_DONE:
 			//return kafl_agent_stop();
 			return kafl_agent_done();
+		case TDX_FUZZ_ERROR:
+			// raise potential error conditions for review?
+			return kafl_raise_panic();
 		case TDX_FUZZ_HALT:
 		case TDX_FUZZ_REBOOT:
 		case TDX_FUZZ_SAFE_HALT:
+			// raise potential error conditions for review?
+			//return kafl_raise_panic();
 		case TDX_FUZZ_TIMEOUT:
 			return kafl_agent_done();
 		case TDX_FUZZ_DISABLE:
