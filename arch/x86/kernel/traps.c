@@ -1221,18 +1221,20 @@ DEFINE_IDTENTRY(exc_virtualization_exception)
 
 	cond_local_irq_enable(regs);
 
-	if (ret)
+	if (!ret)
 		ret = tdx_handle_virtualization_exception(regs, &ve);
 	/*
 	 * If tdx_handle_virtualization_exception() could not process
 	 * it successfully, treat it as #GP(0) or #DB and handle it.
 	 */
-	if (!ret) {
-		if (regs->flags & X86_EFLAGS_TF)
-			ve_raise_debug(regs);
-		else
-			ve_raise_fault(regs, 0);
+	if (ret) {
+		ve_raise_fault(regs, 0);
+#ifdef CONFIG_TDX_FUZZ_KAFL
+		// report #VE faults as errors to investigate
+		tdx_fuzz_event(TDX_FUZZ_ERROR);
+#endif
 	}
+
 
 	cond_local_irq_disable(regs);
 }
