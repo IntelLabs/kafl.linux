@@ -62,7 +62,7 @@
 #define HYPERCALL_KAFL_NESTED_HPRINTF		(4 | HYPERTRASH_HYPERCALL_MASK)
 
 
-#define PAYLOAD_BUFFER_SIZE			(128 << 10)	/* up to 128KB payloads */
+#define PAYLOAD_BUFFER_SIZE			(256 << 10)	/* up to 256KB payloads */
 #define HPRINTF_MAX_SIZE			0x1000		/* up to 4KB hprintf strings */
 
 typedef union {
