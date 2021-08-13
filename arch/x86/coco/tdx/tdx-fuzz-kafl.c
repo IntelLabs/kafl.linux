@@ -26,12 +26,14 @@
 static bool agent_initialized = false;
 static bool agent_enabled = false;
 static agent_config_t agent_config = {0};
+static host_config_t host_config = {0};
 
 static kafl_dump_file_t dump_file __attribute__((aligned(4096)));
-static uint8_t payload_buffer[PAYLOAD_SIZE] __attribute__((aligned(4096)));
-static uint8_t observed_payload_buffer[PAYLOAD_SIZE] __attribute__((aligned(4096)));
+static uint8_t payload_buffer[PAYLOAD_BUFFER_SIZE] __attribute__((aligned(4096)));
+static uint8_t observed_payload_buffer[PAYLOAD_BUFFER_SIZE] __attribute__((aligned(4096)));
 static uint32_t location_stats[TDX_FUZZ_MAX];
 
+static agent_flags_t *agent_flags;
 static u64 *ve_buf;
 static u32 ve_num;
 static u32 ve_pos;
@@ -69,14 +71,15 @@ void kafl_agent_abort(char *msg)
 }
 
 static
-void kafl_dump_observed_payload(char *filename, uint8_t *buf, uint32_t buflen)
+void kafl_dump_observed_payload(char *filename, int append, uint8_t *buf, uint32_t buflen)
 {
-	dump_file.file_name_str_ptr = (uint64_t)filename;
+	char fname_buf[128];
+	strncpy(fname_buf, filename, sizeof(fname_buf));
+	dump_file.file_name_str_ptr = (uint64_t)fname_buf;
 	dump_file.data_ptr = (uint64_t)buf;
 	dump_file.bytes = buflen;
-	dump_file.append = 0;
+	dump_file.append = append;
 
-	pr_debug("Submit payload dump %lx\n", (uintptr_t)&dump_file);
 	kAFL_hypercall(HYPERCALL_KAFL_DUMP_FILE, (uintptr_t)&dump_file);
 }
 
@@ -102,19 +105,28 @@ void kafl_agent_init(void)
 #endif
 
 	/* ensure that the virtual memory is *really* present in physical memory... */
-	memset(observed_payload_buffer, 0xff, PAYLOAD_SIZE);
-	memset(payload, 0xff, PAYLOAD_SIZE);
+	memset(observed_payload_buffer, 0xff, PAYLOAD_BUFFER_SIZE);
+	memset(payload, 0xff, PAYLOAD_BUFFER_SIZE);
 
 	hprintf("Submitting payload buffer address to hypervisor (%lx)\n", payload);
 	kAFL_hypercall(HYPERCALL_KAFL_GET_PAYLOAD, (uint64_t)payload);
 
 	kAFL_hypercall(HYPERCALL_KAFL_SET_AGENT_CONFIG, (uintptr_t)&agent_config);
-	if (agent_config.dump_payloads) {
-		ob_buf = (u64*)observed_payload_buffer;
-		ob_num = sizeof(observed_payload_buffer)/sizeof(u64);
-		ob_pos = 0;
-		pr_debug("Enabled dump payload (max_entries=%u)\n", ob_num);
+	kAFL_hypercall(HYPERCALL_KAFL_GET_HOST_CONFIG, (uintptr_t)&host_config);
+
+	hprintf("[host_config] bitmap sizes = <0x%x,0x%x>\n", host_config.bitmap_size, host_config.ijon_bitmap_size);
+	hprintf("[host_config] payload size = %dKB\n", host_config.payload_buffer_size/1024);
+
+	if (host_config.payload_buffer_size > PAYLOAD_BUFFER_SIZE) {
+		kafl_agent_abort("Host agent buffer is larger than agent side allocation!\n");
 	}
+
+	//if (agent_config.dump_payloads) {
+	//	ob_buf = (u64*)observed_payload_buffer;
+	//	ob_num = sizeof(observed_payload_buffer)/sizeof(u64);
+	//	ob_pos = 0;
+	//	pr_debug("Enabled dump payload (max_entries=%u)\n", ob_num);
+	//}
 
 	//hprintf("Submitting current CR3 value to hypervisor...\n");
 	//kAFL_hypercall(HYPERCALL_KAFL_SUBMIT_CR3, 0);
@@ -131,12 +143,17 @@ void kafl_agent_init(void)
 	ve_pos = 0;
 	ve_mis = 0;
 
-	if (payload->flags) {
-		agent_config.dump_payloads = 1;
+	agent_flags = &payload->flags;
+	if (agent_flags->raw_data != 0) {
+		pr_debug("Runtime agent flags=%x\n", agent_flags->raw_data);
+		pr_debug("\t dump_observed = %u\n", agent_flags->dump_observed);
+		pr_debug("\t dump_stats = %u\n", agent_flags->dump_stats);
+	}
+
+	if (agent_flags->dump_observed) {
 		ob_buf = (u64*)observed_payload_buffer;
 		ob_num = sizeof(observed_payload_buffer)/sizeof(u64);
 		ob_pos = 0;
-		hprintf("Runtime payload dump (flags=%x)\n", payload->flags);
 	}
 
 	memset(location_stats, 0, sizeof(location_stats));
@@ -148,24 +165,53 @@ void kafl_agent_init(void)
 
 void kafl_agent_done(void)
 {
-	unsigned i;
-
 	if (!agent_initialized)
 		return;
 
 	agent_enabled = false;
 
-	pr_info("[*] Injected %d values, missed %d.\n", ve_pos, ve_mis);
-	for (i=0; i<TDX_FUZZ_MAX; i++) {
-		if (location_stats[i] != 0) {
-			pr_debug("\tstat[%u] = %u\n", i, location_stats[i]);
-		}
-	}
+	//unsigned i;
+	//pr_info("[*] Injected %d values, missed %d.\n", ve_pos, ve_mis);
+	//for (i=0; i<TDX_FUZZ_MAX; i++) {
+	//	if (location_stats[i] != 0) {
+	//		pr_debug("\tstat[%u] = %u\n", i, location_stats[i]);
+	//	}
+	//}
 
 	// Dump observed values
-	if (agent_config.dump_payloads) {
+	if (agent_flags->dump_observed) {
 		pr_debug("Dumping observed input...\n");
-		kafl_dump_observed_payload("", (uint8_t*)ob_buf, ob_pos*sizeof(ob_buf[0]));
+		kafl_dump_observed_payload("", false, (uint8_t*)ob_buf, ob_pos*sizeof(ob_buf[0]));
+	}
+
+	if (agent_flags->dump_stats) {
+
+		// flag if payload buffer is >90% and we quit due to missing input
+		char maxed_out = ' ';
+		if (ve_mis && MAX_PAYLOAD_LEN/10*9 < (ve_pos) * sizeof(ve_buf[0])) {
+			maxed_out = '*';
+		}
+
+		ob_num = snprintf(observed_payload_buffer,
+				          sizeof(observed_payload_buffer),
+						  "%05u/%u: %5u, %5u, %5u;\trng=%u; cpuid=<%u,%u,%u,%u>; err=<%u,%u,%u,%u> %c\n",
+				          ve_pos, ve_mis,
+				          location_stats[TDX_FUZZ_MSR_READ],
+				          location_stats[TDX_FUZZ_MMIO_READ],
+				          location_stats[TDX_FUZZ_PORT_IN],
+				          location_stats[TDX_FUZZ_RANDOM],
+				          location_stats[TDX_FUZZ_CPUID1],
+				          location_stats[TDX_FUZZ_CPUID2],
+				          location_stats[TDX_FUZZ_CPUID3],
+				          location_stats[TDX_FUZZ_CPUID4],
+						  location_stats[TDX_FUZZ_MSR_READ_ERR],
+						  location_stats[TDX_FUZZ_MSR_WRITE_ERR],
+						  location_stats[TDX_FUZZ_MAP_ERR],
+						  location_stats[TDX_FUZZ_PORT_IN_ERR],
+						  maxed_out);
+		pr_debug("Dumping fuzzer location stats\n");
+		kafl_dump_observed_payload("fuzzer_location_stats.lst", true,
+			   observed_payload_buffer, ob_num);
 	}
 
 	// Stops tracing and restore the snapshot
@@ -200,7 +246,7 @@ u64 kafl_fuzz_var(u64 var)
 			kafl_agent_done();
 	}
 
-	if (agent_config.dump_payloads) {
+	if (agent_flags->dump_observed) {
 		// record input seen so far
 		// execution may be (have been) partly driven by fuzzer
 		if (ob_pos < ob_num) {
