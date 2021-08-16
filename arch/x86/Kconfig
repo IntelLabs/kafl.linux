@@ -899,6 +899,14 @@ config TDX_FUZZ_KAFL_DETERMINISTIC
        help
 	 Reduce number of worqueues etc. to make fuzzing more deterministic
 
+config TDX_FUZZ_KAFL_DISABLE_CPUID_FUZZ
+       bool "Disable CPUID fuzzing for kAFL"
+       depends on TDX_FUZZ_KAFL
+       help
+	 Reduce number of fuzzed inputs by disabling input injection for CPUID
+
+
+
 choice
 	prompt "kAFL fuzzing harness"
 	default TDX_FUZZ_HARNESS_EARLYBOOT

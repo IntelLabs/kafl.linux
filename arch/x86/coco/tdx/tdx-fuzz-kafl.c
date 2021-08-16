@@ -280,6 +280,13 @@ u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc)
 	//hprintf("trace: val=%llx, loc=%x\n", var, loc);
 
 	switch(loc) {
+#ifdef CONFIG_TDX_FUZZ_KAFL_DISABLE_CPUID_FUZZ
+		case TDX_FUZZ_CPUID1:
+		case TDX_FUZZ_CPUID2:
+		case TDX_FUZZ_CPUID3:
+		case TDX_FUZZ_CPUID4:
+			return var;
+#endif
 		default:
 			location_stats[loc]++;
 			return kafl_fuzz_var(var);
