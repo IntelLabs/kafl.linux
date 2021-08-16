@@ -9,6 +9,8 @@
 #include <linux/percpu.h>
 #include <linux/smp.h>
 #include <linux/slab.h>
+#include <linux/memblock.h>
+#include <linux/kprobes.h>
 #include <asm/tdx.h>
 #include <asm/trace/tdx.h>
 
@@ -42,6 +44,8 @@ static u32 ve_mis;
 static u64 *ob_buf;
 static u32 ob_num;
 static u32 ob_pos;
+
+static void tdx_fuzz_filter_init(void);
 
 void kafl_raise_panic(void) {
 	kAFL_hypercall(HYPERCALL_KAFL_PANIC, 0);
@@ -92,6 +96,7 @@ void kafl_agent_init(void)
 	}
 
 	hprintf("[*] Initialize kAFL Agent\n");
+	tdx_fuzz_filter_init();
 
 	/* initial fuzzer handshake */
 	kAFL_hypercall(HYPERCALL_KAFL_ACQUIRE, 0);
@@ -242,7 +247,7 @@ u64 kafl_fuzz_var(u64 var)
 	else {
 		ve_mis++;
 		// stop at end of fuzz input, unless in dump mode
-		if (!agent_config.dump_payloads)
+		if (!agent_flags->dump_observed)
 			kafl_agent_done();
 	}
 
@@ -288,6 +293,94 @@ void tdx_fuzz_enable(void)
 {
 	agent_enabled = true;
 	pr_debug("[*] Agent enabled.\n");
+}
+
+struct disallowlist_entry {
+        struct list_head next;
+        char *buf;
+};
+static __initdata_or_module LIST_HEAD(disallowed_fuzzing_calls);
+
+static int __init fuzzing_disallow(char *str)
+{
+        char *str_entry;
+        struct disallowlist_entry *entry;
+
+        /* str argument is a comma-separated list of functions */
+        do {
+                str_entry = strsep(&str, ",");
+                if (str_entry) {
+                        pr_debug("disabling fuzzing for call %s\n", str_entry);
+                        entry = memblock_alloc(sizeof(*entry),
+                                               SMP_CACHE_BYTES);
+                        if (!entry)
+                                panic("%s: Failed to allocate %zu bytes\n",
+                                      __func__, sizeof(*entry));
+                        entry->buf = memblock_alloc(strlen(str_entry) + 1,
+                                                    SMP_CACHE_BYTES);
+                        if (!entry->buf)
+                                panic("%s: Failed to allocate %zu bytes\n",
+                                      __func__, strlen(str_entry) + 1);
+                        strcpy(entry->buf, str_entry);
+                        list_add(&entry->next, &disallowed_fuzzing_calls);
+                }
+        } while (str_entry);
+
+        return 0;
+}
+
+__setup("fuzzing_disallow=", fuzzing_disallow);
+
+
+static int kp_handler_pre(struct kprobe *p, struct pt_regs *regs)
+{
+	pr_debug("disable fuzzing for %s\n", p->symbol_name);
+	tdx_fuzz_event(TDX_FUZZ_DISABLE);
+	return 0;
+}
+
+static void kp_handler_post(struct kprobe *p, struct pt_regs *regs, unsigned long flags)
+{
+	// TODO: check if it should be enabled
+	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+}
+
+#define TDX_MAX_NUM_KPROBES 16
+static struct kprobe tdx_kprobes[TDX_MAX_NUM_KPROBES] = {0};
+static int tdx_kprobes_n = 0;
+
+static void tdx_fuzz_filter_init(void)
+{
+	int ret;
+
+	struct disallowlist_entry *entry;
+	struct kprobe *kp;
+
+	list_for_each_entry(entry, &disallowed_fuzzing_calls, next) {
+		pr_info("disable fuzzing mutation for %s\n", entry->buf);
+		//struct kprobe *kp = kzalloc(sizeof(struct kprobe), GFP_KERNEL);
+		if (tdx_kprobes_n >= TDX_MAX_NUM_KPROBES) {
+			pr_info("%s: max number of probes reached (%d)\n", __func__, tdx_kprobes_n);
+			return;
+		}
+		kp = &tdx_kprobes[tdx_kprobes_n++];
+		kp->symbol_name = entry->buf;
+		//kp->addr = &fork_init;
+		kp->pre_handler = kp_handler_pre;
+		kp->post_handler = kp_handler_post;
+		ret = register_kprobe(kp);
+		if (ret < 0) {
+			pr_info("register_kprobe failed, returned %d\n", ret);
+			continue;
+		}
+		ret = enable_kprobe(kp);
+		if (ret < 0) {
+			pr_info("enable_kprobe failed, returned %d\n", ret);
+			continue;
+		}
+		pr_info("Planted kprobe at %lx\n", (uintptr_t)kp->addr);
+	}
+
 }
 
 void tdx_fuzz_event(enum tdx_fuzz_event e)
