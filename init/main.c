@@ -1384,8 +1384,17 @@ static void __init do_initcall_level(int level, char *command_line)
 		   NULL, ignore_unknown_bootoption);
 
 	trace_initcall_level(initcall_level_names[level]);
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
+	if (level == CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL)
+		tdx_fuzz_enable();
+#endif
 	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
 		do_one_initcall(initcall_from_entry(fn));
+
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
+	if (level == CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL)
+		tdx_fuzz_event(TDX_FUZZ_DONE);
+#endif
 }
 
 static void __init do_initcalls(void)
@@ -1423,7 +1432,7 @@ static void __init do_basic_setup(void)
 	driver_init();
 	init_irq_proc();
 	do_ctors();
-#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS && !defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
 	tdx_fuzz_enable(); // DOINITCALLS harness
 #endif
 	do_initcalls();
