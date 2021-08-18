@@ -69,6 +69,7 @@ typedef union {
 	struct {
 		unsigned int dump_observed :1;
 		unsigned int dump_stats :1;
+		unsigned int dump_callers :1;
 	};
 	uint32_t raw_data;
 } agent_flags_t;
