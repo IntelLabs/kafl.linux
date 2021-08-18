@@ -950,6 +950,13 @@ config TDX_FUZZ_HARNESS_DOINITCALLS
        help
 	 Fuzz boot do_initcalls
 
+config TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+       bool "kAFL do_initcalls PCI calls fuzzing harness"
+       depends on TDX_FUZZ_KAFL
+       help
+	 Fuzz boot do_initcalls PCI initcalls fuzzing
+
+
 
 config TDX_FUZZ_HARNESS_FULL_BOOT
        bool "kAFL full boot sequence fuzzing harness"

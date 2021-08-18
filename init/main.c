@@ -1274,6 +1274,13 @@ trace_initcall_finish_cb(void *data, initcall_t fn, int ret)
 
 static ktime_t initcall_calltime;
 
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+const char *fuzz_targets[] = {
+        "pci_subsys_init",
+        "pci_arch_init"
+};
+#endif
+
 #ifdef TRACEPOINTS_ENABLED
 static void __init initcall_debug_enable(void)
 {
@@ -1307,13 +1314,39 @@ int __init_or_module do_one_initcall(initcall_t fn)
 	int count = preempt_count();
 	char msgbuf[64];
 	int ret;
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+        int i;
+        bool fuzzing = false;
+        static int fuzz_count = 0;
+#endif
 
 	if (initcall_blacklisted(fn))
 		return -EPERM;
 
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+        for (i = 0; i < sizeof(fuzz_targets)/sizeof(char *); i++) {
+                char buf[128];
+                sprint_symbol_no_offset(buf, (unsigned long)fn);
+                if (strncmp(buf, fuzz_targets[i], 128) == 0) {
+                        fuzzing = true;
+                        fuzz_count++;
+                        tdx_fuzz_enable();
+                        break;
+
+                }
+        }
+#endif
+
 	do_trace_initcall_start(fn);
 	ret = fn();
 	do_trace_initcall_finish(fn, ret);
+
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+        if (fuzzing && (fuzz_count >= sizeof(fuzz_targets) / sizeof(char *)))
+                tdx_fuzz_event(TDX_FUZZ_DONE);
+        else if (fuzzing)
+                tdx_fuzz_event(TDX_FUZZ_DISABLE);
+#endif
 
 	msgbuf[0] = 0;
 
