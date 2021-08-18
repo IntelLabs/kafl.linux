@@ -121,6 +121,7 @@ void kafl_agent_init(void)
 
 	hprintf("[host_config] bitmap sizes = <0x%x,0x%x>\n", host_config.bitmap_size, host_config.ijon_bitmap_size);
 	hprintf("[host_config] payload size = %dKB\n", host_config.payload_buffer_size/1024);
+	hprintf("[host_config] worker id = %02u\n", host_config.worker_id);
 
 	if (host_config.payload_buffer_size > PAYLOAD_BUFFER_SIZE) {
 		kafl_agent_abort("Host agent buffer is larger than agent side allocation!\n");
