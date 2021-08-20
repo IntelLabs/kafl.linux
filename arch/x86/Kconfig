@@ -968,7 +968,7 @@ endchoice
 
 config TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
        int "kAFL do_initcalls specific level harness"
-       range 0 7
+       #range 0 7
        depends on TDX_FUZZ_HARNESS_DOINITCALLS
        help
 	 Fuzz boot do_initcall level
