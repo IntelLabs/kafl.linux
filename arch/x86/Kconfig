@@ -956,22 +956,23 @@ config TDX_FUZZ_HARNESS_DOINITCALLS_PCI
        help
 	 Fuzz boot do_initcalls PCI initcalls fuzzing
 
-
-
 config TDX_FUZZ_HARNESS_FULL_BOOT
        bool "kAFL full boot sequence fuzzing harness"
        depends on TDX_FUZZ_KAFL
        help
 	 Fuzz full boot sequence
 
-endchoice
-
-config TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
-       int "kAFL do_initcalls specific level harness"
-       #range 0 7
-       depends on TDX_FUZZ_HARNESS_DOINITCALLS
+config TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_3
+       bool "kAFL do_initcalls level 3 harness"
        help
 	 Fuzz boot do_initcall level
+
+config TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_4
+       bool "kAFL do_initcalls level 4 harness"
+       help
+	 Fuzz boot do_initcall level
+
+endchoice
 
 endif #HYPERVISOR_GUEST
 

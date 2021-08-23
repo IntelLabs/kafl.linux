@@ -1417,15 +1417,24 @@ static void __init do_initcall_level(int level, char *command_line)
 		   NULL, ignore_unknown_bootoption);
 
 	trace_initcall_level(initcall_level_names[level]);
-#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
-	if (level == CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL)
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_3
+	if (level == 3)
 		tdx_fuzz_enable();
 #endif
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_4
+	if (level == 4)
+		tdx_fuzz_enable();
+#endif
+
 	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
 		do_one_initcall(initcall_from_entry(fn));
 
-#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
-	if (level == CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL)
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_3
+	if (level == 3)
+		tdx_fuzz_event(TDX_FUZZ_DONE);
+#endif
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_4
+	if (level == 4)
 		tdx_fuzz_event(TDX_FUZZ_DONE);
 #endif
 }
