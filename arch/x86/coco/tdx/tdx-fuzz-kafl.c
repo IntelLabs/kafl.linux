@@ -154,6 +154,7 @@ void kafl_agent_init(void)
 		pr_debug("Runtime agent flags=%x\n", agent_flags->raw_data);
 		pr_debug("\t dump_observed = %u\n", agent_flags->dump_observed);
 		pr_debug("\t dump_stats = %u\n", agent_flags->dump_stats);
+		pr_debug("\t dump_callers = %u\n", agent_flags->dump_callers);
 	}
 
 	if (agent_flags->dump_observed) {
@@ -277,7 +278,11 @@ u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc)
 		kafl_agent_init();
 	}
 
-	//hprintf("trace: val=%llx, loc=%x\n", var, loc);
+	if (agent_flags->dump_callers) {
+		// dump_stack seems to work better than WARN()
+		pr_warn("%s: orig_val=%llx, loc=%d\n", __func__, var, loc);
+		dump_stack();
+	}
 
 	switch(loc) {
 #ifdef CONFIG_TDX_FUZZ_KAFL_DISABLE_CPUID_FUZZ
