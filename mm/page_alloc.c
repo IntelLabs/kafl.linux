@@ -432,6 +432,11 @@ int page_group_by_mobility_disabled __read_mostly;
 
 bool deferred_struct_pages __meminitdata;
 
+#ifdef CONFIG_UNACCEPTED_MEMORY
+/* Counts number of zones with unaccepted pages. */
+static DEFINE_STATIC_KEY_FALSE(zones_with_unaccepted_pages);
+#endif
+
 #ifdef CONFIG_DEFERRED_STRUCT_PAGE_INIT
 /*
  * During boot we initialize deferred pages on-demand, as needed, but once
@@ -1028,12 +1033,15 @@ static inline void move_to_free_list(struct page *page, struct zone *zone,
 {
 	struct free_area *area = &zone->free_area[order];
 
+	VM_WARN_ON_ONCE_PAGE(PageUnevictable(page), page);
 	list_move_tail(&page->buddy_list, &area->free_list[migratetype]);
 }
 
 static inline void del_page_from_free_list(struct page *page, struct zone *zone,
 					   unsigned int order)
 {
+	VM_WARN_ON_ONCE_PAGE(PageUnevictable(page), page);
+
 	/* clear reported state and update reported page count */
 	if (page_reported(page))
 		__ClearPageReported(page);
@@ -1727,6 +1735,99 @@ static void __free_pages_ok(struct page *page, unsigned int order,
 	__count_vm_events(PGFREE, 1 << order);
 }
 
+static bool page_contains_unaccepted(struct page *page, unsigned int order)
+{
+	phys_addr_t start = page_to_phys(page);
+	phys_addr_t end = start + (PAGE_SIZE << order);
+
+	return range_contains_unaccepted_memory(start, end);
+}
+
+static void accept_page(struct page *page, unsigned int order)
+{
+	phys_addr_t start = page_to_phys(page);
+
+	accept_memory(start, start + (PAGE_SIZE << order));
+}
+
+#ifdef CONFIG_UNACCEPTED_MEMORY
+
+static bool try_to_accept_memory(struct zone *zone)
+{
+	unsigned long flags, order;
+	struct page *page;
+	bool last = false;
+	int migratetype;
+
+	if (!static_branch_unlikely(&zones_with_unaccepted_pages))
+		return false;
+
+	spin_lock_irqsave(&zone->lock, flags);
+	page = list_first_entry_or_null(&zone->unaccepted_pages,
+					struct page, lru);
+	if (!page) {
+		spin_unlock_irqrestore(&zone->lock, flags);
+		return false;
+	}
+
+	list_del(&page->lru);
+	last = list_empty(&zone->unaccepted_pages);
+
+	order = page->private;
+	VM_BUG_ON(order > MAX_ORDER || order < pageblock_order);
+
+	migratetype = get_pfnblock_migratetype(page, page_to_pfn(page));
+	__mod_zone_freepage_state(zone, -1 << order, migratetype);
+	__mod_zone_page_state(zone, NR_UNACCEPTED, -1 << order);
+	spin_unlock_irqrestore(&zone->lock, flags);
+
+	if (last)
+		static_branch_dec(&zones_with_unaccepted_pages);
+
+	accept_page(page, order);
+	__ClearPageUnaccepted(page);
+	__free_pages_ok(page, order, FPI_TO_TAIL | FPI_SKIP_KASAN_POISON);
+
+	return true;
+}
+
+static void __free_unaccepted(struct page *page, unsigned int order)
+{
+	struct zone *zone = page_zone(page);
+	unsigned long flags;
+	int migratetype;
+	bool first = false;
+
+	VM_BUG_ON(order > MAX_ORDER || order < pageblock_order);
+	__SetPageUnaccepted(page);
+	page->private = order;
+
+	spin_lock_irqsave(&zone->lock, flags);
+	first = list_empty(&zone->unaccepted_pages);
+	migratetype = get_pfnblock_migratetype(page, page_to_pfn(page));
+	list_add_tail(&page->lru, &zone->unaccepted_pages);
+	__mod_zone_freepage_state(zone, 1 << order, migratetype);
+	__mod_zone_page_state(zone, NR_UNACCEPTED, 1 << order);
+	spin_unlock_irqrestore(&zone->lock, flags);
+
+	if (first)
+		static_branch_inc(&zones_with_unaccepted_pages);
+}
+
+#else
+
+static bool try_to_accept_memory(struct zone *zone)
+{
+	return false;
+}
+
+static void __free_unaccepted(struct page *page, unsigned int order)
+{
+	BUILD_BUG();
+}
+
+#endif /* CONFIG_UNACCEPTED_MEMORY */
+
 void __free_pages_core(struct page *page, unsigned int order)
 {
 	unsigned int nr_pages = 1 << order;
@@ -1748,6 +1849,13 @@ void __free_pages_core(struct page *page, unsigned int order)
 	set_page_count(p, 0);
 
 	atomic_long_add(nr_pages, &page_zone(page)->managed_pages);
+
+	if (page_contains_unaccepted(page, order)) {
+		if (order >= pageblock_order)
+			return __free_unaccepted(page, order);
+		else
+			accept_page(page, order);
+	}
 
 	/*
 	 * Bypass PCP and place fresh pages right to the tail, primarily
@@ -1908,6 +2016,9 @@ static void __init deferred_free_range(unsigned long pfn,
 		__free_pages_core(page, pageblock_order);
 		return;
 	}
+
+	/* Accept chunks smaller than page-block upfront */
+	accept_memory(PFN_PHYS(pfn), PFN_PHYS(pfn + nr_pages));
 
 	for (i = 0; i < nr_pages; i++, page++, pfn++) {
 		if (pageblock_aligned(pfn))
@@ -3982,6 +4093,9 @@ static inline long __zone_watermark_unusable_free(struct zone *z,
 	if (!(alloc_flags & ALLOC_CMA))
 		unusable_free += zone_page_state(z, NR_FREE_CMA_PAGES);
 #endif
+#ifdef CONFIG_UNACCEPTED_MEMORY
+	unusable_free += zone_page_state(z, NR_UNACCEPTED);
+#endif
 
 	return unusable_free;
 }
@@ -4281,6 +4395,9 @@ retry:
 				       gfp_mask)) {
 			int ret;
 
+			if (try_to_accept_memory(zone))
+				goto try_this_zone;
+
 #ifdef CONFIG_DEFERRED_STRUCT_PAGE_INIT
 			/*
 			 * Watermark failed for this zone, but see if we can
@@ -4333,6 +4450,9 @@ try_this_zone:
 
 			return page;
 		} else {
+			if (try_to_accept_memory(zone))
+				goto try_this_zone;
+
 #ifdef CONFIG_DEFERRED_STRUCT_PAGE_INIT
 			/* Try again if zone has deferred pages */
 			if (deferred_pages_enabled()) {
@@ -6971,6 +7091,10 @@ static void __meminit zone_init_free_lists(struct zone *zone)
 		INIT_LIST_HEAD(&zone->free_area[order].free_list[t]);
 		zone->free_area[order].nr_free = 0;
 	}
+
+#ifdef CONFIG_UNACCEPTED_MEMORY
+	INIT_LIST_HEAD(&zone->unaccepted_pages);
+#endif
 }
 
 /*
