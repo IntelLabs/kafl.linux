@@ -588,7 +588,7 @@ static int tdx_emulate_cpuid(struct kvm_vcpu *vcpu)
 
 static int tdx_emulate_hlt(struct kvm_vcpu *vcpu)
 {
-	printk("TDX: %s\n", __func__);
+	WARN_ONCE(1,"TDX: %s\n", __func__);
 	tdvmcall_set_return_code(vcpu, 0);
 
 	return kvm_vcpu_halt(to_kvm_vcpu(vcpu));
