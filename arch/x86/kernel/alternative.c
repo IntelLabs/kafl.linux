@@ -599,9 +599,11 @@ static void __init int3_selftest(void)
 
 void __init alternative_instructions(void)
 {
+#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
+	// conflicts with PT decode - add hypercall to flush tnt + page caches?
+	return;
+#endif
 	int3_selftest();
-
-	BUG();
 
 	/*
 	 * The patching is not fully atomic, so try to avoid local
@@ -642,13 +644,13 @@ void __init alternative_instructions(void)
 	 * First patch paravirt functions, such that we overwrite the indirect
 	 * call with the direct call.
 	 */
-	//apply_paravirt(__parainstructions, __parainstructions_end);
+	apply_paravirt(__parainstructions, __parainstructions_end);
 
 	/*
 	 * Then patch alternatives, such that those paravirt calls that are in
 	 * alternatives can be overwritten by their immediate fragments.
 	 */
-	//apply_alternatives(__alt_instructions, __alt_instructions_end);
+	apply_alternatives(__alt_instructions, __alt_instructions_end);
 
 #ifdef CONFIG_SMP
 	/* Patch to UP if other cpus not imminent. */
