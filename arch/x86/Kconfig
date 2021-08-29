@@ -905,6 +905,25 @@ config TDX_FUZZ_KAFL_DISABLE_CPUID_FUZZ
        help
 	 Reduce number of fuzzed inputs by disabling input injection for CPUID
 
+config TDX_FUZZ_KAFL_SKIP_IOAPIC_READS
+	bool "Skip fuzzing IOAPIC MMIO range"
+	depends on TDX_FUZZ_KAFL
+	help
+	  Skip fuzzing MMIO at default IOAPIC offsets (0xfec00000-0xfec00010),
+	  allowing the fuzzer to focus on other parts.
+
+config TDX_FUZZ_KAFL_SKIP_ACPI_PIO
+	bool "Skip fuzzing ACPI PIO"
+	depends on TDX_FUZZ_KAFL
+	help
+	  Skip fuzzing ACPI PIO at 0xb004 (ready loop?)
+
+config TDX_FUZZ_KAFL_SKIP_RNG_SEEDING
+	bool "Skip fuzzing the RNG Seed"
+	depends on TDX_FUZZ_KAFL
+	help
+	  kAFL agent normally uses one byte to initialize the RNG seed.
+	  Setting this option initializes RNG with a fixed value instead.
 
 config TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
 	bool "Disable paravirt rewrite"
@@ -919,17 +938,22 @@ choice
 	depends on TDX_FUZZ_KAFL
 
 config TDX_FUZZ_HARNESS_EARLYBOOT
-       bool "kAFL early boot fuzzing harness"
-       depends on TDX_FUZZ_KAFL
-       help
-	 Fuzz early boot sequence
+	bool "kAFL early boot fuzzing harness"
+	depends on TDX_FUZZ_KAFL
+	help
+	 Fuzz early boot from start_kernel() to mm_init()
 
-config TDX_FUZZ_HARNESS_POST_TRAP
-       bool "kAFL post-trap early boot fuzzing harness"
-       depends on TDX_FUZZ_KAFL
-       help
-	 Fuzz boot sequence
-
+	config TDX_FUZZ_HARNESS_POST_TRAP
+	bool "kAFL post-trap early boot fuzzing harness"
+	depends on TDX_FUZZ_KAFL
+	help
+	  Fuzz boot sequence from mm_init() to do_initcalls()
+	
+	  Recommended options:
+	  - CONFIG_TDX_FUZZ_KAFL_SKIP_RNG_SEEDING = y
+	  - CONFIG_TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE = y
+	  - CONFIG_TDX_FUZZ_KAFL_DISABLE_CPUID_FUZZ = y
+	  - (CONFIG_TDX_FUZZ_KAFL_SKIP_ACPI_PI || CONFIG_TDX_FUZZ_KAFL_SKIP_IOAPIC_READS)
 
 config TDX_FUZZ_HARNESS_START_KERNEL
        bool "kAFL start_kernel early boot fuzzing harness"
