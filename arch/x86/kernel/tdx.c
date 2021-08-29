@@ -498,7 +498,7 @@ static bool tdx_read_msr(unsigned int msr, u64 *val)
 		return false;
 
 	/* Should filter the MSRs to only fuzz host controlled */
-	*val = tdx_fuzz(out.r11, TDX_FUZZ_MSR_READ);
+	*val = tdx_fuzz(out.r11, msr, 8, TDX_FUZZ_MSR_READ);
 
 	return true;
 }
@@ -570,10 +570,10 @@ static bool tdx_handle_cpuid(struct pt_regs *regs)
 	 * EAX, EBX, ECX, EDX registers after the CPUID instruction execution.
 	 * So copy the register contents back to pt_regs.
 	 */
-	regs->ax = tdx_fuzz(out.r12, TDX_FUZZ_CPUID1);
-	regs->bx = tdx_fuzz(out.r13, TDX_FUZZ_CPUID2);
-	regs->cx = tdx_fuzz(out.r14, TDX_FUZZ_CPUID3);
-	regs->dx = tdx_fuzz(out.r15, TDX_FUZZ_CPUID4);
+	regs->ax = tdx_fuzz(out.r12, -1, 2, TDX_FUZZ_CPUID1);
+	regs->bx = tdx_fuzz(out.r13, -1, 2, TDX_FUZZ_CPUID2);
+	regs->cx = tdx_fuzz(out.r14, -1, 2, TDX_FUZZ_CPUID3);
+	regs->dx = tdx_fuzz(out.r15, -1, 2, TDX_FUZZ_CPUID4);
 
 	return true;
 }
@@ -589,7 +589,7 @@ static int tdx_mmio(int size, bool write, unsigned long addr,
 	if (err)
 		return -EFAULT;
 
-	*val = tdx_fuzz(out.r11, TDX_FUZZ_MMIO_READ);
+	*val = tdx_fuzz(out.r11, addr, size, TDX_FUZZ_MMIO_READ);
 	return 0;
 }
 
@@ -817,7 +817,7 @@ static bool tdx_handle_io(struct pt_regs *regs, u32 exit_qual)
 
 	regs->ax &= ~mask;
 	regs->ax |= tdx_fuzz(ret || tdx_fuzz_err(TDX_FUZZ_PORT_IN_ERR) ?
-			     UINT_MAX : out.r11, TDX_FUZZ_PORT_IN) & mask;
+			     UINT_MAX : out.r11, port, size, TDX_FUZZ_PORT_IN) & mask;
 
 	return !ret;
 }
