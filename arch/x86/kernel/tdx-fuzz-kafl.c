@@ -242,7 +242,6 @@ void kafl_agent_stop(void)
 u64 kafl_fuzz_var(u64 var)
 {
 	if (ve_pos < ve_num) {
-		//pr_debug("replace %llx by %llx\n", var, ve_buf[ve_pos]);
 		var = ve_buf[ve_pos];
 		ve_pos++;
 	}
@@ -251,6 +250,77 @@ u64 kafl_fuzz_var(u64 var)
 		// stop at end of fuzz input, unless in dump mode
 		if (!agent_flags->dump_observed)
 			kafl_agent_done();
+	}
+
+	return var;
+}
+
+char *tdx_fuzz_loc_str[] = {
+	"MSR",
+	"MMIO",
+	"ERR_RMSR",
+	"ERR_WMSR",
+	"ERR_MMAP",
+	"PIO",
+	"ERR_PIO",
+	"CPUID1",
+	"CPUID2",
+	"CPUID3",
+	"CPUID4",
+	"PRNG",
+};
+
+u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
+{
+	u64 var;
+
+	if (!agent_enabled) {
+		return orig_var;
+	}
+
+	// skip any fuzzing blockers
+	switch(type) {
+		//case TDX_FUZZ_PORT_IN:
+		//case TDX_FUZZ_MSR_READ:
+#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_RNG_SEEDING
+		case TDX_FUZZ_RANDOM:
+			return 42;
+#endif
+#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_ACPI_PIO
+		case TDX_FUZZ_PORT_IN:
+			if (addr == 0xb004) {
+				return orig_var;
+			}
+			break;
+#endif
+#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_IOAPIC_READS
+		case TDX_FUZZ_MMIO_READ:
+			if (addr == 0xfec00000 || addr == 0xfec00010) {
+				return orig_var;
+			}
+			break;
+#endif
+#ifdef CONFIG_TDX_FUZZ_KAFL_DISABLE_CPUID_FUZZ
+		case TDX_FUZZ_CPUID1:
+		case TDX_FUZZ_CPUID2:
+		case TDX_FUZZ_CPUID3:
+		case TDX_FUZZ_CPUID4:
+			return orig_var;
+#endif
+		default:
+			; // continue to fuzzing
+	}
+
+	if (!agent_initialized) {
+		kafl_agent_init();
+	}
+
+	location_stats[type]++;
+	var = kafl_fuzz_var(orig_var);
+
+	if (agent_flags->dump_callers) {
+		printk(KERN_INFO "\nfuzz_var: %s[%d], addr: %16lx, value: %16llx => %16llx\n", tdx_fuzz_loc_str[type], size, addr, orig_var, var);
+		dump_stack();
 	}
 
 	if (agent_flags->dump_observed) {
@@ -266,40 +336,6 @@ u64 kafl_fuzz_var(u64 var)
 	}
 
 	return var;
-}
-
-u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc)
-{
-	if (!agent_enabled) {
-		return var;
-	}
-
-	if (!agent_initialized) {
-		kafl_agent_init();
-	}
-
-	if (agent_flags->dump_callers) {
-		// dump_stack seems to work better than WARN()
-		pr_warn("%s: orig_val=%llx, loc=%d\n", __func__, var, loc);
-		dump_stack();
-	}
-
-	switch(loc) {
-#ifdef CONFIG_TDX_FUZZ_KAFL_DISABLE_CPUID_FUZZ
-		case TDX_FUZZ_CPUID1:
-		case TDX_FUZZ_CPUID2:
-		case TDX_FUZZ_CPUID3:
-		case TDX_FUZZ_CPUID4:
-			return var;
-#endif
-		default:
-			location_stats[loc]++;
-			return kafl_fuzz_var(var);
-		//case TDX_FUZZ_PORT_IN:
-		//case TDX_FUZZ_MSR_READ:
-		//case TDX_FUZZ_MMIO_READ:
-			return var;
-	}
 }
 
 void tdx_fuzz_enable(void)
