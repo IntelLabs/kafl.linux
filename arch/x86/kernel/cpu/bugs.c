@@ -180,7 +180,7 @@ void __init check_bugs(void)
 
 	fpu__init_check_bugs();
 #else /* CONFIG_X86_64 */
-	//alternative_instructions();
+	alternative_instructions();
 
 	/*
 	 * Make sure the first 2MB area is not mapped by huge pages

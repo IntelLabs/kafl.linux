@@ -906,6 +906,12 @@ config TDX_FUZZ_KAFL_DISABLE_CPUID_FUZZ
 	 Reduce number of fuzzed inputs by disabling input injection for CPUID
 
 
+config TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
+	bool "Disable paravirt rewrite"
+	depends on TDX_FUZZ_KAFL
+	help
+	  Code rewrite conflicts with kAFL PT decoding, breaking bitmaps & traces.
+	  This option disables rewriting paravirtualization code during boot.
 
 choice
 	prompt "kAFL fuzzing harness"

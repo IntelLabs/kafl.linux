@@ -882,9 +882,11 @@ static noinline void __init int3_selftest(void)
 
 void __init alternative_instructions(void)
 {
+#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
+	// conflicts with PT decode - add hypercall to flush tnt + page caches?
+	return;
+#endif
 	int3_selftest();
-
-	BUG();
 
 	/*
 	 * The patching is not fully atomic, so try to avoid local
@@ -925,7 +927,7 @@ void __init alternative_instructions(void)
 	 * First patch paravirt functions, such that we overwrite the indirect
 	 * call with the direct call.
 	 */
-	//apply_paravirt(__parainstructions, __parainstructions_end);
+	apply_paravirt(__parainstructions, __parainstructions_end);
 
 	/*
 	 * Rewrite the retpolines, must be done before alternatives since
@@ -938,7 +940,7 @@ void __init alternative_instructions(void)
 	 * Then patch alternatives, such that those paravirt calls that are in
 	 * alternatives can be overwritten by their immediate fragments.
 	 */
-	//apply_alternatives(__alt_instructions, __alt_instructions_end);
+	apply_alternatives(__alt_instructions, __alt_instructions_end);
 
 	apply_ibt_endbr(__ibt_endbr_seal, __ibt_endbr_seal_end);
 
