@@ -73,10 +73,10 @@ enum tdx_fuzz_loc {
 };
 
 #ifdef CONFIG_TDX_FUZZ
-u64 tdx_fuzz(u64 var, enum tdx_fuzz_loc loc);
+u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc);
 bool tdx_fuzz_err(enum tdx_fuzz_loc loc);
 #else
-static inline u64 tdx_fuzz(u64 var, enum tdx_fuzz_loc loc) { return var; }
+static inline u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc) { return var; };
 static inline bool tdx_fuzz_err(enum tdx_fuzz_loc loc) { return false; }
 #endif
 
