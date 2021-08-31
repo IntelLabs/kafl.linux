@@ -36,12 +36,12 @@ static uint8_t observed_payload_buffer[PAYLOAD_BUFFER_SIZE] __attribute__((align
 static uint32_t location_stats[TDX_FUZZ_MAX];
 
 static agent_flags_t *agent_flags;
-static u64 *ve_buf;
+static u8 *ve_buf;
 static u32 ve_num;
 static u32 ve_pos;
 static u32 ve_mis;
 
-static u64 *ob_buf;
+static u8 *ob_buf;
 static u32 ob_num;
 static u32 ob_pos;
 
@@ -153,8 +153,8 @@ void kafl_agent_init(void)
 	}
 
 	//if (agent_config.dump_payloads) {
-	//	ob_buf = (u64*)observed_payload_buffer;
-	//	ob_num = sizeof(observed_payload_buffer)/sizeof(u64);
+	//	ob_buf = (u8*)observed_payload_buffer;
+	//	ob_num = sizeof(observed_payload_buffer)/sizeof(ob_buf[0]);
 	//	ob_pos = 0;
 	//	pr_debug("Enabled dump payload (max_entries=%u)\n", ob_num);
 	//}
@@ -169,8 +169,8 @@ void kafl_agent_init(void)
 	hprintf("Starting kAFL loop...\n");
 	kAFL_hypercall(HYPERCALL_KAFL_NEXT_PAYLOAD, 0);
 
-	ve_buf = (u64*)payload->data;
-	ve_num = payload->size / sizeof(u64);
+	ve_buf = (u8*)payload->data;
+	ve_num = payload->size / sizeof(ve_buf[0]);
 	ve_pos = 0;
 	ve_mis = 0;
 
@@ -183,8 +183,8 @@ void kafl_agent_init(void)
 	}
 
 	if (agent_flags->dump_observed) {
-		ob_buf = (u64*)observed_payload_buffer;
-		ob_num = sizeof(observed_payload_buffer)/sizeof(u64);
+		ob_buf = (u8*)observed_payload_buffer;
+		ob_num = sizeof(observed_payload_buffer)/sizeof(ob_buf[0]);
 		ob_pos = 0;
 	}
 
@@ -213,7 +213,7 @@ void kafl_agent_done(void)
 	// Dump observed values
 	if (agent_flags->dump_observed) {
 		pr_debug("Dumping observed input...\n");
-		kafl_dump_observed_payload("", false, (uint8_t*)ob_buf, ob_pos*sizeof(ob_buf[0]));
+		kafl_dump_observed_payload("payload_XXXXXX", false, (uint8_t*)ob_buf, ob_pos*sizeof(ob_buf[0]));
 	}
 
 	if (agent_flags->dump_stats) {
@@ -264,11 +264,11 @@ void kafl_agent_stop(void)
 	kafl_agent_done();
 }
 
-u64 kafl_fuzz_var(u64 var)
+u64 kafl_fuzz_var(u64 var, int num_bytes)
 {
-	if (ve_pos < ve_num) {
-		var = ve_buf[ve_pos];
-		ve_pos++;
+	if (ve_pos + num_bytes <= ve_num) {
+		while (num_bytes--)
+			var = (var << 8) ^ ve_buf[ve_pos++];
 	}
 	else {
 		ve_mis++;
@@ -282,7 +282,7 @@ u64 kafl_fuzz_var(u64 var)
 
 char *tdx_fuzz_loc_str[] = {
 	"MSR",
-	"MMIO",
+	"MIO",
 	"ERR_RMSR",
 	"ERR_WMSR",
 	"ERR_MMAP",
@@ -292,7 +292,7 @@ char *tdx_fuzz_loc_str[] = {
 	"CPUID2",
 	"CPUID3",
 	"CPUID4",
-	"PRNG",
+	"RNG",
 };
 
 u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
@@ -341,19 +341,23 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 	}
 
 	location_stats[type]++;
-	var = kafl_fuzz_var(orig_var);
+	var = kafl_fuzz_var(orig_var, size);
 
 	if (agent_flags->dump_callers) {
-		printk(KERN_INFO "\nfuzz_var: %s[%d], addr: %16lx, value: %16llx => %16llx\n", tdx_fuzz_loc_str[type], size, addr, orig_var, var);
+		printk(KERN_WARNING "\nfuzz_var: %s[%d], addr: %16lx, value: %16llx => %16llx\n", tdx_fuzz_loc_str[type], size, addr, orig_var, var);
 		dump_stack();
 	}
 
 	if (agent_flags->dump_observed) {
 		// record input seen so far
 		// execution may be (have been) partly driven by fuzzer
-		if (ob_pos < ob_num) {
-			//hprintf("dump_payload: ob_buf[%u] = %08lx\n", ob_pos, var);
-			ob_buf[ob_pos++] = var;
+		int num_bytes = size;
+		u8 *pvar = (u8*)&var;
+		if (ob_pos <= ob_num - num_bytes) {
+			while (num_bytes) {
+				ob_buf[ob_pos++] = pvar[sizeof(var)-num_bytes];
+				num_bytes--;
+			}
 		} else {
 			pr_warn("Warning: insufficient space in dump_payload\n");
 			kafl_agent_done();
