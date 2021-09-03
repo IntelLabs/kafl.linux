@@ -141,10 +141,15 @@ void kafl_agent_init(void)
 
 	agent_flags = &payload->flags;
 	if (agent_flags->raw_data != 0) {
-		pr_debug("Runtime agent flags=%x\n", agent_flags->raw_data);
+		pr_debug("Runtime agent_flags=0x%04x\n", agent_flags->raw_data);
 		pr_debug("\t dump_observed = %u\n", agent_flags->dump_observed);
 		pr_debug("\t dump_stats = %u\n", agent_flags->dump_stats);
 		pr_debug("\t dump_callers = %u\n", agent_flags->dump_callers);
+
+		// dump modes are sharing the observed_* and ob_* buffers
+		BUG_ON(agent_flags->dump_observed && agent_flags->dump_callers);
+		BUG_ON(agent_flags->dump_observed && agent_flags->dump_stats);
+		BUG_ON(agent_flags->dump_callers && agent_flags->dump_stats);
 	}
 
 	if (agent_flags->dump_observed) {
@@ -321,7 +326,12 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 		u8 *pvar = (u8*)&var;
 		if (ob_pos <= ob_num - num_bytes) {
 			while (num_bytes) {
-				ob_buf[ob_pos++] = pvar[sizeof(var)-num_bytes];
+				// TODO: debug KASAN null-ptr-deref around here?!
+				BUG_ON(!ob_buf);
+				BUG_ON(!pvar);
+				if (ob_buf && pvar) {
+					ob_buf[ob_pos++] = pvar[sizeof(var)-num_bytes];
+				}
 				num_bytes--;
 			}
 		} else {
