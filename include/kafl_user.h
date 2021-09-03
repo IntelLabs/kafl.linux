@@ -72,14 +72,14 @@ typedef union {
 		unsigned int dump_callers :1;
 	};
 	uint32_t raw_data;
-} agent_flags_t;
+} __attribute__((packed)) agent_flags_t;
 
 #define MAX_PAYLOAD_LEN (PAYLOAD_BUFFER_SIZE-sizeof(int32_t)-sizeof(agent_flags_t))
 typedef struct {
 	agent_flags_t flags;
 	int32_t size;
 	uint8_t data[MAX_PAYLOAD_LEN];
-} kAFL_payload;
+} __attribute__((packed)) kAFL_payload;
 
 typedef struct {
 	uint64_t ip[4];
