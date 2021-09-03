@@ -309,7 +309,8 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 	var = kafl_fuzz_var(orig_var, size);
 
 	if (agent_flags->dump_callers) {
-		printk(KERN_WARNING "\nfuzz_var: %s[%d], addr: %16lx, value: %16llx => %16llx\n", tdx_fuzz_loc_str[type], size, addr, orig_var, var);
+		printk(KERN_WARNING "\nfuzz_var: %s[%d], addr: %16lx, orig: %16llx, isr: %lx\n",
+				tdx_fuzz_loc_str[type], size, addr, orig_var, in_interrupt());
 		dump_stack();
 	}
 
