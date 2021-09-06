@@ -32,7 +32,7 @@ static host_config_t host_config = {0};
 
 static kafl_dump_file_t dump_file __attribute__((aligned(4096)));
 static uint8_t payload_buffer[PAYLOAD_BUFFER_SIZE] __attribute__((aligned(4096)));
-static uint8_t observed_payload_buffer[PAYLOAD_BUFFER_SIZE] __attribute__((aligned(4096)));
+static uint8_t observed_payload_buffer[PAYLOAD_BUFFER_SIZE*2] __attribute__((aligned(4096)));
 static uint32_t location_stats[TDX_FUZZ_MAX];
 
 static agent_flags_t *agent_flags;
@@ -283,7 +283,12 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 #endif
 #ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_ACPI_PIO
 		case TDX_FUZZ_PORT_IN:
-			if (addr == 0xb004) {
+			/*
+			 * Multiple relevant PIO regions, may have to activate depending on target
+			 * e.g. https://qemu.readthedocs.io/en/latest/specs/acpi_pci_hotplug.html
+			 */
+			if ((addr >= 0xb000 && addr <= 0xb006) || // ACPI init?
+			    (addr >= 0xafe0 && addr <= 0xafe2)) { // ACPI PCI hotplug
 				return orig_var;
 			}
 			break;
