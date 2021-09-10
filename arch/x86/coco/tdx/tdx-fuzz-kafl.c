@@ -7,6 +7,7 @@
 #include <linux/kernel.h>
 #include <linux/random.h>
 #include <linux/percpu.h>
+#include <linux/debugfs.h>
 #include <linux/smp.h>
 #include <linux/slab.h>
 #include <linux/memblock.h>
@@ -480,3 +481,86 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 
 	}
 }
+
+#ifdef CONFIG_TDX_FUZZ_KAFL_DEBUGFS
+static int event_open(struct inode *inode, struct file *file)
+{
+	if (!agent_enabled)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int event_release(struct inode *inode, struct file *file)
+{
+	return 0;
+}
+
+static ssize_t event_write(struct file *f, const char __user *buf,
+			    size_t len, loff_t *off)
+{
+	int num, i;
+	unsigned copied;
+
+	if (!agent_initialized)
+		return -EINVAL;
+
+	if (0 == strncmp("done", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_DONE);
+	}
+	else if (0 == strncmp("pause", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_ENABLE);
+	}
+	else if (0 == strncmp("resume", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_DISABLE);
+	}
+	else if (0 == strncmp("panic", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_PANIC);
+	}
+	else if (0 == strncmp("abort", buf, len)) {
+		tdx_fuzz_event(1337);
+	}
+	else {
+		pr_warn("Unrecognized event - ignore..");
+		return -EINVAL;
+	}
+
+	return len;
+}
+
+static struct file_operations event_fops = {
+	.owner	 = THIS_MODULE,
+	.open	 = event_open,
+	.release = event_release,
+	.write	 = event_write,
+	.llseek  = no_llseek,
+};
+
+static int __init tdx_fuzz_init(void)
+{
+	struct dentry *dbp, *statp;
+
+	dbp = debugfs_create_dir("kafl", NULL);
+	if (!dbp)
+		return PTR_ERR(dbp);
+
+	/* Don't allow verbose because printk can trigger another tdcall */
+	//debugfs_remove(debugfs_lookup("verbose", dbp));
+	debugfs_create_bool("enable", 0600, dbp, &agent_enabled);
+	//debugfs_create_bool("tdcall", 0600, dbp, &fuzz_tdcall);
+	//debugfs_create_bool("tderrors", 0600, dbp, &fuzz_tderrors);
+	debugfs_create_bool("enable", 0600, dbp, &agent_enabled);
+	debugfs_create_file("event",  0600, dbp, NULL, &event_fops);
+	statp = debugfs_create_dir("stats", dbp);
+	debugfs_create_bool("running",     0400, statp, &agent_initialized);
+	debugfs_create_u32("payload_size", 0400, statp, &ve_num);
+	debugfs_create_u32("payload_used", 0400, statp, &ve_pos);
+	debugfs_create_u32("stats_msr",    0400, statp, &(location_stats[TDX_FUZZ_MSR_READ]));
+	debugfs_create_u32("stats_mmio",   0400, statp, &(location_stats[TDX_FUZZ_MMIO_READ]));
+	debugfs_create_u32("stats_pio",    0400, statp, &(location_stats[TDX_FUZZ_PORT_IN]));
+
+	return 0;
+}
+
+__initcall(tdx_fuzz_init)
+#endif

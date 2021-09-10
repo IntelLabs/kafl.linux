@@ -900,6 +900,13 @@ config TDX_FUZZ_KAFL_DETERMINISTIC
 	help
 	  Reduce number of worqueues etc. to make fuzzing more deterministic
 
+config TDX_FUZZ_KAFL_DEBUGFS
+	bool "kAFL debugfs interface"
+	depends on TDX_FUZZ_KAFL
+	default y
+	help
+	  Enable userspace interface
+
 config TDX_FUZZ_KAFL_SKIP_CPUID
 	bool "Disable CPUID fuzzing for kAFL"
 	depends on TDX_FUZZ_KAFL
