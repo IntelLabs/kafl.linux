@@ -300,7 +300,7 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 			}
 			break;
 #endif
-#ifdef CONFIG_TDX_FUZZ_KAFL_DISABLE_CPUID_FUZZ
+#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_CPUID
 		case TDX_FUZZ_CPUID1:
 		case TDX_FUZZ_CPUID2:
 		case TDX_FUZZ_CPUID3:
