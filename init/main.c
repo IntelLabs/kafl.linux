@@ -934,7 +934,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 
 	set_task_stack_end_magic(&init_task);
 #if defined CONFIG_TDX_FUZZ_HARNESS_EARLYBOOT  || defined CONFIG_TDX_FUZZ_HARNESS_START_KERNEL || defined CONFIG_TDX_FUZZ_HARNESS_FULL_BOOT
-	tdx_fuzz_enable(); // EARLY_BOOT_HARNESS
+	tdx_fuzz_event(TDX_FUZZ_ENABLE);
 #endif
 	smp_setup_processor_id();
 	debug_objects_early_init();
@@ -995,7 +995,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	mm_init();
 
 #ifdef CONFIG_TDX_FUZZ_HARNESS_POST_TRAP
-	tdx_fuzz_enable(); // POST_TRAP_HARNESS
+	tdx_fuzz_event(TDX_FUZZ_ENABLE);
 #endif
 
 	ftrace_init();
@@ -1151,7 +1151,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	tdx_fuzz_event(TDX_FUZZ_DONE);
 #endif
 #if defined CONFIG_TDX_FUZZ_HARNESS_REST_INIT
-	tdx_fuzz_enable();
+	tdx_fuzz_event(TDX_FUZZ_ENABLE);
 #endif
 	/* Do the rest non-__init'ed, we're now alive */
 	arch_call_rest_init();
@@ -1330,7 +1330,7 @@ int __init_or_module do_one_initcall(initcall_t fn)
                 if (strncmp(buf, fuzz_targets[i], 128) == 0) {
                         fuzzing = true;
                         fuzz_count++;
-                        tdx_fuzz_enable();
+                        tdx_fuzz_event(TDX_FUZZ_ENABLE);
                         break;
 
                 }
@@ -1345,7 +1345,7 @@ int __init_or_module do_one_initcall(initcall_t fn)
         if (fuzzing && (fuzz_count >= sizeof(fuzz_targets) / sizeof(char *)))
                 tdx_fuzz_event(TDX_FUZZ_DONE);
         else if (fuzzing)
-                tdx_fuzz_event(TDX_FUZZ_DISABLE);
+                tdx_fuzz_event(TDX_FUZZ_PAUSE);
 #endif
 
 	msgbuf[0] = 0;
@@ -1419,11 +1419,11 @@ static void __init do_initcall_level(int level, char *command_line)
 	trace_initcall_level(initcall_level_names[level]);
 #if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_3
 	if (level == 3)
-		tdx_fuzz_enable();
+		tdx_fuzz_event(TDX_FUZZ_ENABLE);
 #endif
 #if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_4
 	if (level == 4)
-		tdx_fuzz_enable();
+		tdx_fuzz_event(TDX_FUZZ_ENABLE);
 #endif
 
 	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
@@ -1469,13 +1469,13 @@ static void __init do_basic_setup(void)
 {
 	cpuset_init_smp();
 #if defined CONFIG_TDX_FUZZ_HARNESS_DO_BASIC
-	tdx_fuzz_enable(); // BASIC_SETUP_HARNESS
+	tdx_fuzz_event(TDX_FUZZ_ENABLE);
 #endif
 	driver_init();
 	init_irq_proc();
 	do_ctors();
 #if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS && !defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
-	tdx_fuzz_enable(); // DOINITCALLS harness
+	tdx_fuzz_event(TDX_FUZZ_ENABLE);
 #endif
 	do_initcalls();
 #if defined CONFIG_TDX_FUZZ_HARNESS_DO_BASIC || defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS

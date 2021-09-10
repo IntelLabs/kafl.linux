@@ -27,7 +27,10 @@
 #include <kafl_user.h>
 
 static bool agent_initialized = false;
-static bool agent_enabled = false;
+static bool fuzz_enabled = false;
+static bool fuzz_tdcall = true;   // enable TDG fuzzing by default
+static bool fuzz_tderror = false; // TDG error fuzzing not supported
+
 static agent_config_t agent_config = {0};
 static host_config_t host_config = {0};
 
@@ -166,20 +169,12 @@ void kafl_agent_init(void)
 	kAFL_hypercall(HYPERCALL_KAFL_ACQUIRE, 0); 
 }
 
-void kafl_agent_done(void)
+void kafl_agent_stats(void)
 {
-	if (!agent_initialized)
+	if (!agent_initialized) {
+		// agent stats are undefined!
 		return;
-
-	agent_enabled = false;
-
-	//unsigned i;
-	//pr_info("[*] Injected %d values, missed %d.\n", ve_pos, ve_mis);
-	//for (i=0; i<TDX_FUZZ_MAX; i++) {
-	//	if (location_stats[i] != 0) {
-	//		pr_debug("\tstat[%u] = %u\n", i, location_stats[i]);
-	//	}
-	//}
+	}
 
 	// Dump observed values
 	if (agent_flags->dump_observed) {
@@ -216,23 +211,19 @@ void kafl_agent_done(void)
 		kafl_dump_observed_payload("fuzzer_location_stats.lst", true,
 			   observed_payload_buffer, ob_num);
 	}
-
-	// Stops tracing and restore the snapshot
-	// Non-zero argument triggers stream_expand mutation in kAFL
-	kAFL_hypercall(HYPERCALL_KAFL_RELEASE, ve_mis*sizeof(ve_buf[0]));
 }
 
-void kafl_agent_stop(void)
+void kafl_agent_done(void)
 {
-	if (!agent_enabled) {
-		kafl_agent_abort("Attempt to finish kAFL run but not yet enabled\n");
-	}
-
 	if (!agent_initialized) {
 		kafl_agent_abort("Attempt to finish kAFL run but never initialized\n");
 	}
 
-	kafl_agent_done();
+	kafl_agent_stats();
+
+	// Stops tracing and restore the snapshot for next round
+	// Non-zero argument triggers stream_expand mutation in kAFL
+	kAFL_hypercall(HYPERCALL_KAFL_RELEASE, ve_mis*sizeof(ve_buf[0]));
 }
 
 u64 kafl_fuzz_var(u64 var, int num_bytes)
@@ -270,7 +261,7 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 {
 	u64 var;
 
-	if (!agent_enabled) {
+	if (!fuzz_enabled || !fuzz_tdcall) {
 		return orig_var;
 	}
 
@@ -349,10 +340,14 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 	return var;
 }
 
-void tdx_fuzz_enable(void)
+bool tdx_fuzz_err(enum tdx_fuzz_loc loc)
 {
-	agent_enabled = true;
-	pr_debug("[*] Agent enabled.\n");
+	if (!fuzz_enabled || !fuzz_tderror) {
+		return false;
+	}
+	
+	WARN(1,"tdx_fuzz_err() is not implemented\n");
+	return false;
 }
 
 struct disallowlist_entry {
@@ -394,15 +389,15 @@ __setup("fuzzing_disallow=", fuzzing_disallow);
 
 static int kp_handler_pre(struct kprobe *p, struct pt_regs *regs)
 {
-	pr_debug("disable fuzzing for %s\n", p->symbol_name);
-	tdx_fuzz_event(TDX_FUZZ_DISABLE);
+	pr_debug("pause fuzzing for %s\n", p->symbol_name);
+	tdx_fuzz_event(TDX_FUZZ_PAUSE);
 	return 0;
 }
 
 static void kp_handler_post(struct kprobe *p, struct pt_regs *regs, unsigned long flags)
 {
 	// TODO: check if it should be enabled
-	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+	tdx_fuzz_event(TDX_FUZZ_RESUME);
 }
 
 #define TDX_MAX_NUM_KPROBES 16
@@ -445,83 +440,100 @@ static void tdx_fuzz_filter_init(void)
 
 void tdx_fuzz_event(enum tdx_fuzz_event e)
 {
+	// pre-init actions
+	switch (e) {
+		case TDX_FUZZ_START:
+			pr_warn("[*] Agent start!\n");
+			kafl_agent_init();
+			fuzz_enabled = true;
+			return;
+		case TDX_FUZZ_ENABLE:
+			pr_warn("[*] Agent enable!\n");
+			fuzz_enabled = true;
+			return;
+		case TDX_FUZZ_DONE:
+			return kafl_agent_done();
+		case TDX_FUZZ_ABORT:
+			return kafl_agent_abort("kAFL got ABORT event.\n");
+		case TDX_FUZZ_PAUSE:
+			if (agent_initialized) {
+				fuzz_enabled = false;
+			}
+			break;
+		case TDX_FUZZ_RESUME:
+			if (agent_initialized) {
+				fuzz_enabled = true;
+			}
+			break;
+		default:
+			//return kafl_agent_abort("Unrecognized fuzz event.\n");
+			break;
+	}
+
+	if (!agent_initialized) {
+		pr_alert("Got event %x but not initialized?!\n", e);
+		dump_stack();
+		return;
+	}
+
 	switch (e) {
 		case TDX_FUZZ_PANIC:
 			return kafl_raise_panic();
 		case TDX_FUZZ_KASAN:
 		case TDX_FUZZ_UBSAN:
 			return kafl_raise_kasan();
-		case TDX_FUZZ_DONE:
-			//return kafl_agent_stop();
-			return kafl_agent_done();
 		case TDX_FUZZ_ERROR:
 			// raise potential error conditions for review?
 			return kafl_raise_panic();
 		case TDX_FUZZ_HALT:
 		case TDX_FUZZ_REBOOT:
-		case TDX_FUZZ_SAFE_HALT:
 			// raise potential error conditions for review?
-			//return kafl_raise_panic();
+			return kafl_raise_panic();
+		case TDX_FUZZ_SAFE_HALT:
+			// regularly called via tick_nohz_idle_stop_tick()
+			break; 
 		case TDX_FUZZ_TIMEOUT:
-			return kafl_agent_done();
-		case TDX_FUZZ_DISABLE:
-			hprintf("TDX_FUZZ_DISABLE agent_initialized=%d agent_enabled=%d\n", agent_initialized, agent_enabled);
-			if (agent_initialized) {
-				agent_enabled = false;
-			}
-			break;
-		case TDX_FUZZ_ENABLE:
-			hprintf("TDX_FUZZ_ENABLE agent_initialized=%d agent_enabled=%d\n", agent_initialized, agent_enabled);
-			if (agent_initialized) {
-				agent_enabled = true;
-			}
-			break;
+			return kafl_agent_abort("TODO: add a timeout handler?!\n");
 		default:
 			return kafl_agent_abort("Unrecognized fuzz event.\n");
-
 	}
 }
 
 #ifdef CONFIG_TDX_FUZZ_KAFL_DEBUGFS
-static int event_open(struct inode *inode, struct file *file)
-{
-	if (!agent_enabled)
-		return -EINVAL;
-
-	return 0;
-}
-
-static int event_release(struct inode *inode, struct file *file)
-{
-	return 0;
-}
-
+static int event_open(struct inode *inode, struct file *file) { return 0; }
+static int event_release(struct inode *inode, struct file *file) { return 0; }
 static ssize_t event_write(struct file *f, const char __user *buf,
 			    size_t len, loff_t *off)
 {
-	int num, i;
-	unsigned copied;
-
-	if (!agent_initialized)
-		return -EINVAL;
-
-	if (0 == strncmp("done", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_DONE);
+	if (0 == strncmp("start\n", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_START);
 	}
-	else if (0 == strncmp("pause", buf, len)) {
+	else if (0 == strncmp("enable\n", buf, len)) {
 		tdx_fuzz_event(TDX_FUZZ_ENABLE);
 	}
-	else if (0 == strncmp("resume", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_DISABLE);
-	}
-	else if (0 == strncmp("panic", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_PANIC);
-	}
-	else if (0 == strncmp("abort", buf, len)) {
+	else if (0 == strncmp("abort\n", buf, len)) {
 		tdx_fuzz_event(1337);
 	}
+	else if (0 == strncmp("done\n", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_DONE);
+	}
+	else if (0 == strncmp("pause\n", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_PAUSE);
+	}
+	else if (0 == strncmp("resume\n", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_RESUME);
+	}
+	else if (0 == strncmp("panic\n", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_PANIC);
+	}
+	else if (0 == strncmp("kasan\n", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_KASAN);
+	}
+	else if (0 == strncmp("ubsan\n", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_UBSAN);
+	}
 	else {
-		pr_warn("Unrecognized event - ignore..");
+		pr_warn("Unrecognized event - %s", buf);
 		return -EINVAL;
 	}
 
@@ -546,10 +558,9 @@ static int __init tdx_fuzz_init(void)
 
 	/* Don't allow verbose because printk can trigger another tdcall */
 	//debugfs_remove(debugfs_lookup("verbose", dbp));
-	debugfs_create_bool("enable", 0600, dbp, &agent_enabled);
-	//debugfs_create_bool("tdcall", 0600, dbp, &fuzz_tdcall);
-	//debugfs_create_bool("tderrors", 0600, dbp, &fuzz_tderrors);
-	debugfs_create_bool("enable", 0600, dbp, &agent_enabled);
+	debugfs_create_bool("fuzz_enabled", 0600, dbp, &fuzz_enabled);
+	debugfs_create_bool("fuzz_tdcall", 0600, dbp, &fuzz_tdcall);
+	debugfs_create_bool("fuzz_tderrors", 0600, dbp, &fuzz_tderror);
 	debugfs_create_file("event",  0600, dbp, NULL, &event_fops);
 	statp = debugfs_create_dir("stats", dbp);
 	debugfs_create_bool("running",     0400, statp, &agent_initialized);
