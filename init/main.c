@@ -928,7 +928,6 @@ static void __init print_unknown_bootoptions(void)
 	memblock_free_ptr(unknown_options, len);
 }
 
-#include <kafl_user.h>
 asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 {
 	char *command_line;
