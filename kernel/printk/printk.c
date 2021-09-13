@@ -2285,7 +2285,7 @@ EXPORT_SYMBOL_GPL(vprintk_default);
 
 #ifdef CONFIG_TDX_FUZZ_KAFL
 #include <asm/cmdline.h>
-#include <kafl_user.h>
+#include <asm/kafl-agent.h>
 static int last_msg_level = 0;
 static char hprintf_buffer[HPRINTF_MAX_SIZE] __attribute__((aligned(4096)));
 
