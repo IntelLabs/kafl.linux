@@ -21,10 +21,11 @@
 #include <linux/of_pci.h>
 #include <linux/pci_hotplug.h>
 
+#include <asm/kafl-agent.h>
+
 #undef pr_fmt
 #define pr_fmt(fmt) "kAFL: " fmt
 
-#include <kafl_user.h>
 
 static bool agent_initialized = false;
 static bool fuzz_enabled = false;
