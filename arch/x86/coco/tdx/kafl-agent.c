@@ -29,8 +29,8 @@
 
 static bool agent_initialized = false;
 static bool fuzz_enabled = false;
-static bool fuzz_tdcall = true;   // enable TDG fuzzing by default
-static bool fuzz_tderror = false; // TDG error fuzzing not supported
+static bool fuzz_tdcall = true;   // enable TDX fuzzing by default
+static bool fuzz_tderror = false; // TDX error fuzzing not supported
 
 static agent_config_t agent_config = {0};
 static host_config_t host_config = {0};
@@ -90,6 +90,12 @@ void kafl_dump_observed_payload(char *filename, int append, uint8_t *buf, uint32
 	dump_file.append = append;
 
 	kAFL_hypercall(HYPERCALL_KAFL_DUMP_FILE, (uintptr_t)&dump_file);
+}
+
+void kafl_agent_setcr3(void)
+{
+	pr_debug("Submitting current CR3 value to hypervisor...\n");
+	kAFL_hypercall(HYPERCALL_KAFL_SUBMIT_CR3, 0);
 }
 
 void kafl_agent_init(void)
@@ -456,6 +462,8 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 			return kafl_agent_done();
 		case TDX_FUZZ_ABORT:
 			return kafl_agent_abort("kAFL got ABORT event.\n");
+		case TDX_FUZZ_SETCR3:
+			return kafl_agent_setcr3();
 		case TDX_FUZZ_PAUSE:
 			if (agent_initialized) {
 				fuzz_enabled = false;
@@ -471,28 +479,27 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 			break;
 	}
 
+	// once in userspace, nohz_idle() constantly calls this to halt()
+	if (e == TDX_FUZZ_SAFE_HALT)
+		return;
+
 	if (!agent_initialized) {
 		pr_alert("Got event %x but not initialized?!\n", e);
 		dump_stack();
 		return;
 	}
 
+	// select here what kind of errors to raise to fuzzer
 	switch (e) {
-		case TDX_FUZZ_PANIC:
-			return kafl_raise_panic();
 		case TDX_FUZZ_KASAN:
 		case TDX_FUZZ_UBSAN:
 			return kafl_raise_kasan();
+		case TDX_FUZZ_PANIC:
 		case TDX_FUZZ_ERROR:
-			// raise potential error conditions for review?
-			return kafl_raise_panic();
 		case TDX_FUZZ_HALT:
 		case TDX_FUZZ_REBOOT:
-			// raise potential error conditions for review?
-			return kafl_raise_panic();
 		case TDX_FUZZ_SAFE_HALT:
-			// regularly called via tick_nohz_idle_stop_tick()
-			break; 
+			return kafl_raise_panic();
 		case TDX_FUZZ_TIMEOUT:
 			return kafl_agent_abort("TODO: add a timeout handler?!\n");
 		default:
@@ -512,11 +519,14 @@ static ssize_t event_write(struct file *f, const char __user *buf,
 	else if (0 == strncmp("enable\n", buf, len)) {
 		tdx_fuzz_event(TDX_FUZZ_ENABLE);
 	}
-	else if (0 == strncmp("abort\n", buf, len)) {
-		tdx_fuzz_event(1337);
-	}
 	else if (0 == strncmp("done\n", buf, len)) {
 		tdx_fuzz_event(TDX_FUZZ_DONE);
+	}
+	else if (0 == strncmp("abort\n", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_ABORT);
+	}
+	else if (0 == strncmp("setcr3\n", buf, len)) {
+		tdx_fuzz_event(TDX_FUZZ_SETCR3);
 	}
 	else if (0 == strncmp("pause\n", buf, len)) {
 		tdx_fuzz_event(TDX_FUZZ_PAUSE);
@@ -549,6 +559,41 @@ static struct file_operations event_fops = {
 	.llseek  = no_llseek,
 };
 
+static int buf_get_u8(void *data, u64 *val)
+{
+	if (!fuzz_enabled) {
+		return -EINVAL;
+	}
+
+	if (!agent_initialized) {
+		kafl_agent_init();
+	}
+	
+	*val = kafl_fuzz_var(*val, sizeof(u8)) & 0xFF;
+
+	return 0;
+}
+
+static int buf_get_u32(void *data, u64 *val)
+{
+	//int num = sizeof(u32);
+
+	if (!fuzz_enabled) {
+		return -EINVAL;
+	}
+
+	if (!agent_initialized) {
+		kafl_agent_init();
+	}
+
+	*val = kafl_fuzz_var(*val, sizeof(u32)) & 0xFFFFFFFF;
+
+	return 0;
+}
+
+DEFINE_DEBUGFS_ATTRIBUTE(buf_get_u8_fops, buf_get_u8, NULL, "%llu");
+DEFINE_DEBUGFS_ATTRIBUTE(buf_get_u32_fops, buf_get_u32, NULL, "%llu");
+
 static int __init tdx_fuzz_init(void)
 {
 	struct dentry *dbp, *statp;
@@ -563,6 +608,8 @@ static int __init tdx_fuzz_init(void)
 	debugfs_create_bool("fuzz_tdcall", 0600, dbp, &fuzz_tdcall);
 	debugfs_create_bool("fuzz_tderrors", 0600, dbp, &fuzz_tderror);
 	debugfs_create_file("event",  0600, dbp, NULL, &event_fops);
+	debugfs_create_file("buf_get_u8", 0400, dbp, NULL, &buf_get_u8_fops);
+	debugfs_create_file("buf_get_u32", 0400, dbp, NULL, &buf_get_u32_fops);
 	statp = debugfs_create_dir("stats", dbp);
 	debugfs_create_bool("running",     0400, statp, &agent_initialized);
 	debugfs_create_u32("payload_size", 0400, statp, &ve_num);
@@ -570,6 +617,10 @@ static int __init tdx_fuzz_init(void)
 	debugfs_create_u32("stats_msr",    0400, statp, &(location_stats[TDX_FUZZ_MSR_READ]));
 	debugfs_create_u32("stats_mmio",   0400, statp, &(location_stats[TDX_FUZZ_MMIO_READ]));
 	debugfs_create_u32("stats_pio",    0400, statp, &(location_stats[TDX_FUZZ_PORT_IN]));
+	debugfs_create_u32("stats_cpuid1", 0400, statp, &(location_stats[TDX_FUZZ_CPUID1]));
+	debugfs_create_u32("stats_cpuid2", 0400, statp, &(location_stats[TDX_FUZZ_CPUID2]));
+	debugfs_create_u32("stats_cpuid3", 0400, statp, &(location_stats[TDX_FUZZ_CPUID3]));
+	debugfs_create_u32("stats_cpuid4", 0400, statp, &(location_stats[TDX_FUZZ_CPUID4]));
 
 	return 0;
 }
