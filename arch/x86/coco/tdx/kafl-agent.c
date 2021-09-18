@@ -40,7 +40,12 @@ static uint8_t payload_buffer[PAYLOAD_BUFFER_SIZE] __attribute__((aligned(4096))
 static uint8_t observed_payload_buffer[PAYLOAD_BUFFER_SIZE*2] __attribute__((aligned(4096)));
 static uint32_t location_stats[TDX_FUZZ_MAX];
 
-static agent_flags_t *agent_flags;
+static struct {
+		bool dump_observed;
+		bool dump_stats;
+		bool dump_callers;
+} agent_flags;
+
 static u8 *ve_buf;
 static u32 ve_num;
 static u32 ve_pos;
@@ -150,20 +155,26 @@ void kafl_agent_init(void)
 	ve_pos = 0;
 	ve_mis = 0;
 
-	agent_flags = &payload->flags;
-	if (agent_flags->raw_data != 0) {
-		pr_debug("Runtime agent_flags=0x%04x\n", agent_flags->raw_data);
-		pr_debug("\t dump_observed = %u\n", agent_flags->dump_observed);
-		pr_debug("\t dump_stats = %u\n", agent_flags->dump_stats);
-		pr_debug("\t dump_callers = %u\n", agent_flags->dump_callers);
+	if (payload->flags.raw_data != 0) {
+		pr_debug("Runtime payload->flags=0x%04x\n", payload->flags.raw_data);
+		pr_debug("\t dump_observed = %u\n",         payload->flags.dump_observed);
+		pr_debug("\t dump_stats = %u\n",            payload->flags.dump_stats);
+		pr_debug("\t dump_callers = %u\n",          payload->flags.dump_callers);
 
-		// dump modes are sharing the observed_* and ob_* buffers
-		BUG_ON(agent_flags->dump_observed && agent_flags->dump_callers);
-		BUG_ON(agent_flags->dump_observed && agent_flags->dump_stats);
-		BUG_ON(agent_flags->dump_callers && agent_flags->dump_stats);
+		// debugfs cannot handle the bitfield..
+		agent_flags.dump_observed = payload->flags.dump_observed;
+		agent_flags.dump_stats    = payload->flags.dump_stats;
+		agent_flags.dump_callers  = payload->flags.dump_callers;
+
+		// dump modes are exclusive - sharing the observed_* and ob_* buffers
+		BUG_ON(agent_flags.dump_observed && agent_flags.dump_callers);
+		BUG_ON(agent_flags.dump_observed && agent_flags.dump_stats);
+		BUG_ON(agent_flags.dump_callers  && agent_flags.dump_stats);
 	}
 
-	if (agent_flags->dump_observed) {
+
+
+	if (agent_flags.dump_observed) {
 		ob_buf = (u8*)observed_payload_buffer;
 		ob_num = sizeof(observed_payload_buffer)/sizeof(ob_buf[0]);
 		ob_pos = 0;
@@ -184,12 +195,12 @@ void kafl_agent_stats(void)
 	}
 
 	// Dump observed values
-	if (agent_flags->dump_observed) {
+	if (agent_flags.dump_observed) {
 		pr_debug("Dumping observed input...\n");
 		kafl_dump_observed_payload("payload_XXXXXX", false, (uint8_t*)ob_buf, ob_pos*sizeof(ob_buf[0]));
 	}
 
-	if (agent_flags->dump_stats) {
+	if (agent_flags.dump_stats) {
 
 		// flag if payload buffer is >90% and we quit due to missing input
 		char maxed_out = ' ';
@@ -242,7 +253,7 @@ u64 kafl_fuzz_var(u64 var, int num_bytes)
 	else {
 		ve_mis++;
 		// stop at end of fuzz input, unless in dump mode
-		if (!agent_flags->dump_observed)
+		if (!agent_flags.dump_observed)
 			kafl_agent_done();
 	}
 
@@ -317,13 +328,13 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 	location_stats[type]++;
 	var = kafl_fuzz_var(orig_var, size);
 
-	if (agent_flags->dump_callers) {
+	if (agent_flags.dump_callers) {
 		printk(KERN_WARNING "\nfuzz_var: %s[%d], addr: %16lx, orig: %16llx, isr: %lx\n",
 				tdx_fuzz_loc_str[type], size, addr, orig_var, in_interrupt());
 		dump_stack();
 	}
 
-	if (agent_flags->dump_observed) {
+	if (agent_flags.dump_observed) {
 		// record input seen so far
 		// execution may be (have been) partly driven by fuzzer
 		int num_bytes = size;
@@ -508,9 +519,7 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 }
 
 #ifdef CONFIG_TDX_FUZZ_KAFL_DEBUGFS
-static int event_open(struct inode *inode, struct file *file) { return 0; }
-static int event_release(struct inode *inode, struct file *file) { return 0; }
-static ssize_t event_write(struct file *f, const char __user *buf,
+static ssize_t control_write(struct file *f, const char __user *buf,
 			    size_t len, loff_t *off)
 {
 	if (0 == strncmp("start\n", buf, len)) {
@@ -551,11 +560,10 @@ static ssize_t event_write(struct file *f, const char __user *buf,
 	return len;
 }
 
-static struct file_operations event_fops = {
+static struct file_operations control_fops = {
 	.owner	 = THIS_MODULE,
-	.open	 = event_open,
-	.release = event_release,
-	.write	 = event_write,
+	.open	 = simple_open,
+	.write	 = control_write,
 	.llseek  = no_llseek,
 };
 
@@ -604,23 +612,31 @@ static int __init tdx_fuzz_init(void)
 
 	/* Don't allow verbose because printk can trigger another tdcall */
 	//debugfs_remove(debugfs_lookup("verbose", dbp));
-	debugfs_create_bool("fuzz_enabled", 0600, dbp, &fuzz_enabled);
-	debugfs_create_bool("fuzz_tdcall", 0600, dbp, &fuzz_tdcall);
-	debugfs_create_bool("fuzz_tderrors", 0600, dbp, &fuzz_tderror);
-	debugfs_create_file("event",  0600, dbp, NULL, &event_fops);
-	debugfs_create_file("buf_get_u8", 0400, dbp, NULL, &buf_get_u8_fops);
-	debugfs_create_file("buf_get_u32", 0400, dbp, NULL, &buf_get_u32_fops);
-	statp = debugfs_create_dir("stats", dbp);
-	debugfs_create_bool("running",     0400, statp, &agent_initialized);
-	debugfs_create_u32("payload_size", 0400, statp, &ve_num);
-	debugfs_create_u32("payload_used", 0400, statp, &ve_pos);
-	debugfs_create_u32("stats_msr",    0400, statp, &(location_stats[TDX_FUZZ_MSR_READ]));
-	debugfs_create_u32("stats_mmio",   0400, statp, &(location_stats[TDX_FUZZ_MMIO_READ]));
-	debugfs_create_u32("stats_pio",    0400, statp, &(location_stats[TDX_FUZZ_PORT_IN]));
-	debugfs_create_u32("stats_cpuid1", 0400, statp, &(location_stats[TDX_FUZZ_CPUID1]));
-	debugfs_create_u32("stats_cpuid2", 0400, statp, &(location_stats[TDX_FUZZ_CPUID2]));
-	debugfs_create_u32("stats_cpuid3", 0400, statp, &(location_stats[TDX_FUZZ_CPUID3]));
-	debugfs_create_u32("stats_cpuid4", 0400, statp, &(location_stats[TDX_FUZZ_CPUID4]));
+	debugfs_create_bool("fuzz_enabled",     0600, dbp, &fuzz_enabled);
+	debugfs_create_bool("fuzz_tdcall",      0600, dbp, &fuzz_tdcall);
+	debugfs_create_bool("fuzz_tderrors",    0600, dbp, &fuzz_tderror);
+	debugfs_create_file("control",          0600, dbp, NULL, &control_fops);
+	debugfs_create_file("buf_get_u8",       0400, dbp, NULL, &buf_get_u8_fops);
+	debugfs_create_file("buf_get_u32",      0400, dbp, NULL, &buf_get_u32_fops);
+
+	statp = debugfs_create_dir("status", dbp);
+	debugfs_create_bool("running",          0400, statp, &agent_initialized);
+	debugfs_create_u32("payload_size",      0400, statp, &ve_num);
+	debugfs_create_u32("payload_used",      0400, statp, &ve_pos);
+	debugfs_create_u32("payload_max",       0400, statp, &host_config.payload_buffer_size);
+	debugfs_create_u32("bitmap_size_main",  0400, statp, &host_config.bitmap_size);
+	debugfs_create_u32("bitmap_size_ijon",  0400, statp, &host_config.ijon_bitmap_size);
+	debugfs_create_u32("worker_id",        0400, statp, &host_config.worker_id);
+	debugfs_create_u32("stats_msr",         0400, statp, &(location_stats[TDX_FUZZ_MSR_READ]));
+	debugfs_create_u32("stats_mmio",        0400, statp, &(location_stats[TDX_FUZZ_MMIO_READ]));
+	debugfs_create_u32("stats_pio",         0400, statp, &(location_stats[TDX_FUZZ_PORT_IN]));
+	debugfs_create_u32("stats_cpuid1",      0400, statp, &(location_stats[TDX_FUZZ_CPUID1]));
+	debugfs_create_u32("stats_cpuid2",      0400, statp, &(location_stats[TDX_FUZZ_CPUID2]));
+	debugfs_create_u32("stats_cpuid3",      0400, statp, &(location_stats[TDX_FUZZ_CPUID3]));
+	debugfs_create_u32("stats_cpuid4",      0400, statp, &(location_stats[TDX_FUZZ_CPUID4]));
+	debugfs_create_bool("flags_observed",   0400, statp, &agent_flags.dump_observed);
+	debugfs_create_bool("flags_stats",      0400, statp, &agent_flags.dump_stats);
+	debugfs_create_bool("flags_callers",    0400, statp, &agent_flags.dump_callers);
 
 	return 0;
 }
