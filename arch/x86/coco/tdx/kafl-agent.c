@@ -32,6 +32,10 @@ static bool fuzz_enabled = false;
 static bool fuzz_tdcall = true;   // enable TDX fuzzing by default
 static bool fuzz_tderror = false; // TDX error fuzzing not supported
 
+/* abort at end of payload - otherwise we keep feeding unmodified input
+ * which means we see coverage that is not represented in the payload */
+static bool exit_at_eof = true;
+
 static agent_config_t agent_config = {0};
 static host_config_t host_config = {0};
 
@@ -252,8 +256,7 @@ u64 kafl_fuzz_var(u64 var, int num_bytes)
 	}
 	else {
 		ve_mis++;
-		// stop at end of fuzz input, unless in dump mode
-		if (!agent_flags.dump_observed)
+		if (exit_at_eof && !agent_flags.dump_observed)
 			kafl_agent_done();
 	}
 
@@ -622,6 +625,7 @@ static int __init tdx_fuzz_init(void)
 	debugfs_create_bool("fuzz_enabled",     0600, dbp, &fuzz_enabled);
 	debugfs_create_bool("fuzz_tdcall",      0600, dbp, &fuzz_tdcall);
 	debugfs_create_bool("fuzz_tderrors",    0600, dbp, &fuzz_tderror);
+	debugfs_create_bool("exit_at_eof",      0600, dbp, &exit_at_eof);
 	debugfs_create_file("control",          0600, dbp, NULL, &control_fops);
 	debugfs_create_file("buf_get_u8",       0400, dbp, NULL, &buf_get_u8_fops);
 	debugfs_create_file("buf_get_u32",      0400, dbp, NULL, &buf_get_u32_fops);
