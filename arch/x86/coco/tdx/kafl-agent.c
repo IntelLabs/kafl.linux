@@ -280,6 +280,8 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 	u64 var;
 
 	if (!fuzz_enabled || !fuzz_tdcall) {
+		// for filtering stimulus payloads, raise a trace event with size=0 here
+		trace_tdx_fuzz((u64)__builtin_return_address(0), 0, orig_var, orig_var, type);
 		return orig_var;
 	}
 
@@ -327,6 +329,8 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 
 	location_stats[type]++;
 	var = kafl_fuzz_var(orig_var, size);
+	
+	trace_tdx_fuzz((u64)__builtin_return_address(0), size, orig_var, var, type);
 
 	if (agent_flags.dump_callers) {
 		printk(KERN_WARNING "\nfuzz_var: %s[%d], addr: %16lx, orig: %16llx, isr: %lx\n",
@@ -358,12 +362,15 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 	return var;
 }
 
-bool tdx_fuzz_err(enum tdx_fuzz_loc loc)
+bool tdx_fuzz_err(enum tdx_fuzz_loc type)
 {
 	if (!fuzz_enabled || !fuzz_tderror) {
+		// for filtering stimulus payloads, raise a trace event with size=0 here
+		trace_tdx_fuzz((u64)__builtin_return_address(0), 0, 1, 1, type);
 		return false;
 	}
 	
+	trace_tdx_fuzz((u64)__builtin_return_address(0), 1, 0, 1, type);
 	WARN(1,"tdx_fuzz_err() is not implemented\n");
 	return false;
 }
