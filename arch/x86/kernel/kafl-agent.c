@@ -61,6 +61,24 @@ static u32 ob_pos;
 
 static void tdx_fuzz_filter_init(void);
 
+const char *tdx_fuzz_event_name[TDX_FUZZ_EVENT_MAX] = {
+	"TDX_FUZZ_ENABLE",
+	"TDX_FUZZ_START",
+	"TDX_FUZZ_ABORT",
+	"TDX_FUZZ_SETCR3",
+	"TDX_FUZZ_DONE",
+	"TDX_FUZZ_PANIC",
+	"TDX_FUZZ_KASAN",
+	"TDX_FUZZ_UBSAN",
+	"TDX_FUZZ_HALT",
+	"TDX_FUZZ_REBOOT",
+	"TDX_FUZZ_SAFE_HALT",
+	"TDX_FUZZ_TIMEOUT",
+	"TDX_FUZZ_ERROR",
+	"TDX_FUZZ_PAUSE",
+	"TDX_FUZZ_RESUME"
+};
+
 void kafl_raise_panic(void) {
 	kAFL_hypercall(HYPERCALL_KAFL_PANIC, 0);
 }
@@ -505,8 +523,8 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 		return;
 
 	if (!agent_initialized) {
-		pr_alert("Got event %x but not initialized?!\n", e);
-		dump_stack();
+		pr_alert("Got event %s but not initialized?!\n", tdx_fuzz_event_name[e]);
+		//dump_stack();
 		return;
 	}
 
