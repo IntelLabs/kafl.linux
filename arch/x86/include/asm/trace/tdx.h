@@ -148,7 +148,7 @@ TRACE_EVENT(tdx_hypercall_exit,
 
 #endif // CONFIG_INTEL_TDX_GUEST
 
-#ifdef CONFIG_TDX_FUZZ
+#if defined(CONFIG_TDX_FUZZ) || defined(CONFIG_TDX_FUZZ_KAFL)
 
 TRACE_EVENT(tdx_fuzz,
 
