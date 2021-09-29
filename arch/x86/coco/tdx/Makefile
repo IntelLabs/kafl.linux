@@ -2,3 +2,5 @@
 
 CFLAGS_tdx.o   += -fno-stack-protector
 obj-y += tdx.o tdx-shared.o tdcall.o filter.o tdx-tests.o
+obj-$(CONFIG_TDX_FUZZ)	+= tdx-fuzz.o
+
