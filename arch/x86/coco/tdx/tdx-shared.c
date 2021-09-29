@@ -41,8 +41,10 @@ static unsigned long try_accept_one(phys_addr_t start, unsigned long len,
 	return accept_size;
 }
 
-bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end, bool enc)
+bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end, bool enc, bool fuzz_err)
 {
+	u64 ret;
+
 	if (!enc) {
 		/* Set the shared (decrypted) bits: */
 		start |= cc_mkdec(0);
@@ -54,7 +56,8 @@ bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end, bool enc)
 	 * can be found in TDX Guest-Host-Communication Interface (GHCI),
 	 * section "TDG.VP.VMCALL<MapGPA>"
 	 */
-	if (_tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0))
+	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0);
+	if (ret || fuzz_err)
 		return false;
 
 	/* private->shared conversion  requires only MapGPA call */
@@ -90,6 +93,6 @@ bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end, bool enc)
 
 void tdx_accept_memory(phys_addr_t start, phys_addr_t end)
 {
-	if (!tdx_enc_status_changed_phys(start, end, true))
+	if (!tdx_enc_status_changed_phys(start, end, true, false))
 		panic("Accepting memory failed: %#llx-%#llx\n",  start, end);
 }
