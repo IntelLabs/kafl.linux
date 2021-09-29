@@ -320,6 +320,7 @@ static int read_msr(struct pt_regs *regs, struct ve_info *ve)
 		.r11 = hcall_func(EXIT_REASON_MSR_READ),
 		.r12 = regs->cx,
 	};
+	u64 ret;
 
 	/*
 	 * Emulate the MSR read via hypercall. More info about ABI
@@ -344,6 +345,7 @@ static int write_msr(struct pt_regs *regs, struct ve_info *ve)
 		.r12 = regs->cx,
 		.r13 = (u64)regs->dx << 32 | regs->ax,
 	};
+	u64 ret;
 
 	/*
 	 * Emulate the MSR write via hypercall. More info about ABI
