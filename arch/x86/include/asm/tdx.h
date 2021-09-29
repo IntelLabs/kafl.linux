@@ -69,6 +69,34 @@ bool tdx_early_handle_ve(struct pt_regs *regs);
 
 int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport);
 
+bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end, bool enc);
+
+u64 tdx_mcall_verify_report(u8 *reportmac);
+
+int tdx_mcall_extend_rtmr(u8 *data, u8 index);
+
+int tdx_hcall_get_quote(void *tdquote, int size);
+
+bool tdx_allowed_port(int port);
+
+/* Update the trace point symbolic printing too */
+enum tdx_fuzz_loc {
+	TDX_FUZZ_MSR_READ,
+	TDX_FUZZ_MMIO_READ,
+	TDX_FUZZ_PORT_IN,
+	TDX_FUZZ_CPUID1,
+	TDX_FUZZ_CPUID2,
+	TDX_FUZZ_CPUID3,
+	TDX_FUZZ_CPUID4,
+	TDX_FUZZ_MAX
+};
+
+#ifdef CONFIG_TDX_FUZZ
+u64 tdx_fuzz(u64 var, enum tdx_fuzz_loc loc);
+#else
+static inline u64 tdx_fuzz(u64 var, enum tdx_fuzz_loc loc) { return var; }
+#endif
+
 #else
 
 static inline void tdx_early_init(void) { };
