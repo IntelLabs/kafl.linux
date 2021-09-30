@@ -907,6 +907,14 @@ config TDX_FUZZ_KAFL_DEBUGFS
 	help
 	  Enable userspace interface
 
+config TDX_FUZZ_KAFL_VIRTIO
+	bool "Enable fuzzing for VirtIO"
+	depends on TDX_FUZZ_KAFL
+	default n
+	help
+	  Inject fuzzing inputs for virtioXX_to_cpu wrappers
+
+
 config TDX_FUZZ_KAFL_SKIP_CPUID
 	bool "Disable CPUID fuzzing for kAFL"
 	depends on TDX_FUZZ_KAFL

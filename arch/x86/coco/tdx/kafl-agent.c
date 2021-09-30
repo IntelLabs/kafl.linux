@@ -232,7 +232,7 @@ void kafl_agent_stats(void)
 
 		ob_num = snprintf(observed_payload_buffer,
 				          sizeof(observed_payload_buffer),
-						  "%05u/%u: %5u, %5u, %5u;\trng=%u; cpuid=<%u,%u,%u,%u>; err=<%u,%u,%u,%u> %c\n",
+						  "%05u/%u: %5u, %5u, %5u;\trng=%u; cpuid=<%u,%u,%u,%u>; virtio=%u; err=<%u,%u,%u,%u> %c\n",
 				          ve_pos, ve_mis,
 				          location_stats[TDX_FUZZ_MSR_READ],
 				          location_stats[TDX_FUZZ_MMIO_READ],
@@ -242,6 +242,7 @@ void kafl_agent_stats(void)
 				          location_stats[TDX_FUZZ_CPUID2],
 				          location_stats[TDX_FUZZ_CPUID3],
 				          location_stats[TDX_FUZZ_CPUID4],
+				          location_stats[TDX_FUZZ_VIRTIO],
 						  location_stats[TDX_FUZZ_MSR_READ_ERR],
 						  location_stats[TDX_FUZZ_MSR_WRITE_ERR],
 						  location_stats[TDX_FUZZ_MAP_ERR],
@@ -294,6 +295,7 @@ char *tdx_fuzz_loc_str[] = {
 	"CPUID3",
 	"CPUID4",
 	"RNG",
+	"VIRTIO",
 };
 
 u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
@@ -332,6 +334,10 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 				return orig_var;
 			}
 			break;
+#endif
+#ifndef CONFIG_TDX_FUZZ_KAFL_VIRTIO
+		case TDX_FUZZ_VIRTIO:
+			return orig_var;
 #endif
 #ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_CPUID
 		case TDX_FUZZ_CPUID1:
@@ -663,6 +669,7 @@ static int __init tdx_fuzz_init(void)
 	debugfs_create_u32("stats_cpuid2",      0400, statp, &(location_stats[TDX_FUZZ_CPUID2]));
 	debugfs_create_u32("stats_cpuid3",      0400, statp, &(location_stats[TDX_FUZZ_CPUID3]));
 	debugfs_create_u32("stats_cpuid4",      0400, statp, &(location_stats[TDX_FUZZ_CPUID4]));
+	debugfs_create_u32("stats_virtio",      0400, statp, &(location_stats[TDX_FUZZ_VIRTIO]));
 	debugfs_create_bool("flags_observed",   0400, statp, &agent_flags.dump_observed);
 	debugfs_create_bool("flags_stats",      0400, statp, &agent_flags.dump_stats);
 	debugfs_create_bool("flags_callers",    0400, statp, &agent_flags.dump_callers);
