@@ -4,6 +4,30 @@
 #include <linux/types.h>
 #include <uapi/linux/virtio_types.h>
 
+#ifdef CONFIG_TDX_FUZZ_KAFL_VIRTIO
+
+static void *memcpy_virtio(void *dest, const void *src, size_t count)
+{
+	char *dest_ptr, *src_ptr;
+	int i;
+	
+	pr_info("%s: fuzz %zu SHM bytes\n", __func__, count);
+
+	dest_ptr = (char *)dest;
+	src_ptr = (char *)src;
+	for (i = 0; i < count; i++) {
+		dest_ptr[i] = tdx_fuzz(src_ptr[i], 0, sizeof(char), TDX_FUZZ_VIRTIO);
+	}
+
+	return dest;
+}
+//EXPORT_SYMBOL(memcpy_virtio);
+
+#else
+
+#define memcpy_virtio memcpy
+#endif
+
 static inline bool virtio_legacy_is_little_endian(void)
 {
 #ifdef __LITTLE_ENDIAN
@@ -15,10 +39,14 @@ static inline bool virtio_legacy_is_little_endian(void)
 
 static inline u16 __virtio16_to_cpu(bool little_endian, __virtio16 val)
 {
+	u16 ret;
+
 	if (little_endian)
-		return le16_to_cpu((__force __le16)val);
+		ret = le16_to_cpu((__force __le16)val);
 	else
-		return be16_to_cpu((__force __be16)val);
+		ret = be16_to_cpu((__force __be16)val);
+
+	return tdx_fuzz(ret, 0, sizeof(u16), TDX_FUZZ_VIRTIO);
 }
 
 static inline __virtio16 __cpu_to_virtio16(bool little_endian, u16 val)
@@ -31,10 +59,14 @@ static inline __virtio16 __cpu_to_virtio16(bool little_endian, u16 val)
 
 static inline u32 __virtio32_to_cpu(bool little_endian, __virtio32 val)
 {
+	u32 ret;
+
 	if (little_endian)
-		return le32_to_cpu((__force __le32)val);
+		ret = le32_to_cpu((__force __le32)val);
 	else
-		return be32_to_cpu((__force __be32)val);
+		ret = be32_to_cpu((__force __be32)val);
+
+	return tdx_fuzz(ret, 0, sizeof(u32), TDX_FUZZ_VIRTIO);
 }
 
 static inline __virtio32 __cpu_to_virtio32(bool little_endian, u32 val)
@@ -47,10 +79,14 @@ static inline __virtio32 __cpu_to_virtio32(bool little_endian, u32 val)
 
 static inline u64 __virtio64_to_cpu(bool little_endian, __virtio64 val)
 {
+	u64 ret;
+
 	if (little_endian)
-		return le64_to_cpu((__force __le64)val);
+		ret = le64_to_cpu((__force __le64)val);
 	else
-		return be64_to_cpu((__force __be64)val);
+		ret = be64_to_cpu((__force __be64)val);
+
+	return tdx_fuzz(ret, 0, sizeof(u64), TDX_FUZZ_VIRTIO);
 }
 
 static inline __virtio64 __cpu_to_virtio64(bool little_endian, u64 val)

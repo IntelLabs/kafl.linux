@@ -1440,10 +1440,11 @@ DEFINE_IDTENTRY(exc_virtualization_exception)
 	 */
 	if (!tdx_handle_virt_exception(regs, &ve)) {
 		if (regs->flags & X86_EFLAGS_TF)
-			ve_raise_debug(regs);
-		else
-			ve_raise_fault(regs, 0);
+                        ve_raise_debug(regs);
+                else
+                        ve_raise_fault(regs, 0);
 	}
+
 
 	cond_local_irq_disable(regs);
 }

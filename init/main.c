@@ -926,12 +926,27 @@ static void __init print_unknown_bootoptions(void)
 	memblock_free(unknown_options, len);
 }
 
+static void __init _tdx_trace_locations(const char *label, const char *location)
+{
+#ifdef CONFIG_TDX_FUZZ_KAFL_TRACE_LOCATIONS
+	// fails to do very first print, perhaps because hprintf= cmdline has not
+	// been parsed yet. Refactor to kafl_dump_stats() and use kafl_hprintf()?
+	printk("tdx_trace_locations for %s in %s:\n", label, location);
+	tdx_fuzz_event(TDX_TRACE_LOCATIONS);
+#endif
+}
+#define tdx_trace_locs(label) _tdx_trace_locations(label, __func__)
+
 asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
 
 	set_task_stack_end_magic(&init_task);
+	tdx_trace_locs("start_kernel");
+#if defined CONFIG_TDX_FUZZ_HARNESS_EARLYBOOT  || defined CONFIG_TDX_FUZZ_HARNESS_START_KERNEL || defined CONFIG_TDX_FUZZ_HARNESS_FULL_BOOT
+	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+#endif
 	smp_setup_processor_id();
 	debug_objects_early_init();
 	init_vmlinux_build_id();
@@ -983,8 +998,19 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	setup_log_buf(0);
 	vfs_caches_init_early();
 	sort_main_extable();
+#ifdef CONFIG_TDX_FUZZ_HARNESS_EARLYBOOT
+	// end of early boot harness before trap_init() / mm_init()?
+	tdx_fuzz_event(TDX_FUZZ_DONE);
+#endif
+	tdx_trace_locs("trap_init");
+
 	trap_init();
 	mm_init();
+
+#ifdef CONFIG_TDX_FUZZ_HARNESS_POST_TRAP
+	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+#endif
+	tdx_trace_locs("post_trap");
 
 	ftrace_init();
 
@@ -1133,6 +1159,15 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	acpi_subsystem_init();
 	arch_post_acpi_subsys_init();
 	kcsan_init();
+	
+#if defined CONFIG_TDX_FUZZ_HARNESS_POST_TRAP || defined CONFIG_TDX_FUZZ_HARNESS_START_KERNEL
+	// end of early boot fuzzing
+	tdx_fuzz_event(TDX_FUZZ_DONE);
+#endif
+#if defined CONFIG_TDX_FUZZ_HARNESS_REST_INIT
+	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+#endif
+	tdx_trace_locs("rest_init");
 
 	/* Do the rest non-__init'ed, we're now alive */
 	arch_call_rest_init();
@@ -1249,11 +1284,20 @@ trace_initcall_finish_cb(void *data, initcall_t fn, int ret)
 	ktime_t rettime, *calltime = (ktime_t *)data;
 
 	rettime = ktime_get();
-	printk(KERN_DEBUG "initcall %pS returned %d after %lld usecs\n",
-		 fn, ret, (unsigned long long)ktime_us_delta(rettime, *calltime));
+	printk(KERN_DEBUG "initcall %pS returned %d after %lld usecs, irqs_disabled() %d\n",
+		 fn, ret, (unsigned long long)ktime_us_delta(rettime, *calltime), irqs_disabled());
+#ifdef CONFIG_TDX_FUZZ_KAFL_TRACE_LOCATIONS
+	tdx_fuzz_event(TDX_TRACE_LOCATIONS);
 }
 
 static ktime_t initcall_calltime;
+
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+const char *fuzz_targets[] = {
+        "pci_subsys_init",
+        "pci_arch_init"
+};
+#endif
 
 #ifdef TRACEPOINTS_ENABLED
 static void __init initcall_debug_enable(void)
@@ -1288,13 +1332,39 @@ int __init_or_module do_one_initcall(initcall_t fn)
 	int count = preempt_count();
 	char msgbuf[64];
 	int ret;
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+        int i;
+        bool fuzzing = false;
+        static int fuzz_count = 0;
+#endif
 
 	if (initcall_blacklisted(fn))
 		return -EPERM;
 
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+        for (i = 0; i < sizeof(fuzz_targets)/sizeof(char *); i++) {
+                char buf[128];
+                sprint_symbol_no_offset(buf, (unsigned long)fn);
+                if (strncmp(buf, fuzz_targets[i], 128) == 0) {
+                        fuzzing = true;
+                        fuzz_count++;
+                        tdx_fuzz_event(TDX_FUZZ_ENABLE);
+                        break;
+
+                }
+        }
+#endif
+
 	do_trace_initcall_start(fn);
 	ret = fn();
 	do_trace_initcall_finish(fn, ret);
+
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+        if (fuzzing && (fuzz_count >= sizeof(fuzz_targets) / sizeof(char *)))
+                tdx_fuzz_event(TDX_FUZZ_DONE);
+        else if (fuzzing)
+                tdx_fuzz_event(TDX_FUZZ_PAUSE);
+#endif
 
 	msgbuf[0] = 0;
 
@@ -1365,8 +1435,26 @@ static void __init do_initcall_level(int level, char *command_line)
 		   NULL, ignore_unknown_bootoption);
 
 	trace_initcall_level(initcall_level_names[level]);
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_3
+	if (level == 3)
+		tdx_fuzz_event(TDX_FUZZ_ENABLE);
+#endif
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_4
+	if (level == 4)
+		tdx_fuzz_event(TDX_FUZZ_ENABLE);
+#endif
+
 	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
 		do_one_initcall(initcall_from_entry(fn));
+
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_3
+	if (level == 3)
+		tdx_fuzz_event(TDX_FUZZ_DONE);
+#endif
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_4
+	if (level == 4)
+		tdx_fuzz_event(TDX_FUZZ_DONE);
+#endif
 }
 
 static void __init do_initcalls(void)
@@ -1398,9 +1486,15 @@ static void __init do_initcalls(void)
 static void __init do_basic_setup(void)
 {
 	cpuset_init_smp();
+#if defined CONFIG_TDX_FUZZ_HARNESS_DO_BASIC
+	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+#endif
 	driver_init();
 	init_irq_proc();
 	do_ctors();
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS && !defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
+	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+#endif
 	do_initcalls();
 }
 

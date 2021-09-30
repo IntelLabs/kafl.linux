@@ -53,7 +53,7 @@ bool tdx_early_handle_ve(struct pt_regs *regs);
 
 extern int tdx_notify_irq;
 
-bool tdx_allowed_port(short int port);
+bool tdx_allowed_port(int port);
 
 /* Update the trace point symbolic printing too */
 enum tdx_fuzz_loc {
@@ -68,14 +68,43 @@ enum tdx_fuzz_loc {
 	TDX_FUZZ_MSR_WRITE_ERR,
 	TDX_FUZZ_MAP_ERR,
 	TDX_FUZZ_PORT_IN_ERR,
+	TDX_FUZZ_VIRTIO,
+	TDX_FUZZ_RANDOM,
+	TDX_FUZZ_DEBUGFS,
 	TDX_FUZZ_MAX
 };
 
+enum tdx_fuzz_event {
+	TDX_FUZZ_ENABLE,
+	TDX_FUZZ_START,
+	TDX_FUZZ_ABORT,
+	TDX_FUZZ_SETCR3,
+	TDX_FUZZ_DONE,
+	TDX_FUZZ_PANIC,
+	TDX_FUZZ_KASAN,
+	TDX_FUZZ_UBSAN,
+	TDX_FUZZ_HALT,
+	TDX_FUZZ_REBOOT,
+	TDX_FUZZ_SAFE_HALT,
+	TDX_FUZZ_TIMEOUT,
+	TDX_FUZZ_ERROR,
+	TDX_FUZZ_PAUSE,
+	TDX_FUZZ_RESUME,
+	TDX_TRACE_LOCATIONS,
+	TDX_FUZZ_EVENT_MAX
+};
+
 #ifdef CONFIG_TDX_FUZZ
-u64 tdx_fuzz(u64 var, enum tdx_fuzz_loc loc);
+u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc);
 bool tdx_fuzz_err(enum tdx_fuzz_loc loc);
+#elif defined(CONFIG_TDX_FUZZ_KAFL)
+u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc);
+void tdx_fuzz_event(enum tdx_fuzz_event e);
+bool tdx_fuzz_err(enum tdx_fuzz_loc loc);
+void kafl_fuzz_function(char *fname);
+void kafl_fuzz_function_disable(char *fname);
 #else
-static inline u64 tdx_fuzz(u64 var, enum tdx_fuzz_loc loc) { return var; }
+static inline u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc) { return var; };
 static inline bool tdx_fuzz_err(enum tdx_fuzz_loc loc) { return false; }
 #endif
 
