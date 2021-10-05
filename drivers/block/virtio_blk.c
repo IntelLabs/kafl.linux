@@ -116,7 +116,7 @@ static int virtblk_add_req(struct virtqueue *vq, struct virtblk_req *vbr,
 	sgs[num_out++] = &hdr;
 
 	if (have_data) {
-		if (vbr->out_hdr.type & cpu_to_virtio32(vq->vdev, VIRTIO_BLK_T_OUT))
+		if (virtio32_to_cpu(vq->vdev, vbr->out_hdr.type) & VIRTIO_BLK_T_OUT)
 			sgs[num_out++] = data_sg;
 		else
 			sgs[num_out + num_in++] = data_sg;
