@@ -233,7 +233,7 @@ bool tdx_allowed_port(short int port)
 	case 0x3f8 ... 0x3ff:
 		return tdx_debug_enabled();
 	default:
-		return false;
+		return !tdx_filter_enabled();
 	}
 }
 
