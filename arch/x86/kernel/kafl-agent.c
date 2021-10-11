@@ -664,7 +664,7 @@ static struct file_operations control_fops = {
 	.llseek  = no_llseek,
 };
 
-static int buf_get_u8(void *data, u64 *val)
+static int kafl_buf_get_u8(void *data, u64 *val)
 {
 	if (!fuzz_enabled) {
 		return -EINVAL;
@@ -679,7 +679,7 @@ static int buf_get_u8(void *data, u64 *val)
 	return 0;
 }
 
-static int buf_get_u32(void *data, u64 *val)
+static int kafl_buf_get_u32(void *data, u64 *val)
 {
 	//int num = sizeof(u32);
 
@@ -696,8 +696,8 @@ static int buf_get_u32(void *data, u64 *val)
 	return 0;
 }
 
-DEFINE_DEBUGFS_ATTRIBUTE(buf_get_u8_fops, buf_get_u8, NULL, "%llu");
-DEFINE_DEBUGFS_ATTRIBUTE(buf_get_u32_fops, buf_get_u32, NULL, "%llu");
+DEFINE_DEBUGFS_ATTRIBUTE(buf_get_u8_fops, kafl_buf_get_u8, NULL, "%llu");
+DEFINE_DEBUGFS_ATTRIBUTE(buf_get_u32_fops, kafl_buf_get_u32, NULL, "%llu");
 
 static int __init tdx_fuzz_init(void)
 {
