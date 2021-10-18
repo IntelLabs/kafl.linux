@@ -200,7 +200,7 @@ bool tdx_filter_enabled(void)
 	return tdx_filter_status;
 }
 
-bool tdx_allowed_port(short int port)
+bool tdx_allowed_port(int port)
 {
 	if (tdx_debug_enabled() && !tdx_filter_enabled())
 		return true;
@@ -233,7 +233,8 @@ bool tdx_allowed_port(short int port)
 	case 0x3f8 ... 0x3ff:
 		return tdx_debug_enabled();
 	default:
-		return false;
+		pr_debug("%s: access denied for port %d\n", __func__, port);
+		return tdx_debug_enabled();
 	}
 }
 
