@@ -285,17 +285,17 @@ u64 kafl_fuzz_var(u64 var, int num_bytes)
 char *tdx_fuzz_loc_str[] = {
 	"MSR",
 	"MIO",
-	"ERR_RMSR",
-	"ERR_WMSR",
-	"ERR_MMAP",
 	"PIO",
-	"ERR_PIO",
 	"CPUID1",
 	"CPUID2",
 	"CPUID3",
 	"CPUID4",
-	"RNG",
+	"ERR_RMSR",
+	"ERR_WMSR",
+	"ERR_MMAP",
+	"ERR_PIO",
 	"VIRTIO",
+	"RANDOM",
 };
 
 u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
