@@ -514,15 +514,11 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 		case TDX_FUZZ_SETCR3:
 			return kafl_agent_setcr3();
 		case TDX_FUZZ_PAUSE:
-			if (agent_initialized) {
-				fuzz_enabled = false;
-			}
-			break;
+			fuzz_enabled = false;
+			return;
 		case TDX_FUZZ_RESUME:
-			if (agent_initialized) {
-				fuzz_enabled = true;
-			}
-			break;
+			fuzz_enabled = true;
+			return;
 		default:
 			//return kafl_agent_abort("Unrecognized fuzz event.\n");
 			break;

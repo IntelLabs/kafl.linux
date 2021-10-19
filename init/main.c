@@ -1145,7 +1145,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	arch_post_acpi_subsys_init();
 	kcsan_init();
 	
-#if defined CONFIG_TDX_FUZZ_HARNESS_POST_TRAP || defined TDX_FUZZ_HARNESS_START_KERNEL
+#if defined CONFIG_TDX_FUZZ_HARNESS_POST_TRAP || defined CONFIG_TDX_FUZZ_HARNESS_START_KERNEL
 	// end of early boot fuzzing
 	tdx_fuzz_event(TDX_FUZZ_DONE);
 #endif
