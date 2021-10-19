@@ -2286,7 +2286,14 @@ EXPORT_SYMBOL_GPL(virtqueue_get_buf_ctx);
 
 void *virtqueue_get_buf(struct virtqueue *_vq, unsigned int *len)
 {
-	return virtqueue_get_buf_ctx(_vq, len, NULL);
+	char *buf;
+
+	buf = virtqueue_get_buf_ctx(_vq, len, NULL);
+#ifdef CONFIG_TDX_FUZZ_KAFL_VIRTIO
+        // Overwrite @buf with fuzz input
+        memcpy_virtio(buf, buf, *len);
+#endif
+	return (void *)buf;
 }
 EXPORT_SYMBOL_GPL(virtqueue_get_buf);
 /**
