@@ -953,6 +953,11 @@ config TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
 	  Code rewrite conflicts with kAFL PT decoding, breaking bitmaps & traces.
 	  This option disables rewriting paravirtualization code during boot.
 
+config TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	bool
+	help
+	 Enable initcall-specific harnesses.
+
 choice
 	prompt "kAFL fuzzing harness"
 	default TDX_FUZZ_HARNESS_NONE
@@ -1002,9 +1007,16 @@ config TDX_FUZZ_HARNESS_DOINITCALLS
 	 Fuzz boot do_initcalls
 
 config TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+       select TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
        bool "kAFL do_initcalls PCI calls fuzzing harness"
        help
 	 Fuzz boot do_initcalls PCI initcalls fuzzing
+
+config TDX_FUZZ_HARNESS_DOINITCALLS_VIRTIO
+       select TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+       bool "VIRTIO harness"
+       help
+	 Harness for virtio-net initcall
 
 config TDX_FUZZ_HARNESS_FULL_BOOT
        bool "kAFL full boot sequence fuzzing harness"
