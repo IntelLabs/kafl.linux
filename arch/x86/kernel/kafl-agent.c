@@ -316,18 +316,27 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 		case TDX_FUZZ_RANDOM:
 			return 42;
 #endif
-#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_ACPI_PIO
 		case TDX_FUZZ_PORT_IN:
+			switch (addr) {
+#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_ACPI_PIO
 			/*
 			 * Multiple relevant PIO regions, may have to activate depending on target
 			 * e.g. https://qemu.readthedocs.io/en/latest/specs/acpi_pci_hotplug.html
 			 */
-			if ((addr >= 0xb000 && addr <= 0xb006) || // ACPI init?
-			    (addr >= 0xafe0 && addr <= 0xafe2)) { // ACPI PCI hotplug
-				return orig_var;
+				case 0xb000 ... 0xb006: // ACPI init?
+				case 0xafe0 ... 0xafe2: // ACPI PCI hotplug
+					return orig_var;
+#endif
+//#define CONFIG_TDX_FUZZ_KAFL_SKIP_PCI_SCAN
+#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_PCI_SCAN
+				case 0xcf8 ... 0xcff:
+				case 0xc000 ... 0xcfff:
+					return orig_var;
+#endif
+				default:
+					break;
 			}
 			break;
-#endif
 #ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_IOAPIC_READS
 		case TDX_FUZZ_MMIO_READ:
 			if (addr == 0xfec00000 || addr == 0xfec00010) {
@@ -354,10 +363,6 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 		kafl_agent_init();
 	}
 
-	if (type == TDX_FUZZ_PORT_IN && !tdx_allowed_port(addr)) {
-		pr_warn("tdx_fuzz() for not-allowed port %ld\n", addr);
-	}
-
 	location_stats[type]++;
 	var = kafl_fuzz_var(orig_var, size);
 	
@@ -366,6 +371,9 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 	if (agent_flags.dump_callers) {
 		printk(KERN_WARNING "\nfuzz_var: %s[%d], addr: %16lx, orig: %16llx, isr: %lx\n",
 				tdx_fuzz_loc_str[type], size, addr, orig_var, in_interrupt());
+		if (type == TDX_FUZZ_PORT_IN && !tdx_allowed_port(addr)) {
+			printk(KERN_WARNING "\tNote: port %lx is outside allow-list\n", addr);
+		}
 		dump_stack();
 	}
 
@@ -505,6 +513,7 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 			return;
 		case TDX_FUZZ_ENABLE:
 			pr_warn("[*] Agent enable!\n");
+		case TDX_FUZZ_RESUME:
 			fuzz_enabled = true;
 			return;
 		case TDX_FUZZ_DONE:
@@ -515,9 +524,6 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 			return kafl_agent_setcr3();
 		case TDX_FUZZ_PAUSE:
 			fuzz_enabled = false;
-			return;
-		case TDX_FUZZ_RESUME:
-			fuzz_enabled = true;
 			return;
 		default:
 			//return kafl_agent_abort("Unrecognized fuzz event.\n");
