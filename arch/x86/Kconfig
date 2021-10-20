@@ -1045,17 +1045,20 @@ config TDX_FUZZ_HARNESS_FULL_BOOT
        help
 	 Fuzz full boot sequence
 
-config TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_3
-       bool "kAFL do_initcalls level 3 harness"
-       help
-	 Fuzz boot do_initcall level
-
-config TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL_4
-       bool "kAFL do_initcalls level 4 harness"
-       help
-	 Fuzz boot do_initcall level
-
 endchoice
+
+config TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
+	int "Limit initcall fuzzing to level"
+	range 0 8
+    default 3
+	depends on TDX_FUZZ_HARNESS_DOINITCALLS
+	depends on TDX_FUZZ_KAFL
+	help
+	  Fuzz all initcalls at given level.
+	  Good catch-all option but can be slow and lack depth.
+
+	  Interesting stuff seems to happen mostly at levels 3 + 4.
+	  Some virtIO also on level 6.
 
 endif #HYPERVISOR_GUEST
 
