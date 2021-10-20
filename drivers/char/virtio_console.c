@@ -679,7 +679,7 @@ static ssize_t fill_readbuf(struct port *port, char __user *out_buf,
 		if (ret)
 			return -EFAULT;
 	} else {
-		memcpy_virtio((__force char *)out_buf, buf->buf + buf->offset,
+		memcpy((__force char *)out_buf, buf->buf + buf->offset,
 		       out_count);
 	}
 
