@@ -553,15 +553,26 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 			return kafl_raise_panic();
 		case TDX_FUZZ_TIMEOUT:
 			return kafl_agent_abort("TODO: add a timeout handler?!\n");
+		case TDX_FUZZ_PAUSE:
+		case TDX_FUZZ_RESUME:
+			return;
 		default:
 			return kafl_agent_abort("Unrecognized fuzz event.\n");
 	}
 }
 
 #ifdef CONFIG_TDX_FUZZ_KAFL_DEBUGFS
-static ssize_t control_write(struct file *f, const char __user *buf,
+static ssize_t control_write(struct file *f, const char __user *usr_buf,
 			    size_t len, loff_t *off)
 {
+	char buf[256];
+
+	// Make sure it's zeroed
+	memset(buf, 0, 256);
+
+	// Copy at most 255 bytes, to make sure buf is 0-terminated (necessary??)
+	len = strncpy_from_user(buf, usr_buf, len < 256 ? len : 255);
+
 	if (0 == strncmp("start\n", buf, len)) {
 		tdx_fuzz_event(TDX_FUZZ_START);
 	}
