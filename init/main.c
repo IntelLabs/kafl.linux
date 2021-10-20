@@ -1302,6 +1302,17 @@ const char *fuzz_targets[] = {
 		"acpi_pci_init",
 		 */
 #endif
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_ACPI
+		/* This one is fun but its not clear if bugs are real.
+		 *
+		 * Our setup triggers ACPI PIO to ranges that are not in tdx_allowed_port()
+		 * and prevent us from booting outside debug mode. It is not clear why
+		 * this is happening, could be the modified Qemu -machine type.
+		 *
+		 * Reproducer for https://jira.devtools.intel.com/browse/LCK-10311
+		 */
+		"acpi_init",
+#endif
 #ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_VIRTIO
 		/*
 		 * These consume just a few bytes of input but somehow execute very slow/funky.
