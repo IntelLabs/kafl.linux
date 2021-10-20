@@ -893,6 +893,20 @@ config TDX_FUZZ_KAFL
 	help
 	  Support fuzzing of TDX guests using kAFL
 
+config TDX_FUZZ_KAFL_USE_RECOMMENDED
+	bool "Use recommended kernel settings"
+	depends on TDX_FUZZ_KAFL && !JUMP_LABEL
+	select UNWINDER_FRAME_POINTER
+	select TDX_FUZZ_KAFL_DETERMINISTIC
+	select TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
+	select TDX_FUZZ_KAFL_SKIP_CPUID
+	default y
+	help
+	  Select recommended options for kAFL fuzzing.
+	  - framepointer stack unwinder, since ORC can cause libxdc decode errors
+	  - skip CPUID fuzzing (false positives, does not model real platform)
+	  - self-modifying code: jump labels, paravirt, ftrace etc can be problematic
+
 config TDX_FUZZ_KAFL_DETERMINISTIC
 	bool "kAFL Fuzzing for TDX (make kernel more deterministic)"
 	depends on TDX_FUZZ_KAFL
