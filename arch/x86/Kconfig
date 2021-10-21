@@ -894,8 +894,8 @@ config TDX_FUZZ_KAFL
 	  Support fuzzing of TDX guests using kAFL
 
 config TDX_FUZZ_KAFL_USE_RECOMMENDED
-	bool "Use recommended kernel settings"
-	depends on TDX_FUZZ_KAFL && !JUMP_LABEL
+	bool "Use recommended options"
+	depends on TDX_FUZZ_KAFL && !JUMP_LABEL && !DYNAMIC_FTRACE && !KPROBES
 	select UNWINDER_FRAME_POINTER
 	select TDX_FUZZ_KAFL_DETERMINISTIC
 	select TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
@@ -903,61 +903,67 @@ config TDX_FUZZ_KAFL_USE_RECOMMENDED
 	default y
 	help
 	  Select recommended options for kAFL fuzzing.
-	  - framepointer stack unwinder, since ORC can cause libxdc decode errors
-	  - skip CPUID fuzzing (false positives, does not model real platform)
-	  - self-modifying code: jump labels, paravirt, ftrace etc can be problematic
+
+	  - Framepointer stack unwinder (ORC can cause libxdc decode errors)
+	  - Skip CPUID fuzzing (false positives, does not model real platform)
+
+	  Self-modifying will often conflict wiht the libxdc page cache,
+	  so try to avoid these for final/production harnesses:
+	  jump labels, paravirt, ftrace, kprobe, ...
 
 config TDX_FUZZ_KAFL_DETERMINISTIC
-	bool "kAFL Fuzzing for TDX (make kernel more deterministic)"
+	bool "Deterministic execution fixes"
 	depends on TDX_FUZZ_KAFL
 	default y
 	help
-	  Reduce number of worqueues etc. to make fuzzing more deterministic
+	  Use strictly ordered workqueues and bypass PRNG seeding.
 
 config TDX_FUZZ_KAFL_DEBUGFS
-	bool "kAFL debugfs interface"
+	bool "Enable debugfs interface"
 	depends on TDX_FUZZ_KAFL
 	default y
 	help
-	  Enable userspace interface
+	  Enable userspace agent interface.
 
 config TDX_FUZZ_KAFL_VIRTIO
-	bool "Enable fuzzing for VirtIO"
+	bool "Enable fuzzing VirtIO inputs"
 	depends on TDX_FUZZ_KAFL
 	default n
 	help
-	  Inject fuzzing inputs for virtioXX_to_cpu wrappers
-
+	  Inject fuzzing inputs for virtioXX_to_cpu wrappers.
 
 config TDX_FUZZ_KAFL_SKIP_CPUID
-	bool "Disable CPUID fuzzing for kAFL"
+	bool "Disable fuzzing CPUID inputs"
 	depends on TDX_FUZZ_KAFL
 	default y
 	help
-	  Reduce number of fuzzed inputs by disabling input injection for CPUID
+	  Disable CPUID fuzzing. The CPUID fuzzer does not properly
+	  model values enforced by TDX, leading to false positives.
 
 config TDX_FUZZ_KAFL_SKIP_IOAPIC_READS
-	bool "Skip fuzzing IOAPIC MMIO range"
+	bool "Disable fuzzing some IOAPIC inputs"
 	depends on TDX_FUZZ_KAFL
 	default n
 	help
-	  Skip fuzzing MMIO at default IOAPIC offsets (0xfec00000-0xfec00010),
-	  allowing the fuzzer to focus on other parts.
+	  Skip fuzzing some IOAPIC ranges, allowing the
+	  fuzzer to focus on other parts.
 
 config TDX_FUZZ_KAFL_SKIP_ACPI_PIO
-	bool "Skip fuzzing ACPI PIO"
+	bool "Disable fuzzing some ACPI PIO inputs"
 	depends on TDX_FUZZ_KAFL
 	default n
 	help
-	  Skip fuzzing ACPI PIO at 0xb004 (ready loop?)
+	  Skip fuzzing some ACPI PIO ranges, allowing the
+	  fuzzer to focus on other parts.
 
 config TDX_FUZZ_KAFL_SKIP_RNG_SEEDING
-	bool "Skip fuzzing the RNG Seed"
-	depends on TDX_FUZZ_KAFL
+	bool "Disable fuzzing the PRNG Seed"
+	depends on TDX_FUZZ_KAFL && TDX_FUZZ_KAFL_DETERMINISTIC
 	default y
 	help
-	  kAFL agent normally uses one byte to initialize the RNG seed.
-	  Setting this option initializes RNG with a fixed value instead.
+	  When using the deterministic PRNG fix, a single byte of fuzzing
+	  input will be consumed to seed the PRNG on initialization.
+	  Alternatively, setting this option will seed the PRNG with a fixed value.
 
 config TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
 	bool "Disable paravirt rewrite"
@@ -969,30 +975,32 @@ config TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
 
 config TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
 	bool
+	depends on TDX_FUZZ_KAFL
 	help
 	 Enable initcall-specific harnesses.
 
 choice
-	prompt "kAFL fuzzing harness"
+	prompt "Select fuzzing harness"
 	default TDX_FUZZ_HARNESS_NONE
 	depends on TDX_FUZZ_KAFL
 	help
 	 Select a predefined harness to execute as part of boot.
 
 config TDX_FUZZ_HARNESS_NONE
-	bool "No default harness"
+	bool "None"
 	help
 	 Define your own kAFL harness.
+	 Use this to boot to userspace and launch via sharedir.
 
 config TDX_FUZZ_HARNESS_EARLYBOOT
-	bool "kAFL early boot fuzzing harness"
+	bool "Early Boot"
 	help
 	 Fuzz early boot from start_kernel() to mm_init()
 
 config TDX_FUZZ_HARNESS_POST_TRAP
-	bool "kAFL post-trap early boot fuzzing harness"
+	bool "Post-Trap"
 	help
-	  Fuzz boot sequence from mm_init() to do_initcalls()
+	  Fuzz boot sequence from MMU/trap setup to arch_call_rest_init()
 	
 	  Recommended options:
 	  - CONFIG_TDX_FUZZ_KAFL_SKIP_RNG_SEEDING = y
@@ -1001,56 +1009,57 @@ config TDX_FUZZ_HARNESS_POST_TRAP
 	  - (CONFIG_TDX_FUZZ_KAFL_SKIP_ACPI_PI || CONFIG_TDX_FUZZ_KAFL_SKIP_IOAPIC_READS)
 
 config TDX_FUZZ_HARNESS_START_KERNEL
-       bool "kAFL start_kernel early boot fuzzing harness"
-       help
-	 Fuzz boot start_kernel
-
-config TDX_FUZZ_HARNESS_DO_BASIC
-       bool "kAFL do_basic fuzzing harness"
-       help
-	 Fuzz do_basic
+	bool "Start_Kernel"
+	help
+	  Fuzz bulk of start_kernel(). Superset of Early-Boot + Post-Trap harness.
 
 config TDX_FUZZ_HARNESS_REST_INIT
-       bool "kAFL rest_init fuzzing harness"
-       help
-	 Fuzz boot sequence post earlyboot
+	bool "Rest-Init"
+	help
+	 Fuzz rest_init() up ramdisk entry
+
+config TDX_FUZZ_HARNESS_DO_BASIC
+	bool "Basic Setup"
+	help
+	  Fuzz do_basic_setup(), part of rest_init() and including all initcalls.
 
 config TDX_FUZZ_HARNESS_DOINITCALLS
-       bool "kAFL do_initcalls fuzzing harness"
-       help
-	 Fuzz boot do_initcalls
+	bool "Initcall-Levels"
+	help
+	 Fuzz do_initcalls() loop. Select initcall level below.
 
 config TDX_FUZZ_HARNESS_DOINITCALLS_PCI
-       select TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
-       bool "kAFL do_initcalls PCI calls fuzzing harness"
-       help
-	 Fuzz boot do_initcalls PCI initcalls fuzzing
+	select TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	bool "PCI init"
+	help
+	  Fuzz initcalls for basic PCI initialiation
 
 config TDX_FUZZ_HARNESS_DOINITCALLS_VIRTIO
-       select TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
-       bool "VIRTIO harness"
-       help
-	 Harness for virtio-net initcall
-	 Reproducer for https://jira.devtools.intel.com/browse/LCK-10484
+	select TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	bool "Virtio-Net init"
+	help
+	  Fuzz initcalls for virtio-net initialiation
+	  Reproducer for https://jira.devtools.intel.com/browse/LCK-10484
 
 config TDX_FUZZ_HARNESS_DOINITCALLS_ACPI
-       select TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
-       bool "ACPI_INIT harness"
-       help
-	 Harness for acpi_init initcall
-	 Reproducer for https://jira.devtools.intel.com/browse/LCK-10311
+	select TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	bool "ACPI init"
+	help
+	  Fuzz initcalls for ACPI initialiation
+	  Reproducer for https://jira.devtools.intel.com/browse/LCK-10311
 
 config TDX_FUZZ_HARNESS_FULL_BOOT
-       bool "kAFL full boot sequence fuzzing harness"
-       help
-	 Fuzz full boot sequence
+	bool "Full Boot"
+	help
+	  Wrap whole boot sequence from start_kernel() to executing 'init'.
+	  Mainly useful for tracing?
 
 endchoice
 
 config TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
 	int "Limit initcall fuzzing to level"
 	range 0 8
-    default 3
+	default 3
 	depends on TDX_FUZZ_HARNESS_DOINITCALLS
 	depends on TDX_FUZZ_KAFL
 	help
