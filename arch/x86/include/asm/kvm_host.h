@@ -1039,6 +1039,13 @@ struct kvm_vcpu_arch {
 	 */
 	bool pdptrs_from_userspace;
 
+#ifdef CONFIG_KVM_NYX
+	bool page_dump_bp;
+	u64 page_dump_bp_cr3;
+	bool mtf;
+	bool mtf_on;
+#endif
+
 #if IS_ENABLED(CONFIG_HYPERV)
 	hpa_t hv_root_tdp;
 #endif
@@ -1503,6 +1510,10 @@ struct kvm_arch {
 	 */
 #define SPLIT_DESC_CACHE_MIN_NR_OBJECTS (SPTE_ENT_PER_PAGE + 1)
 	struct kvm_mmu_memory_cache split_desc_cache;
+#ifdef CONFIG_KVM_NYX
+	void* fdl_opaque; 
+	uint64_t printk_addr;
+#endif
 };
 
 struct kvm_vm_stat {
@@ -1796,6 +1807,11 @@ struct kvm_x86_ops {
 	unsigned long (*vcpu_get_apicv_inhibit_reasons)(struct kvm_vcpu *vcpu);
 
 	gva_t (*get_untagged_addr)(struct kvm_vcpu *vcpu, gva_t gva, unsigned int flags);
+#ifdef CONFIG_KVM_NYX
+	int (*setup_trace_fd)(struct kvm_vcpu *vcpu);
+	int (*vmx_pt_enabled)(void);
+	int (*get_addrn)(void);
+#endif
 };
 
 struct kvm_x86_nested_ops {

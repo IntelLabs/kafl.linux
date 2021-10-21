@@ -109,6 +109,12 @@ config X86_SGX_KVM
 
 	  If unsure, say N.
 
+config KVM_NYX
+ 	bool "KVM extension for NYX to enable advanced fuzzing features (such as Intel Processor Trace)"
+ 	depends on KVM && KVM_INTEL
+ 	help
+   Enables advanced NYX features (such as Intel Processor Trace in vmx mode, nested fuzzing and MTF page dump).
+
 config KVM_AMD
 	tristate "KVM for AMD processors support"
 	depends on KVM && (CPU_SUP_AMD || CPU_SUP_HYGON)
