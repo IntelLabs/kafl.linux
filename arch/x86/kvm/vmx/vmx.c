@@ -70,6 +70,30 @@
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
 
+#ifdef CONFIG_KVM_NYX
+#include "vmx_pt.h"
+static int handle_monitor_trap(struct kvm_vcpu *vcpu);
+
+static int vmx_pt_setup_fd(struct kvm_vcpu *vcpu)
+{
+	return vmx_pt_create_fd(to_vmx(vcpu)->vmx_pt_config);
+}
+
+static int vmx_pt_is_enabled(void)
+{
+	return vmx_pt_enabled();
+}
+
+static int vmx_pt_get_addrn(void)
+{
+	int r = vmx_pt_enabled();
+	if(r == 1){
+		return vmx_pt_get_addrn_value();
+	}
+	return r;
+}
+#endif
+
 #ifdef MODULE
 static const struct x86_cpu_id vmx_cpu_id[] = {
 	X86_MATCH_FEATURE(X86_FEATURE_VMX, NULL),
@@ -943,8 +967,13 @@ static __always_inline void add_atomic_switch_msr_special(struct vcpu_vmx *vmx,
 	vm_exit_controls_setbit(vmx, exit);
 }
 
+#ifndef CONFIG_KVM_NYX
 static void add_atomic_switch_msr(struct vcpu_vmx *vmx, unsigned msr,
 				  u64 guest_val, u64 host_val, bool entry_only)
+#else
+void add_atomic_switch_msr(struct vcpu_vmx *vmx, unsigned msr,
+				  u64 guest_val, u64 host_val, bool entry_only)
+#endif
 {
 	int i, j = 0;
 	struct msr_autoload *m = &vmx->msr_autoload;
@@ -1093,12 +1122,18 @@ static unsigned long segment_base(u16 selector)
 
 static inline bool pt_can_write_msr(struct vcpu_vmx *vmx)
 {
+#ifdef CONFIG_KVM_NYX
+	return false;
+#endif
 	return vmx_pt_mode_is_host_guest() &&
 	       !(vmx->pt_desc.guest.ctl & RTIT_CTL_TRACEEN);
 }
 
 static inline bool pt_output_base_valid(struct kvm_vcpu *vcpu, u64 base)
 {
+#ifdef CONFIG_KVM_NYX
+	return false;
+#endif
 	/* The base must be 128-byte aligned and a legal physical address. */
 	return kvm_vcpu_is_legal_aligned_gpa(vcpu, base, 128);
 }
@@ -1106,6 +1141,9 @@ static inline bool pt_output_base_valid(struct kvm_vcpu *vcpu, u64 base)
 static inline void pt_load_msr(struct pt_ctx *ctx, u32 addr_range)
 {
 	u32 i;
+#ifdef CONFIG_KVM_NYX
+	return;
+#endif
 
 	wrmsrl(MSR_IA32_RTIT_STATUS, ctx->status);
 	wrmsrl(MSR_IA32_RTIT_OUTPUT_BASE, ctx->output_base);
@@ -1120,6 +1158,9 @@ static inline void pt_load_msr(struct pt_ctx *ctx, u32 addr_range)
 static inline void pt_save_msr(struct pt_ctx *ctx, u32 addr_range)
 {
 	u32 i;
+#ifdef CONFIG_KVM_NYX
+	return;
+#endif
 
 	rdmsrl(MSR_IA32_RTIT_STATUS, ctx->status);
 	rdmsrl(MSR_IA32_RTIT_OUTPUT_BASE, ctx->output_base);
@@ -1133,6 +1174,9 @@ static inline void pt_save_msr(struct pt_ctx *ctx, u32 addr_range)
 
 static void pt_guest_enter(struct vcpu_vmx *vmx)
 {
+#ifdef CONFIG_KVM_NYX
+	return;
+#endif
 	if (vmx_pt_mode_is_system())
 		return;
 
@@ -1150,6 +1194,9 @@ static void pt_guest_enter(struct vcpu_vmx *vmx)
 
 static void pt_guest_exit(struct vcpu_vmx *vmx)
 {
+#ifdef CONFIG_KVM_NYX
+	return;
+#endif
 	if (vmx_pt_mode_is_system())
 		return;
 
@@ -5227,6 +5274,19 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 		kvm_run->exit_reason = KVM_EXIT_DEBUG;
 		kvm_run->debug.arch.pc = kvm_get_linear_rip(vcpu);
 		kvm_run->debug.arch.exception = ex_no;
+
+#ifdef CONFIG_KVM_NYX
+		/* Page Dump Capability */
+		if (vcpu->arch.page_dump_bp){
+			if(vcpu->arch.eff_db[0] == vmcs_readl(GUEST_CS_BASE) + kvm_run->debug.arch.pc && vcpu->arch.page_dump_bp_cr3 == (kvm_read_cr3(vcpu) & 0xFFFFFFFFFFFFF000ULL)){
+				kvm_run->exit_reason = KVM_EXIT_KAFL_PAGE_DUMP_BP;
+			}
+			else{
+				return 1;
+			}
+		}
+#endif
+
 		break;
 	case AC_VECTOR:
 		if (vmx_guest_inject_ac(vcpu)) {
@@ -5353,6 +5413,63 @@ static int handle_desc(struct kvm_vcpu *vcpu)
 	return kvm_emulate_instruction(vcpu, 0);
 }
 
+#ifdef CONFIG_KVM_NYX
+
+void update_cr3_target_control_buffer(struct kvm_vcpu *vcpu, uint64_t val){
+
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	printk("%s(%llx)\n", __func__, val);
+/*
+	switch(vmx->cr3_target_control_count){
+		case 4:
+			if(vmx->cr3_target_control[3] == val){
+				printk("oops? %lx vs %lx\n", vmx->cr3_target_control[3], val);
+				return;
+			}
+		case 3:
+			if(vmx->cr3_target_control[2] == val){
+				printk("oops? %lx vs %lx\n", vmx->cr3_target_control[2], val);
+				return;
+			}
+		case 2:
+			if(vmx->cr3_target_control[1] == val){
+				printk("oops? %lx vs %lx\n", vmx->cr3_target_control[1], val);
+				return;
+			}
+		case 1:
+			if(vmx->cr3_target_control[0] == val){
+				printk("oops? %lx vs %lx\n", vmx->cr3_target_control[0], val);
+				return;
+			}
+	}
+*/
+
+	if(unlikely(vmx->cr3_target_control_count != 4)){
+		vmx->cr3_target_control_count++;
+		vmcs_write32(CR3_TARGET_COUNT, vmx->cr3_target_control_count);
+	}
+
+	vmx->cr3_target_control_slot = (vmx->cr3_target_control_slot + 1) % 4;
+	vmx->cr3_target_control[vmx->cr3_target_control_slot] = val;
+
+
+	switch(vmx->cr3_target_control_slot){
+		case 3:
+			vmcs_writel(CR3_TARGET_VALUE3, val);
+			break;
+		case 2:
+			vmcs_writel(CR3_TARGET_VALUE2, val);
+			break;
+		case 1:
+			vmcs_writel(CR3_TARGET_VALUE1, val);
+			break;
+		case 0:
+			vmcs_writel(CR3_TARGET_VALUE0, val);
+			break;
+	}
+}
+#endif
+
 static int handle_cr(struct kvm_vcpu *vcpu)
 {
 	unsigned long exit_qualification, val;
@@ -5373,6 +5490,10 @@ static int handle_cr(struct kvm_vcpu *vcpu)
 			err = handle_set_cr0(vcpu, val);
 			return kvm_complete_insn_gp(vcpu, err);
 		case 3:
+#ifdef CONFIG_KVM_NYX
+			//printk("MULTI-CR3: MOV TO CR3: %lx\n", val);
+			//update_cr3_target_control_buffer(vcpu, (uint64_t)val & 0xFFFFFFFFFFFFF000ULL);
+#endif
 			WARN_ON_ONCE(enable_unrestricted_guest);
 
 			err = kvm_set_cr3(vcpu, val);
@@ -5849,6 +5970,12 @@ static int handle_pause(struct kvm_vcpu *vcpu)
 
 static int handle_monitor_trap(struct kvm_vcpu *vcpu)
 {
+#ifdef CONFIG_KVM_NYX
+	if (vcpu->arch.mtf){
+		vcpu->run->exit_reason = KVM_EXIT_KAFL_MTF;
+		return 0;
+	}
+#endif
 	return 1;
 }
 
@@ -6380,8 +6507,32 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 			return 1;
 		}
 
+#ifndef CONFIG_KVM_NYX
 		if (nested_vmx_reflect_vmexit(vcpu))
 			return 1;
+#else
+
+		if (is_guest_mode(vcpu) && nested_vmx_reflect_vmexit(vcpu)){
+		if ((kvm_register_read(vcpu, VCPU_REGS_RAX)&0xFFFFFFFF) == HYPERCALL_KAFL_RAX_ID && (kvm_register_read(vcpu, VCPU_REGS_RBX)&0xFF000000) == HYPERTRASH_HYPERCALL_MASK){
+			if(vcpu->run->exit_reason == KVM_EXIT_KAFL_NESTED_CONFIG || 
+				vcpu->run->exit_reason == KVM_EXIT_KAFL_NESTED_PREPARE || 
+				vcpu->run->exit_reason == KVM_EXIT_KAFL_NESTED_ACQUIRE || 
+				vcpu->run->exit_reason == KVM_EXIT_KAFL_NESTED_RELEASE ||
+				vcpu->run->exit_reason == KVM_EXIT_KAFL_NESTED_EARLY_RELEASE ||
+				vcpu->run->exit_reason == KVM_EXIT_KAFL_NESTED_HPRINTF ){
+					kvm_register_write(vcpu, VCPU_REGS_RIP, kvm_register_read(vcpu, VCPU_REGS_RIP)+3);
+					return 0;
+			}
+			else{
+				return perform_nested_vmx_reflect_vmexit(vcpu);
+			}
+		}
+		else{
+			return perform_nested_vmx_reflect_vmexit(vcpu);
+		}
+	}
+
+#endif
 	}
 
 	/* If guest state is invalid, start emulating.  L2 is handled above. */
@@ -6405,6 +6556,14 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 		vcpu->run->fail_entry.cpu = vcpu->arch.last_vmentry_cpu;
 		return 0;
 	}
+
+#ifdef CONFIG_KVM_NYX
+	if(exit_reason.basic == KVM_EXIT_KAFL_TOPA_MAIN_FULL){ /* TOPA_FULL */
+		//printk("EXIT REASON: TOPA_FULL\n");
+		vcpu->run->exit_reason = KVM_EXIT_KAFL_TOPA_MAIN_FULL;
+		return 0;
+	}
+#endif
 
 	/*
 	 * Note:
@@ -7144,6 +7303,13 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	unsigned long cr3, cr4;
 
+#ifdef CONFIG_KVM_NYX
+	if(topa_full(vmx->vmx_pt_config)){
+		vmx->exit_reason.basic = KVM_EXIT_KAFL_TOPA_MAIN_FULL;
+		return EXIT_FASTPATH_NONE;
+	}
+#endif
+
 	/* Record the guest's net vcpu time for enforced NMI injections. */
 	if (unlikely(!enable_vnmi &&
 		     vmx->loaded_vmcs->soft_vnmi_blocked))
@@ -7167,6 +7333,29 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	}
 
 	trace_kvm_entry(vcpu);
+
+#ifdef CONFIG_KVM_NYX
+/*
+		if(vmx_pt_multi_cr3_enabled(vmx->vmx_pt_config)){
+				printk("MULTI-CR3!\n");
+	
+			vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) | CPU_BASED_CR3_LOAD_EXITING);  
+		}
+*/
+
+	if (vcpu->arch.mtf){
+		if(!vcpu->arch.mtf_on){
+			vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) | CPU_BASED_MONITOR_TRAP_FLAG);
+			vcpu->arch.mtf_on = true;
+		}
+	}	
+	else{
+		if(vcpu->arch.mtf_on){
+			vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) & (~CPU_BASED_MONITOR_TRAP_FLAG));
+			vcpu->arch.mtf_on = false;
+		}
+	}
+#endif
 
 	if (vmx->ple_window_dirty) {
 		vmx->ple_window_dirty = false;
@@ -7218,6 +7407,10 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 
 	kvm_load_guest_xsave_state(vcpu);
 
+#ifdef CONFIG_KVM_NYX
+	vmx_pt_vmentry(vmx->vmx_pt_config);
+#endif
+
 	pt_guest_enter(vmx);
 
 	atomic_switch_perf_msrs(vmx);
@@ -7258,6 +7451,10 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 #endif
 
 	vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
+
+#ifdef CONFIG_KVM_NYX
+	vmx_pt_vmexit(vmx->vmx_pt_config);
+#endif
 
 	pt_guest_exit(vmx);
 
@@ -7322,6 +7519,9 @@ static void vmx_vcpu_free(struct kvm_vcpu *vcpu)
 	free_vpid(vmx->vpid);
 	nested_vmx_free_vcpu(vcpu);
 	free_loaded_vmcs(vmx->loaded_vmcs);
+#ifdef CONFIG_KVM_NYX
+	vmx_pt_destroy(vmx, &(vmx->vmx_pt_config));
+#endif
 }
 
 static int vt_vcpu_create(struct kvm_vcpu *vcpu)
@@ -7426,6 +7626,18 @@ static int vmx_vcpu_create(struct kvm_vcpu *vcpu)
 	if (vmx_can_use_ipiv(vcpu))
 		WRITE_ONCE(to_kvm_vmx(vcpu->kvm)->pid_table[vcpu->vcpu_id],
 			   __pa(&vmx->pi_desc) | PID_TABLE_ENTRY_VALID);
+
+#ifdef CONFIG_KVM_NYX
+	/* enable vmx_pt */
+	vmx_pt_setup(vmx, &(vmx->vmx_pt_config));
+	vmx->cr3_target_control_count = 0;
+	vmx->cr3_target_control_slot = 0;
+	vmx->cr3_target_control[0] = 0;
+	vmx->cr3_target_control[1] = 0;
+	vmx->cr3_target_control[2] = 0;
+	vmx->cr3_target_control[3] = 0;
+#endif
+
 
 	return 0;
 
@@ -7984,7 +8196,7 @@ void vmx_update_cpu_dirty_logging(struct kvm_vcpu *vcpu)
 		secondary_exec_controls_clearbit(vmx, SECONDARY_EXEC_ENABLE_PML);
 }
 
-static void vmx_setup_mce(struct kvm_vcpu *vcpu)
+void vmx_setup_mce(struct kvm_vcpu *vcpu)
 {
 	if (vcpu->arch.mcg_cap & MCG_LMCE_P)
 		to_vmx(vcpu)->msr_ia32_feature_control_valid_bits |=
@@ -8241,6 +8453,11 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.complete_emulated_msr = kvm_complete_insn_gp,
 
 	.vcpu_deliver_sipi_vector = kvm_vcpu_deliver_sipi_vector,
+#ifdef CONFIG_KVM_NYX
+	.setup_trace_fd = vmx_pt_setup_fd,
+	.vmx_pt_enabled = vmx_pt_is_enabled,
+	.get_addrn = vmx_pt_get_addrn,
+#endif
 };
 
 static unsigned int vmx_handle_intel_pt_intr(void)
@@ -8561,6 +8778,11 @@ static void vmx_exit(void)
 		static_branch_disable(&enable_evmcs);
 	}
 #endif
+
+#ifdef CONFIG_KVM_NYX
+	vmx_pt_exit();
+#endif
+
 	vmx_cleanup_l1d_flush();
 
 	allow_smaller_maxphyaddr = false;
@@ -8645,6 +8867,10 @@ static int __init vmx_init(void)
 	 */
 	if (!enable_ept)
 		allow_smaller_maxphyaddr = true;
+
+#ifdef CONFIG_KVM_NYX
+	vmx_pt_init();
+#endif
 
 	return 0;
 }

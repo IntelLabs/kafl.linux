@@ -3227,6 +3227,7 @@ int kvm_write_guest_offset_cached(struct kvm *kvm, struct gfn_to_hva_cache *ghc,
 	r = __copy_to_user((void __user *)ghc->hva + offset, data, len);
 	if (r)
 		return -EFAULT;
+
 	mark_page_dirty_in_slot(kvm, ghc->memslot, gpa >> PAGE_SHIFT);
 
 	return 0;
@@ -3236,6 +3237,7 @@ EXPORT_SYMBOL_GPL(kvm_write_guest_offset_cached);
 int kvm_write_guest_cached(struct kvm *kvm, struct gfn_to_hva_cache *ghc,
 			   void *data, unsigned long len)
 {
+
 	return kvm_write_guest_offset_cached(kvm, ghc, data, 0, len);
 }
 EXPORT_SYMBOL_GPL(kvm_write_guest_cached);
