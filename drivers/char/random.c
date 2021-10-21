@@ -471,7 +471,7 @@ static void _crng_backtrack_protect(struct crng_state *crng,
 static void process_random_ready_list(void);
 static void _get_random_bytes(void *buf, int nbytes);
 
-#ifdef CONFIG_TDX_FUZZ_KAFL
+#ifdef CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC
 #include <asm/tdx.h>
 static char _get_tdx_random_byte(char orig_val)
 {
@@ -1561,7 +1561,7 @@ static void _get_random_bytes(void *buf, int nbytes)
 
 void get_random_bytes(void *buf, int nbytes)
 {
-#ifndef CONFIG_TDX_FUZZ_KAFL
+#ifndef CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC
 	static void *previous;
 
 	warn_unseeded_randomness(&previous);
@@ -2190,7 +2190,7 @@ u64 get_random_u64(void)
 	struct batched_entropy *batch;
 	static void *previous;
 
-#ifdef CONFIG_TDX_FUZZ_KAFL
+#ifdef CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC
 	return _get_tdx_random_byte(0x41);
 #endif
 
@@ -2218,7 +2218,7 @@ u32 get_random_u32(void)
 	struct batched_entropy *batch;
 	static void *previous;
 
-#ifdef CONFIG_TDX_FUZZ_KAFL
+#ifdef CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC
 	return _get_tdx_random_byte(0x41);
 #endif
 
