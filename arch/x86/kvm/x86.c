@@ -81,6 +81,10 @@
 #include <asm/sgx.h>
 #include <clocksource/hyperv_timer.h>
 
+#ifdef CONFIG_KVM_NYX
+#include "vmx/vmx_pt.h"
+#endif
+
 #define CREATE_TRACE_POINTS
 #include "trace.h"
 
@@ -4525,6 +4529,18 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		if (static_call(kvm_x86_is_vm_type_supported)(KVM_X86_TDX_VM))
 			r |= BIT(KVM_X86_TDX_VM);
 		break;
+#ifdef CONFIG_KVM_NYX
+	case KVM_NYX_PT:
+		r = 1;
+		break;
+	case KVM_NYX_FDL:
+#if 0		
+		r = 1;
+#else		
+		r = 0;
+#endif		
+		break;
+#endif
 	default:
 		break;
 	}
@@ -4678,6 +4694,16 @@ long kvm_arch_dev_ioctl(struct file *filp,
 		r = kvm_x86_dev_has_attr(&attr);
 		break;
 	}
+#ifdef CONFIG_KVM_NYX
+	case KVM_VMX_PT_SUPPORTED: {
+		r = kvm_x86_ops.vmx_pt_enabled();
+		break;
+	}
+	case KVM_VMX_PT_GET_ADDRN: {
+		r = kvm_x86_ops.get_addrn();
+		break;
+	}
+#endif
 	default:
 		r = -EINVAL;
 		break;
@@ -5974,6 +6000,32 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 	case KVM_SET_DEVICE_ATTR:
 		r = kvm_vcpu_ioctl_device_attr(vcpu, ioctl, argp);
 		break;
+#ifdef CONFIG_KVM_NYX
+	case KVM_VMX_PT_SETUP_FD: {
+		r = kvm_x86_ops.setup_trace_fd(vcpu);
+		break;
+	}
+	case KVM_VMX_PT_SET_PAGE_DUMP_CR3: {
+		vcpu->arch.page_dump_bp_cr3 = arg;
+		break;
+	}
+	case KVM_VMX_PT_ENABLE_PAGE_DUMP_CR3: {
+		vcpu->arch.page_dump_bp = true;
+		break;
+	}
+	case KVM_VMX_PT_DISABLE_PAGE_DUMP_CR3: {
+		vcpu->arch.page_dump_bp = false;
+		break;
+	}
+	case KVM_VMX_PT_ENABLE_MTF: {
+		vcpu->arch.mtf = true;
+		break;
+	}
+	case KVM_VMX_PT_DISABLE_MTF: {
+		vcpu->arch.mtf = false;
+		break;
+	}
+#endif
 	default:
 		r = -EINVAL;
 	}
@@ -7004,6 +7056,11 @@ set_pit2_out:
 		r = kvm_vm_ioctl_set_msr_filter(kvm, &filter);
 		break;
 	}
+#ifdef CONFIG_KVM_NYX
+	case KVM_VMX_FDL_SETUP_FD: 
+		r = -EPERM;
+		break;
+#endif
 	default:
 		r = -ENOTTY;
 	}
@@ -7161,21 +7218,6 @@ void kvm_get_segment(struct kvm_vcpu *vcpu,
 		     struct kvm_segment *var, int seg)
 {
 	static_call(kvm_x86_get_segment)(vcpu, var, seg);
-}
-
-gpa_t translate_nested_gpa(struct kvm_vcpu *vcpu, gpa_t gpa, u64 access,
-			   struct x86_exception *exception)
-{
-	struct kvm_mmu *mmu = vcpu->arch.mmu;
-	gpa_t t_gpa;
-
-	BUG_ON(!mmu_is_nested(vcpu));
-
-	/* NPT walks are always user-walks */
-	access |= PFERR_USER_MASK;
-	t_gpa  = mmu->gva_to_gpa(vcpu, mmu, gpa, access, exception);
-
-	return t_gpa;
 }
 
 gpa_t kvm_mmu_gva_to_gpa_read(struct kvm_vcpu *vcpu, gva_t gva,
@@ -8741,12 +8783,31 @@ static bool kvm_vcpu_check_code_breakpoint(struct kvm_vcpu *vcpu,
 					   vcpu->arch.eff_db);
 
 		if (dr6 != 0) {
+#ifdef CONFIG_KVM_NYX
+			if (vcpu->arch.page_dump_bp){
+				if (vcpu->arch.eff_db[0] == eip){
+					kvm_x86_ops.cache_reg(vcpu, VCPU_EXREG_CR3);
+					if(vcpu->arch.page_dump_bp_cr3 == vcpu->arch.cr3){
+						kvm_run->debug.arch.dr6 = dr6 | DR6_FIXED_1 | DR6_RTM;
+						kvm_run->debug.arch.pc = eip;
+						kvm_run->debug.arch.exception = DB_VECTOR;
+						kvm_run->exit_reason = KVM_EXIT_KAFL_PAGE_DUMP_BP;
+						*r = 0;
+						return true;
+					}
+				}
+			}
+			else {
+#endif
 			kvm_run->debug.arch.dr6 = dr6 | DR6_ACTIVE_LOW;
 			kvm_run->debug.arch.pc = eip;
 			kvm_run->debug.arch.exception = DB_VECTOR;
 			kvm_run->exit_reason = KVM_EXIT_DEBUG;
 			*r = 0;
 			return true;
+#ifdef CONFIG_KVM_NYX
+			}
+#endif
 		}
 	}
 
@@ -8993,7 +9054,11 @@ writeback:
 			if (ctxt->is_branch)
 				kvm_pmu_trigger_event(vcpu, PERF_COUNT_HW_BRANCH_INSTRUCTIONS);
 			kvm_rip_write(vcpu, ctxt->eip);
+#ifndef CONFIG_KVM_NYX
 			if (r && (ctxt->tf || (vcpu->guest_debug & KVM_GUESTDBG_SINGLESTEP)))
+#else
+			if (r && (ctxt->tf))
+#endif
 				r = kvm_vcpu_do_singlestep(vcpu);
 			static_call_cond(kvm_x86_update_emulated_instruction)(vcpu);
 			__kvm_set_rflags(vcpu, ctxt->eflags);
@@ -9667,6 +9732,9 @@ unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,un
 				      int op_64_bit)
 {
 	unsigned long ret;
+#ifdef CONFIG_KVM_NYX
+	struct kvm *kvm = vcpu->kvm;
+#endif
 
 	trace_kvm_hypercall(nr, a0, a1, a2, a3);
 
@@ -9677,6 +9745,48 @@ unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,un
 		a2 &= 0xFFFFFFFF;
 		a3 &= 0xFFFFFFFF;
 	}
+
+#ifdef CONFIG_KVM_NYX
+	/* kAFL Hypercall Interface (ring 0) */
+	
+	if(kvm_x86_ops.get_cpl(vcpu) == 0) {
+		if(kvm->arch.printk_addr && kvm->arch.printk_addr == kvm_register_read(vcpu, VCPU_REGS_RIP)){
+			vcpu->run->exit_reason = KVM_EXIT_KAFL_PRINTK; 
+			kvm_x86_ops.skip_emulated_instruction(vcpu);
+			return 0;
+		}
+	}
+
+#endif
+
+#ifdef CONFIG_KVM_NYX
+	/* kAFL Hypercall interface */
+	if (nr == HYPERCALL_KAFL_RAX_ID){
+		switch(a0){
+			case (KVM_EXIT_KAFL_SUBMIT_CR3-KAFL_EXIT_OFFSET):
+			case (KVM_EXIT_KAFL_USER_FAST_ACQUIRE-KAFL_EXIT_OFFSET): 
+				vcpu->run->exit_reason = a0+KAFL_EXIT_OFFSET;    
+				vcpu->run->hypercall.args[0] = kvm_read_cr3(vcpu);
+				break;
+			case (KVM_EXIT_KAFL_PRINTK_ADDR-KAFL_EXIT_OFFSET): // still in use?  
+				vcpu->run->exit_reason = a0+KAFL_EXIT_OFFSET;    
+				kvm->arch.printk_addr = a1 + 0x3; // 3 bytes vmcall offset 
+				vcpu->run->hypercall.args[0] = a1;
+				break;
+			default: 
+				vcpu->run->exit_reason = a0+KAFL_EXIT_OFFSET;    
+				vcpu->run->hypercall.args[0] = a1;
+				break;
+		}
+
+		if (!op_64_bit)
+			ret = (u32)ret;
+
+		
+		kvm_x86_ops.skip_emulated_instruction(vcpu);
+		return 0;
+	}
+#endif
 
 	ret = -KVM_ENOSYS;
 
@@ -12104,6 +12214,13 @@ void kvm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	vcpu->arch.dr7 = DR7_FIXED_1;
 	kvm_update_dr7(vcpu);
 
+#ifdef CONFIG_KVM_NYX
+	vcpu->arch.page_dump_bp = false;
+	vcpu->arch.page_dump_bp_cr3 = 0x0;
+	vcpu->arch.mtf = false;
+	vcpu->arch.mtf_on = false;
+#endif
+
 	vcpu->arch.cr2 = 0;
 
 	kvm_make_request(KVM_REQ_EVENT, vcpu);
@@ -12496,6 +12613,9 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	kvm_hv_init_vm(kvm);
 	kvm_xen_init_vm(kvm);
 
+#ifdef CONFIG_KVM_NYX
+	kvm->arch.printk_addr = 0;
+#endif
 	return 0;
 
 out_uninit_mmu:
