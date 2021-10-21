@@ -513,6 +513,7 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 			return;
 		case TDX_FUZZ_ENABLE:
 			pr_warn("[*] Agent enable!\n");
+			fallthrough;
 		case TDX_FUZZ_RESUME:
 			fuzz_enabled = true;
 			return;
@@ -525,14 +526,13 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 		case TDX_FUZZ_PAUSE:
 			fuzz_enabled = false;
 			return;
+		case TDX_FUZZ_SAFE_HALT:
+			// seems like a benign implementation of once in userspace, nohz_idle() constantly calls this to halt()
+			return;
 		default:
-			//return kafl_agent_abort("Unrecognized fuzz event.\n");
 			break;
 	}
 
-	// once in userspace, nohz_idle() constantly calls this to halt()
-	if (e == TDX_FUZZ_SAFE_HALT)
-		return;
 
 	if (!agent_initialized) {
 		pr_alert("Got event %s but not initialized?!\n", tdx_fuzz_event_name[e]);
@@ -540,7 +540,8 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 		return;
 	}
 
-	// select here what kind of errors to raise to fuzzer
+	// post-init actions - abort if we see these before fuzz_initialized=true
+	// Use this table to selectively raise error conditions
 	switch (e) {
 		case TDX_FUZZ_KASAN:
 		case TDX_FUZZ_UBSAN:
@@ -549,13 +550,9 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 		case TDX_FUZZ_ERROR:
 		case TDX_FUZZ_HALT:
 		case TDX_FUZZ_REBOOT:
-		case TDX_FUZZ_SAFE_HALT:
 			return kafl_raise_panic();
 		case TDX_FUZZ_TIMEOUT:
 			return kafl_agent_abort("TODO: add a timeout handler?!\n");
-		case TDX_FUZZ_PAUSE:
-		case TDX_FUZZ_RESUME:
-			return;
 		default:
 			return kafl_agent_abort("Unrecognized fuzz event.\n");
 	}
