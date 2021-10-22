@@ -926,12 +926,24 @@ static void __init print_unknown_bootoptions(void)
 	memblock_free(unknown_options, len);
 }
 
+static void __init _tdx_trace_locations(const char *label, const char *location)
+{
+#ifdef CONFIG_TDX_FUZZ_KAFL_TRACE_LOCATIONS
+	// fails to do very first print, perhaps because hprintf= cmdline has not
+	// been parsed yet. Refactor to kafl_dump_stats() and use kafl_hprintf()?
+	printk("tdx_trace_locations for %s in %s:\n", label, location);
+	tdx_fuzz_event(TDX_TRACE_LOCATIONS);
+#endif
+}
+#define tdx_trace_locs(label) _tdx_trace_locations(label, __func__)
+
 asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
 
 	set_task_stack_end_magic(&init_task);
+	tdx_trace_locs("start_kernel");
 #if defined CONFIG_TDX_FUZZ_HARNESS_EARLYBOOT  || defined CONFIG_TDX_FUZZ_HARNESS_START_KERNEL || defined CONFIG_TDX_FUZZ_HARNESS_FULL_BOOT
 	tdx_fuzz_event(TDX_FUZZ_ENABLE);
 #endif
@@ -990,12 +1002,15 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	// end of early boot harness before trap_init() / mm_init()?
 	tdx_fuzz_event(TDX_FUZZ_DONE);
 #endif
+	tdx_trace_locs("trap_init");
+
 	trap_init();
 	mm_init();
 
 #ifdef CONFIG_TDX_FUZZ_HARNESS_POST_TRAP
 	tdx_fuzz_event(TDX_FUZZ_ENABLE);
 #endif
+	tdx_trace_locs("post_trap");
 
 	ftrace_init();
 
@@ -1152,6 +1167,8 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 #if defined CONFIG_TDX_FUZZ_HARNESS_REST_INIT
 	tdx_fuzz_event(TDX_FUZZ_ENABLE);
 #endif
+	tdx_trace_locs("rest_init");
+
 	/* Do the rest non-__init'ed, we're now alive */
 	arch_call_rest_init();
 
@@ -1267,8 +1284,10 @@ trace_initcall_finish_cb(void *data, initcall_t fn, int ret)
 	ktime_t rettime, *calltime = (ktime_t *)data;
 
 	rettime = ktime_get();
-	printk(KERN_DEBUG "initcall %pS returned %d after %lld usecs\n",
-		 fn, ret, (unsigned long long)ktime_us_delta(rettime, *calltime));
+	printk(KERN_DEBUG "initcall %pS returned %d after %lld usecs, irqs_disabled() %d\n",
+		 fn, ret, (unsigned long long)ktime_us_delta(rettime, *calltime), irqs_disabled());
+#ifdef CONFIG_TDX_FUZZ_KAFL_TRACE_LOCATIONS
+	tdx_fuzz_event(TDX_TRACE_LOCATIONS);
 }
 
 static ktime_t initcall_calltime;

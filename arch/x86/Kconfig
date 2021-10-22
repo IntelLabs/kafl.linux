@@ -925,6 +925,17 @@ config TDX_FUZZ_KAFL_DEBUGFS
 	help
 	  Enable userspace agent interface.
 
+config TDX_FUZZ_KAFL_TRACE_LOCATIONS
+	bool "Verbose log input location stats"
+	depends on TDX_FUZZ_KAFL
+	default n
+	help
+	  Enable verbose printing of seen input requests in the kernel log.
+
+	  Only reports inputs that are enabled for fuzzing. Counters are
+	  automatically reset after output and do not require the agent
+	  to be enabled/initialized.
+
 config TDX_FUZZ_KAFL_VIRTIO
 	bool "Enable fuzzing VirtIO inputs"
 	depends on TDX_FUZZ_KAFL
