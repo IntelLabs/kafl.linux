@@ -175,31 +175,6 @@ void kafl_agent_init(void)
 	kAFL_hypercall(HYPERCALL_KAFL_USER_SUBMIT_MODE, KAFL_MODE_64);
 #endif
 
-#if 0
-	/* all error handlers are instrumented directly in source code */
-
-	void* panic_handler = 0;
-	void* printk_handler = 0;
-	void* kasan_handler = 0;
-
-	printk_handler = (void*)&_printk;
-	hprintf("Kernel Print Handler Address:\t%lx\n", (uintptr_t)printk_handler);
-	
-	panic_handler = (void*)&panic;
-	hprintf("Kernel Panic Handler Address:\t%lx\n", (uintptr_t)panic_handler);
-
-	//kasan_handler = (void*)&kasan_report_error;
-	if (kasan_handler){
-		hprintf("Kernel KASan Handler Address:\t%lx\n", (uintptr_t)kasan_handler);
-	}
-	
-	kAFL_hypercall(HYPERCALL_KAFL_PRINTK_ADDR, (uintptr_t)printk_handler);
-	kAFL_hypercall(HYPERCALL_KAFL_SUBMIT_PANIC, (uintptr_t)panic_handler);
-	if (kasan_handler){
-		kAFL_hypercall(HYPERCALL_KAFL_SUBMIT_KASAN, (uintptr_t)kasan_handler);
-	}
-#endif
-
 	/* ensure that the virtual memory is *really* present in physical memory... */
 	memset(observed_payload_buffer, 0xff, PAYLOAD_BUFFER_SIZE);
 	memset(payload, 0xff, PAYLOAD_BUFFER_SIZE);
@@ -217,13 +192,6 @@ void kafl_agent_init(void)
 	if (host_config.payload_buffer_size > PAYLOAD_BUFFER_SIZE) {
 		kafl_agent_abort("Host agent buffer is larger than agent side allocation!\n");
 	}
-
-	//if (agent_config.dump_payloads) {
-	//	ob_buf = (u8*)observed_payload_buffer;
-	//	ob_num = sizeof(observed_payload_buffer)/sizeof(ob_buf[0]);
-	//	ob_pos = 0;
-	//	pr_debug("Enabled dump payload (max_entries=%u)\n", ob_num);
-	//}
 
 	// set IP filter range from agent?
 	//kafl_agent_setrange();
