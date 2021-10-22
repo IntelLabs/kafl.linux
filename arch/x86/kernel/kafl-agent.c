@@ -125,6 +125,34 @@ void kafl_agent_setcr3(void)
 	kAFL_hypercall(HYPERCALL_KAFL_SUBMIT_CR3, 0);
 }
 
+void kafl_stats_clear(void)
+{
+	memset(location_stats, 0, sizeof(location_stats));
+}
+
+void kafl_trace_locations(void)
+{
+#ifdef CONFIG_TDX_FUZZ_KAFL_TRACE_LOCATIONS
+	printk("kAFL locations: msrs=%u, mmio=%u, pio=%u, virtio=%u, rng=%u; cpuid=<%u,%u,%u,%u>; err=<%u,%u,%u,%u>\n",
+			location_stats[TDX_FUZZ_MSR_READ],
+			location_stats[TDX_FUZZ_MMIO_READ],
+			location_stats[TDX_FUZZ_PORT_IN],
+			location_stats[TDX_FUZZ_VIRTIO],
+			location_stats[TDX_FUZZ_RANDOM],
+			location_stats[TDX_FUZZ_CPUID1],
+			location_stats[TDX_FUZZ_CPUID2],
+			location_stats[TDX_FUZZ_CPUID3],
+			location_stats[TDX_FUZZ_CPUID4],
+			location_stats[TDX_FUZZ_MSR_READ_ERR],
+			location_stats[TDX_FUZZ_MSR_WRITE_ERR],
+			location_stats[TDX_FUZZ_MAP_ERR],
+			location_stats[TDX_FUZZ_PORT_IN_ERR]);
+
+	kafl_stats_clear();
+#endif
+	return;
+}
+
 void kafl_agent_init(void)
 {
 	kAFL_payload* payload = (kAFL_payload*)payload_buffer;
@@ -234,7 +262,7 @@ void kafl_agent_init(void)
 		ob_pos = 0;
 	}
 
-	memset(location_stats, 0, sizeof(location_stats));
+	kafl_stats_clear();
 	agent_initialized = true;
 
 	// start coverage tracing
@@ -284,6 +312,8 @@ void kafl_agent_stats(void)
 		kafl_dump_observed_payload("fuzzer_location_stats.lst", true,
 			   observed_payload_buffer, ob_num);
 	}
+
+	kafl_trace_locations();
 }
 
 void kafl_agent_done(void)
@@ -361,12 +391,6 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 {
 	u64 var;
 
-	if (!fuzz_enabled || !fuzz_tdcall) {
-		// for filtering stimulus payloads, raise a trace event with size=0 here
-		trace_tdx_fuzz((u64)__builtin_return_address(0), 0, orig_var, orig_var, type);
-		return orig_var;
-	}
-
 	// skip any fuzzing blockers
 	switch(type) {
 		//case TDX_FUZZ_PORT_IN:
@@ -418,14 +442,24 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 			; // continue to fuzzing
 	}
 
+	/*
+	 * For tracing runtime stimulus or boot phases, keep stats but do not fuzz
+	 * location_stats[] are reset on kafl_agent_init(), providing
+	 * a harness-specific counter.
+	 */
+	location_stats[type]++;
+	trace_tdx_fuzz((u64)__builtin_return_address(0), size, orig_var, var, type);
+
+	if (!fuzz_enabled || !fuzz_tdcall) {
+		return orig_var;
+	}
+
 	if (!agent_initialized) {
 		kafl_agent_init();
 	}
 
-	location_stats[type]++;
 	var = kafl_fuzz_var(orig_var, size);
 	
-	trace_tdx_fuzz((u64)__builtin_return_address(0), size, orig_var, var, type);
 
 	if (agent_flags.dump_callers) {
 		printk(KERN_WARNING "\nfuzz_var: %s[%d], addr: %16lx, orig: %16llx, isr: %lx\n",
@@ -462,13 +496,14 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 
 bool tdx_fuzz_err(enum tdx_fuzz_loc type)
 {
+	// for filtering stimulus payloads, raise a trace event in any case
+	location_stats[type]++;
+	trace_tdx_fuzz((u64)__builtin_return_address(0), 1, 0, 1, type);
+
 	if (!fuzz_enabled || !fuzz_tderror) {
-		// for filtering stimulus payloads, raise a trace event with size=0 here
-		trace_tdx_fuzz((u64)__builtin_return_address(0), 0, 1, 1, type);
 		return false;
 	}
 	
-	trace_tdx_fuzz((u64)__builtin_return_address(0), 1, 0, 1, type);
 	WARN(1,"tdx_fuzz_err() is not implemented\n");
 	return false;
 }
@@ -588,6 +623,8 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 		case TDX_FUZZ_SAFE_HALT:
 			// seems like a benign implementation of once in userspace, nohz_idle() constantly calls this to halt()
 			return;
+		case TDX_TRACE_LOCATIONS:
+			return kafl_trace_locations();
 		default:
 			break;
 	}
