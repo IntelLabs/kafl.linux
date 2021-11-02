@@ -490,8 +490,31 @@ void __cpuidle tdx_safe_halt(void)
 
 static bool tdx_read_msr(unsigned int msr, u64 *val)
 {
-	struct tdx_hypercall_output out;
+	struct tdx_hypercall_output out = {0};
 	u64 ret;
+
+	switch (msr) {
+	case MSR_EFER:
+	case MSR_IA32_CR_PAT:
+	case MSR_FS_BASE:
+	case MSR_GS_BASE:
+	case MSR_KERNEL_GS_BASE:
+	case MSR_IA32_SYSENTER_CS:
+	case MSR_IA32_SYSENTER_EIP:
+	case MSR_IA32_SYSENTER_ESP:
+	case MSR_STAR:
+	case MSR_LSTAR:
+	case MSR_SYSCALL_MASK:
+	case MSR_IA32_XSS:
+	case MSR_TSC_AUX:
+	case MSR_IA32_BNDCFGS:
+	case MSR_IA32_SPEC_CTRL:
+	case MSR_IA32_PRED_CMD:
+	case MSR_IA32_FLUSH_CMD:
+	case MSR_IA32_DS_AREA:
+		return true;
+	}
+	return false;
 
 	/*
 	 * Emulate the MSR read via hypercall. More info about ABI
