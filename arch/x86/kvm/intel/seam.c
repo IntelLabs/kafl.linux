@@ -344,6 +344,10 @@ static bool seam_inject_ve(struct kvm_vcpu *vcpu)
 		case MSR_TSC_AUX:
 		case MSR_IA32_BNDCFGS:
 		case MSR_IA32_XSS:
+		case MSR_IA32_SPEC_CTRL:
+		case MSR_IA32_PRED_CMD:
+		case MSR_IA32_FLUSH_CMD:
+		case MSR_IA32_DS_AREA:
 			return false;
 		}
 	}
