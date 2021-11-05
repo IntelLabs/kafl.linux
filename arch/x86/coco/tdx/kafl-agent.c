@@ -12,6 +12,7 @@
 #include <linux/slab.h>
 #include <linux/memblock.h>
 #include <linux/kprobes.h>
+#include <linux/string.h>
 #include <asm/tdx.h>
 #include <asm/trace/tdx.h>
 
@@ -58,8 +59,6 @@ static u32 ve_mis;
 static u8 *ob_buf;
 static u32 ob_num;
 static u32 ob_pos;
-
-static void tdx_fuzz_filter_init(void);
 
 const char *tdx_fuzz_event_name[TDX_FUZZ_EVENT_MAX] = {
 	"TDX_FUZZ_ENABLE",
@@ -162,7 +161,6 @@ void kafl_agent_init(void)
 	}
 
 	hprintf("[*] Initialize kAFL Agent\n");
-	tdx_fuzz_filter_init();
 
 	/* initial fuzzer handshake */
 	kAFL_hypercall(HYPERCALL_KAFL_ACQUIRE, 0);
@@ -485,57 +483,187 @@ static int __init fuzzing_disallow(char *str)
 
 __setup("fuzzing_disallow=", fuzzing_disallow);
 
+static bool has_been_initialized = false;
+static bool has_been_enabled = false;
 
-static int kp_handler_pre(struct kprobe *p, struct pt_regs *regs)
+static int kp_handler_pre(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
-	pr_debug("pause fuzzing for %s\n", p->symbol_name);
+	struct kprobe *p = &ri->rph->rp->kp;
+	pr_info("pause fuzzing for '%s' fuzz_enabled=%d, agent_initialized=%d\n", p->symbol_name, fuzz_enabled, agent_initialized);
+	has_been_initialized = agent_initialized;
+	has_been_enabled = fuzz_enabled;
 	tdx_fuzz_event(TDX_FUZZ_PAUSE);
 	return 0;
 }
 
-static void kp_handler_post(struct kprobe *p, struct pt_regs *regs, unsigned long flags)
+static int kp_handler_post(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
-	// TODO: check if it should be enabled
-	tdx_fuzz_event(TDX_FUZZ_RESUME);
+	struct kprobe *p = &ri->rph->rp->kp;
+	// Reset fuzzing enable status
+	pr_info("reset fuzzing state for '%s' fuzz_enabled=%d, has_been_enabled=%d, agent_initialized=%d\n", p->symbol_name, fuzz_enabled, has_been_enabled, agent_initialized);
+	fuzz_enabled = has_been_enabled;
+
+	return 0;
 }
 
+static int kp_harness_handler_pre(struct kretprobe_instance *ri, struct pt_regs *regs)
+{
+	struct kprobe *p = &ri->rph->rp->kp;
+
+	pr_info("start fuzzing for %s\n", p->symbol_name);
+	tdx_fuzz_event(TDX_TRACE_LOCATIONS);
+	//tdx_fuzz_event(TDX_FUZZ_START);
+	//dump_stack();
+	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+	return 0;
+}
+
+static int kp_harness_handler_post(struct kretprobe_instance *ri, struct pt_regs *regs)
+{
+	struct kprobe *p = &ri->rph->rp->kp;
+
+	tdx_fuzz_event(TDX_TRACE_LOCATIONS);
+	tdx_fuzz_event(TDX_FUZZ_DONE);
+	pr_info("end fuzzing for %s (SHOULD NOT REACH THIS!!)\n", p->symbol_name);
+	return 0;
+}
+
+/*
+ * Sets up intialization if single function harness.
+ * Set boot param fuzzing_func_harness=funcname, to enable
+ * kprobe-based single function harness for `funcname`.
+ */
+static char __initdata_or_module fuzzing_func_target[256] = {0};
+static int __init fuzzing_func_harness(char *str)
+{
+	strncpy(fuzzing_func_target, str, 255);
+	return 0;
+}
+__setup("fuzzing_func_harness=", fuzzing_func_harness);
+
+
+static int __init tdx_fuzz_func_harness_init(void)
+{
+	if (strlen(fuzzing_func_target) > 0) {
+		kafl_fuzz_function(fuzzing_func_target);
+	}
+	return 0;
+
+}
+// kprobe setup seems to work at core initcalls
+core_initcall(tdx_fuzz_func_harness_init)
+
 #define TDX_MAX_NUM_KPROBES 16
-static struct kprobe tdx_kprobes[TDX_MAX_NUM_KPROBES] = {0};
+static struct kretprobe tdx_kprobes[TDX_MAX_NUM_KPROBES] = {0};
 static int tdx_kprobes_n = 0;
 
-static void tdx_fuzz_filter_init(void)
+static int __init tdx_fuzz_filter_init(void)
 {
 	int ret;
 
 	struct disallowlist_entry *entry;
-	struct kprobe *kp;
+	struct kretprobe *kp;
+	static bool initialized = false;
+
+	if (initialized)
+		return 0;
+	initialized = true;
 
 	list_for_each_entry(entry, &disallowed_fuzzing_calls, next) {
 		pr_info("disable fuzzing mutation for %s\n", entry->buf);
 		//struct kprobe *kp = kzalloc(sizeof(struct kprobe), GFP_KERNEL);
 		if (tdx_kprobes_n >= TDX_MAX_NUM_KPROBES) {
 			pr_info("%s: max number of probes reached (%d)\n", __func__, tdx_kprobes_n);
-			return;
+			return 1;
 		}
 		kp = &tdx_kprobes[tdx_kprobes_n++];
-		kp->symbol_name = entry->buf;
-		//kp->addr = &fork_init;
-		kp->pre_handler = kp_handler_pre;
-		kp->post_handler = kp_handler_post;
-		ret = register_kprobe(kp);
+		kp->kp.symbol_name = entry->buf;
+		kp->entry_handler = kp_handler_pre;
+		kp->handler = kp_handler_post;
+		kp->maxactive = 20;
+		ret = register_kretprobe(kp);
 		if (ret < 0) {
 			pr_info("register_kprobe failed, returned %d\n", ret);
 			continue;
 		}
-		ret = enable_kprobe(kp);
+		ret = enable_kretprobe(kp);
 		if (ret < 0) {
 			pr_info("enable_kprobe failed, returned %d\n", ret);
 			continue;
 		}
-		pr_info("Planted kprobe at %lx\n", (uintptr_t)kp->addr);
+		pr_info("Planted kprobe at %lx\n", (uintptr_t)kp->kp.addr);
 	}
 
+	return ret;
+
 }
+
+core_initcall(tdx_fuzz_filter_init);
+
+void kafl_fuzz_function(char *fname)
+{
+	int ret;
+	struct kretprobe *kp;
+	char *fname_cpy;
+
+	pr_info("enable fuzzing harness for %s\n", fname);
+	kp = kzalloc(sizeof(struct kretprobe), GFP_KERNEL);
+	if (!kp) {
+		pr_info("%s cannot allocate memory with kzalloc\n", __func__);
+		return;
+	}
+
+	fname_cpy = kzalloc(strlen(fname) + 1, GFP_KERNEL);
+	if (!fname_cpy) {
+		pr_info("%s cannot allocate memory with kzalloc\n", __func__);
+		return;
+	}
+	strncpy(fname_cpy, fname, strlen(fname) + 1);
+
+	kp->kp.symbol_name = fname_cpy;
+	kp->entry_handler = kp_harness_handler_pre;
+	kp->handler = kp_harness_handler_post;
+	ret = register_kretprobe(kp);
+	if (ret < 0) {
+		pr_info("register_kretprobe failed, returned %d\n", ret);
+	}
+	ret = enable_kretprobe(kp);
+	if (ret < 0) {
+		pr_info("enable_kretprobe failed, returned %d\n", ret);
+	}
+	pr_info("Planted kretprobe at %lx\n", (uintptr_t)kp->kp.addr);
+
+}
+
+
+void kafl_fuzz_function_disable(char *fname)
+{
+	int ret;
+	struct kretprobe *kp;
+	char *fname_cpy;
+
+	pr_info("disable fuzzing for %s\n", fname);
+	kp = kzalloc(sizeof(struct kretprobe), GFP_KERNEL);
+
+	fname_cpy = kzalloc(strlen(fname) + 1, GFP_KERNEL);
+	strncpy(fname_cpy, fname, strlen(fname) + 1);
+
+	kp->kp.symbol_name = fname_cpy;
+	kp->entry_handler = kp_handler_pre;
+	kp->handler = kp_handler_post;
+	kp->maxactive = 20;
+	ret = register_kretprobe(kp);
+	if (ret < 0) {
+		pr_info("register_kretprobe failed, returned %d\n", ret);
+	}
+	ret = enable_kretprobe(kp);
+	if (ret < 0) {
+		pr_info("enable_kretprobe failed, returned %d\n", ret);
+	}
+	pr_info("Planted kretprobe at %lx\n", (uintptr_t)kp->kp.addr);
+
+}
+
 
 void tdx_fuzz_event(enum tdx_fuzz_event e)
 {
