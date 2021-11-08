@@ -750,7 +750,7 @@ void vmx_pt_vmexit(struct vcpu_vmx_pt *vmx_pt){
 }
 
 bool topa_full(struct vcpu_vmx_pt *vmx_pt){
-	if(vmx_pt_get_data_size(vmx_pt) >= TOPA_MAIN_SIZE){
+	if(vmx_pt && vmx_pt_get_data_size(vmx_pt) >= TOPA_MAIN_SIZE){
 		return true;
 	}
 	return false;
@@ -768,9 +768,9 @@ static int vmx_pt_setup_topa(struct vcpu_vmx_pt *vmx_pt)
 		
 	main_buffer = __get_free_pages(GFP_KERNEL|__GFP_NOWARN|__GFP_ZERO, TOPA_MAIN_ORDER);
 	if (!main_buffer) {
-		PRINT_ERROR("Cannot allocate main ToPA buffer!");
+		PRINT_ERROR("Cannot allocate main ToPA buffer! Insufficient memory?");
 		return -ENOMEM;
-	}	
+	}
 	
 	fallback_buffer = __get_free_pages(GFP_KERNEL|__GFP_NOWARN|__GFP_ZERO, TOPA_FALLBACK_ORDER);
 	if (!fallback_buffer) {
@@ -949,37 +949,32 @@ void vmx_pt_disable(struct vcpu_vmx_pt *vmx_pt_config){
 
 int vmx_pt_setup(struct vcpu_vmx *vmx, struct vcpu_vmx_pt **vmx_pt_config){ 
 	int ret_val;
-	if (enabled){
-		ret_val = 0;
-		*vmx_pt_config = kmalloc(sizeof(struct vcpu_vmx_pt), GFP_KERNEL);
-		memset(*vmx_pt_config, 0x0, sizeof(struct vcpu_vmx_pt));
-		(*vmx_pt_config)->vmx = vmx;
-		(*vmx_pt_config)->configured = false;
-
-		vmx_pt_setup_msrs(*vmx_pt_config);
-		ret_val = vmx_pt_setup_topa(*vmx_pt_config);
-
-
-		(*vmx_pt_config)->state_change_pending = false;
-		(*vmx_pt_config)->state = false;
-
-
-		spin_lock_init(&((*vmx_pt_config)->spinlock));
-		if (ret_val)
-			goto setup_fail1;
-#ifdef DEBUG
-		PRINT_INFO("Setup finished...");
-#endif
+	if (!enabled){
+		*vmx_pt_config = NULL;
 		return 0;
-		
-		setup_fail1:
-			PRINT_INFO("ToPA setup failed...");
-			
+	}
+
+	ret_val = 0;
+	*vmx_pt_config = kmalloc(sizeof(struct vcpu_vmx_pt), GFP_KERNEL);
+	memset(*vmx_pt_config, 0x0, sizeof(struct vcpu_vmx_pt));
+	(*vmx_pt_config)->vmx = vmx;
+	(*vmx_pt_config)->configured = false;
+
+	vmx_pt_setup_msrs(*vmx_pt_config);
+	ret_val = vmx_pt_setup_topa(*vmx_pt_config);
+
+	if (ret_val) {
+		PRINT_INFO("ToPA setup failed. VMX_PT disabled.");
+
 		kfree(*vmx_pt_config);
 		*vmx_pt_config = NULL;
 		return ret_val;
 	}
-	*vmx_pt_config = NULL;
+
+	(*vmx_pt_config)->state_change_pending = false;
+	(*vmx_pt_config)->state = false;
+
+	spin_lock_init(&((*vmx_pt_config)->spinlock));
 	return 0;
 }
 
