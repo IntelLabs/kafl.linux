@@ -122,12 +122,12 @@ static u64 _trace_tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15,
 	struct tdx_hypercall_output dummy_out;
 	u64 err;
 
-	trace_tdx_hypercall_enter_rcuidle(fn, r12, r13, r14, r15);
+	//trace_tdx_hypercall_enter_rcuidle(fn, r12, r13, r14, r15);
 	err = _tdx_hypercall(fn, r12, r13, r14, r15, out);
 	if (!out)
 		out = &dummy_out;
-	trace_tdx_hypercall_exit_rcuidle(err, out->r11, out->r12, out->r13,
-					 out->r14, out->r15);
+	//trace_tdx_hypercall_exit_rcuidle(err, out->r11, out->r12, out->r13,
+	//				 out->r14, out->r15);
 
 	return err;
 }
