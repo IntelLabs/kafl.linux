@@ -63,11 +63,11 @@ static u64 __trace_tdx_hypercall(struct tdx_hypercall_args *args,
 {
 	u64 err;
 
-	trace_tdx_hypercall_enter_rcuidle(args->r11, args->r12, args->r13,
-			args->r14, args->r15);
+	//trace_tdx_hypercall_enter_rcuidle(args->r11, args->r12, args->r13,
+	//		args->r14, args->r15);
 	err = __tdx_hypercall(args, flags);
-	trace_tdx_hypercall_exit_rcuidle(err, args->r11, args->r12,
-			args->r13, args->r14, args->r15);
+	//trace_tdx_hypercall_exit_rcuidle(err, args->r11, args->r12,
+	//		args->r13, args->r14, args->r15);
 
 	return err;
 }
