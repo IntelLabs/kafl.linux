@@ -4,22 +4,24 @@
 #include <linux/types.h>
 #include <uapi/linux/virtio_types.h>
 
-#ifdef CONFIG_TDX_FUZZ_VIRTIO
+#ifdef CONFIG_TDX_FUZZ_KAFL_VIRTIO
 
-void *memcpy_virtio(void *dest, const void *src, size_t count)
+static void *memcpy_virtio(void *dest, const void *src, size_t count)
 {
 	char *dest_ptr, *src_ptr;
 	int i;
+	
+	pr_info("%s: fuzz %zu SHM bytes\n", __func__, count);
 
 	dest_ptr = (char *)dest;
 	src_ptr = (char *)src;
 	for (i = 0; i < count; i++) {
-		dest_ptr[i] = tdx_fuzz(src_ptr[i], src, sizeof(dest_ptr[i]), TDG_FUZZ_VIRTIO);
+		dest_ptr[i] = tdx_fuzz(src_ptr[i], 0, sizeof(char), TDX_FUZZ_VIRTIO);
 	}
 
 	return dest;
 }
-EXPORT_SYMBOL(memcpy_virtio);
+//EXPORT_SYMBOL(memcpy_virtio);
 
 #else
 
