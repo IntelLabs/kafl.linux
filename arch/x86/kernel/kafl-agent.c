@@ -359,8 +359,10 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 
 	// skip any fuzzing blockers
 	switch(type) {
-		//case TDX_FUZZ_PORT_IN:
-		//case TDX_FUZZ_MSR_READ:
+#ifndef CONFIG_TDX_FUZZ_KAFL_MSR
+		case TDX_FUZZ_MSR_READ:
+			return orig_var;
+#endif
 #ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_RNG_SEEDING
 		case TDX_FUZZ_RANDOM:
 			return 42;
