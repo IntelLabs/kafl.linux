@@ -832,6 +832,9 @@ static int __init tdx_fuzz_init(void)
 	debugfs_create_file("control",          0600, dbp, NULL, &control_fops);
 	debugfs_create_file("buf_get_u8",       0400, dbp, NULL, &buf_get_u8_fops);
 	debugfs_create_file("buf_get_u32",      0400, dbp, NULL, &buf_get_u32_fops);
+	debugfs_create_bool("dump_observed",    0600, dbp, &agent_flags.dump_observed);
+	debugfs_create_bool("dump_stats",       0600, dbp, &agent_flags.dump_stats);
+	debugfs_create_bool("dump_callers",     0600, dbp, &agent_flags.dump_callers);
 
 	statp = debugfs_create_dir("status", dbp);
 	debugfs_create_bool("running",          0400, statp, &agent_initialized);
@@ -840,7 +843,7 @@ static int __init tdx_fuzz_init(void)
 	debugfs_create_u32("payload_max",       0400, statp, &host_config.payload_buffer_size);
 	debugfs_create_u32("bitmap_size_main",  0400, statp, &host_config.bitmap_size);
 	debugfs_create_u32("bitmap_size_ijon",  0400, statp, &host_config.ijon_bitmap_size);
-	debugfs_create_u32("worker_id",        0400, statp, &host_config.worker_id);
+	debugfs_create_u32("worker_id",         0400, statp, &host_config.worker_id);
 	debugfs_create_u32("stats_msr",         0400, statp, &(location_stats[TDX_FUZZ_MSR_READ]));
 	debugfs_create_u32("stats_mmio",        0400, statp, &(location_stats[TDX_FUZZ_MMIO_READ]));
 	debugfs_create_u32("stats_pio",         0400, statp, &(location_stats[TDX_FUZZ_PORT_IN]));
@@ -849,9 +852,6 @@ static int __init tdx_fuzz_init(void)
 	debugfs_create_u32("stats_cpuid3",      0400, statp, &(location_stats[TDX_FUZZ_CPUID3]));
 	debugfs_create_u32("stats_cpuid4",      0400, statp, &(location_stats[TDX_FUZZ_CPUID4]));
 	debugfs_create_u32("stats_virtio",      0400, statp, &(location_stats[TDX_FUZZ_VIRTIO]));
-	debugfs_create_bool("flags_observed",   0400, statp, &agent_flags.dump_observed);
-	debugfs_create_bool("flags_stats",      0400, statp, &agent_flags.dump_stats);
-	debugfs_create_bool("flags_callers",    0400, statp, &agent_flags.dump_callers);
 
 	return 0;
 }
