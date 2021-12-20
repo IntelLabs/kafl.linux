@@ -1084,6 +1084,9 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_ARM_INJECT_EXT_DABT 178
 #define KVM_CAP_S390_VCPU_RESETS 179
 
+#define KVM_CAP_NYX_PT 512
+#define KVM_CAP_NYX_FDL 513
+
 #define KVM_CAP_VM_TYPES 1000
 
 #ifdef KVM_CAP_IRQ_ROUTING

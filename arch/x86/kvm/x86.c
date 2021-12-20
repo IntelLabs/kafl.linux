@@ -3443,6 +3443,14 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		if (kvm_x86_ops->is_vm_type_supported(KVM_X86_TDX_VM))
 			r |= BIT(KVM_X86_TDX_VM);
 		break;
+#ifdef CONFIG_KVM_VMX_PT
+    case KVM_CAP_NYX_PT:
+        r = 1;
+        break;
+    case KVM_CAP_NYX_FDL:
+        r = 1;
+        break;
+#endif
 	default:
 		break;
 	}
@@ -7791,8 +7799,8 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 	}
 	/* kAFL Hypercall interface */
 	if (nr == HYPERCALL_KAFL_RAX_ID) {
-		vcpu->run->hypercall.longmode = op_64_bit;
 		u32 id = a0 + KAFL_EXIT_OFFSET;
+		vcpu->run->hypercall.longmode = op_64_bit;
 		switch(id) {
 			case KVM_EXIT_KAFL_SUBMIT_CR3:
 			case KVM_EXIT_KAFL_USER_FAST_ACQUIRE:
