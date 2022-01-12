@@ -96,7 +96,7 @@ enum tdx_fuzz_event {
 #ifdef CONFIG_TDX_FUZZ
 u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc);
 bool tdx_fuzz_err(enum tdx_fuzz_loc loc);
-#elif CONFIG_TDX_FUZZ_KAFL
+#elif defined(CONFIG_TDX_FUZZ_KAFL)
 u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc);
 void tdx_fuzz_event(enum tdx_fuzz_event e);
 bool tdx_fuzz_err(enum tdx_fuzz_loc loc);
