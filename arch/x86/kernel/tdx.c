@@ -488,33 +488,46 @@ static __cpuidle void tdx_safe_halt(void)
 	_tdx_halt(irq_disabled, do_sti);
 }
 
+static bool tdx_msr_is_context_switched(unsigned int msr)
+{
+        switch (msr) {
+        case MSR_EFER:
+        case MSR_IA32_CR_PAT:
+        case MSR_FS_BASE:
+        case MSR_GS_BASE:
+        case MSR_KERNEL_GS_BASE:
+        case MSR_IA32_SYSENTER_CS:
+        case MSR_IA32_SYSENTER_EIP:
+        case MSR_IA32_SYSENTER_ESP:
+        case MSR_STAR:
+        case MSR_LSTAR:
+        case MSR_SYSCALL_MASK:
+        case MSR_IA32_XSS:
+        case MSR_TSC_AUX:
+        case MSR_IA32_BNDCFGS:
+        case MSR_IA32_SPEC_CTRL:
+        case MSR_IA32_PRED_CMD:
+        case MSR_IA32_FLUSH_CMD:
+        case MSR_IA32_DS_AREA:
+                return true;
+        }
+        return false;
+}
+
+static bool tdx_fast_tdcall_path_msr(unsigned int msr)
+{
+        switch (msr) {
+	case MSR_IA32_TSC_DEADLINE:
+                return true;
+	default:
+		return false;
+        }
+}
+
 static bool tdx_read_msr_safe(unsigned int msr, u64 *val)
 {
 	struct tdx_hypercall_output out = {0};
 	u64 ret;
-
-	switch (msr) {
-	case MSR_EFER:
-	case MSR_IA32_CR_PAT:
-	case MSR_FS_BASE:
-	case MSR_GS_BASE:
-	case MSR_KERNEL_GS_BASE:
-	case MSR_IA32_SYSENTER_CS:
-	case MSR_IA32_SYSENTER_EIP:
-	case MSR_IA32_SYSENTER_ESP:
-	case MSR_STAR:
-	case MSR_LSTAR:
-	case MSR_SYSCALL_MASK:
-	case MSR_IA32_XSS:
-	case MSR_TSC_AUX:
-	case MSR_IA32_BNDCFGS:
-	case MSR_IA32_SPEC_CTRL:
-	case MSR_IA32_PRED_CMD:
-	case MSR_IA32_FLUSH_CMD:
-	case MSR_IA32_DS_AREA:
-		return true;
-	}
-	return false;
 
 	/*
 	 * Emulate the MSR read via hypercall. More info about ABI
@@ -529,102 +542,6 @@ static bool tdx_read_msr_safe(unsigned int msr, u64 *val)
 	*val = tdx_fuzz(out.r11, msr, 8, TDX_FUZZ_MSR_READ);
 
 	return true;
-}
-
-/*
- * TDX has context switched MSRs and emulated MSRs. The emulated MSRs
- * normally trigger a #VE, but that is expensive, which can be avoided
- * by doing a direct TDCALL. Unfortunately, this cannot be done for all
- * because some MSRs are "context switched" and need WRMSR.
- *
- * The list for this is unfortunately quite long. To avoid maintaining
- * very long switch statements just do a fast path for the few critical
- * MSRs that need TDCALL, currently only TSC_DEADLINE.
- *
- * More can be added as needed.
- *
- * The others will be handled by the #VE handler as needed.
- * See 18.1 "MSR virtualization" in the TDX Module EAS
- */
-static bool tdx_fast_tdcall_path_msr(unsigned int msr)
-{
-	/* MSR whitelist - skip fuzzing MSRs that are debug-only
-	 * or where HW injects an error - modulated by asm/msr-list.h */
-	switch (msr) {
-		case MSR_IA32_SMM_MONITOR_CTL:
-		case MSR_IA32_SMBASE:
-		case MSR_IA32_VMX_BASIC:
-		case MSR_IA32_VMX_PINBASED_CTLS:
-		case MSR_IA32_VMX_PROCBASED_CTLS:
-		case MSR_IA32_VMX_EXIT_CTLS:
-		case MSR_IA32_VMX_ENTRY_CTLS:
-		case MSR_IA32_VMX_MISC:
-		case MSR_IA32_VMX_CR0_FIXED0:
-		case MSR_IA32_VMX_CR0_FIXED1:
-		case MSR_IA32_VMX_CR4_FIXED0:
-		case MSR_IA32_VMX_CR4_FIXED1:
-		case MSR_IA32_VMX_VMCS_ENUM:
-		case MSR_IA32_VMX_PROCBASED_CTLS2:
-		case MSR_IA32_VMX_EPT_VPID_CAP:
-		case MSR_IA32_VMX_TRUE_PINBASED_CTLS:
-		case MSR_IA32_VMX_TRUE_PROCBASED_CTLS:
-		case MSR_IA32_VMX_TRUE_EXIT_CTLS:
-		case MSR_IA32_VMX_TRUE_ENTRY_CTLS:
-		case MSR_IA32_VMX_VMFUNC:
-		case MSR_IA32_BNDCFGS:
-		case MSR_IA32_PASID:
-		// HW injects #GP
-			return out.r11;
-
-		case MSR_IA32_PERFCTR0:
-		case MSR_IA32_PERFCTR1:
-		case MSR_IA32_PERF_CAPABILITIES:
-		case MSR_CORE_PERF_FIXED_CTR0:
-		case MSR_CORE_PERF_FIXED_CTR1:
-		case MSR_CORE_PERF_FIXED_CTR2:
-		case MSR_CORE_PERF_FIXED_CTR3:
-		case MSR_CORE_PERF_FIXED_CTR_CTRL:
-		case MSR_CORE_PERF_GLOBAL_STATUS:
-		case MSR_CORE_PERF_GLOBAL_CTRL:
-		case MSR_CORE_PERF_GLOBAL_OVF_CTRL:
-		case MSR_PERF_METRICS:
-		case MSR_IA32_RTIT_STATUS:
-		case MSR_IA32_RTIT_ADDR0_A:
-		case MSR_IA32_RTIT_ADDR0_B:
-		case MSR_IA32_RTIT_ADDR1_A:
-		case MSR_IA32_RTIT_ADDR1_B:
-		case MSR_IA32_RTIT_ADDR2_A:
-		case MSR_IA32_RTIT_ADDR2_B:
-		case MSR_IA32_RTIT_ADDR3_A:
-		case MSR_IA32_RTIT_ADDR3_B:
-		case MSR_IA32_RTIT_CR3_MATCH:
-		case MSR_IA32_RTIT_OUTPUT_BASE:
-		case MSR_IA32_RTIT_OUTPUT_MASK:
-			// HW injects #GP unless PERFMON=1
-			return out.r11;
-
-		case MSR_ARCH_LBR_INFO_0 ... MSR_ARCH_LBR_TO_0+0xff:
-			// HW injects #GP unless XFAM[15]=1
-			return out.r11;
-
-		case MSR_IA32_PMC0:
-		case MSR_IA32_PMC0+1:
-		case MSR_IA32_PMC0+2:
-		case MSR_IA32_PMC0+3:
-		case MSR_IA32_PMC0+4:
-		case MSR_IA32_PMC0+5:
-		case MSR_IA32_PMC0+6:
-		case MSR_IA32_PMC0+7:
-			// HW injects #GP unless PERFMON=1
-			return out.r11;
-		case MSR_IA32_APICBASE:
-			// HW ensures x2apic is enabled
-			return out.r11 & X2APIC_ENABLE;
-		//case MSR_IA32_UMWAIT_CONTROL:
-		// HW inject #GP unless... CPUID(7,0).ECX[5]??
-		default:
-			return tdx_fuzz(out.r11, msr, 8, TDX_FUZZ_MSR_READ);
-	}
 }
 
 static bool tdx_write_msr_safe(unsigned int msr, unsigned int low,
@@ -986,10 +903,12 @@ bool tdx_handle_virtualization_exception(struct pt_regs *regs,
 		ret = tdx_handle_io(regs, ve->exit_qual);
 		break;
 	case EXIT_REASON_EPT_VIOLATION:
+#ifndef CONFIG_INTEL_TDX_KVM_SDV
 		if (!(ve->gpa & tdx_shared_mask())) {
 			panic("#VE due to access to unaccepted memory. "
 			      "GPA: %#llx\n", ve->gpa);
 		}
+#endif
 
 		/* Currently only MMIO triggers EPT violation */
 		ve->instr_len = tdx_handle_mmio(regs, ve);
