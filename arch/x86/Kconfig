@@ -943,6 +943,15 @@ config TDX_FUZZ_KAFL_VIRTIO
 	help
 	  Inject fuzzing inputs for virtioXX_to_cpu wrappers.
 
+config TDX_FUZZ_KAFL_SKIP_MSR
+	bool "Disable fuzzing MSR inputs"
+	depends on TDX_FUZZ_KAFL
+	default y
+	help
+	  Disable MSR fuzzing. Only some MSRs are controlled by hypervisor. Others,
+	  like APIC timer, may be of little value for fuzzing but can impact
+	  fuzz buffer consumption and deterministic execution.
+
 config TDX_FUZZ_KAFL_SKIP_CPUID
 	bool "Disable fuzzing CPUID inputs"
 	depends on TDX_FUZZ_KAFL
