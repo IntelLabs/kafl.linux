@@ -1290,7 +1290,9 @@ trace_initcall_finish_cb(void *data, initcall_t fn, int ret)
 	duration = (unsigned long long) ktime_to_ns(delta) >> 10;
 	printk(KERN_DEBUG "initcall %pS returned %d after %lld usecs, irqs_disabled() %d\n",
 		 fn, ret, duration, irqs_disabled());
+#ifdef CONFIG_TDX_FUZZ_KAFL
 	tdx_fuzz_event(TDX_TRACE_LOCATIONS);
+#endif
 }
 
 static ktime_t initcall_calltime;
