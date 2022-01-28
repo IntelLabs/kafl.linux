@@ -1232,10 +1232,6 @@ DEFINE_IDTENTRY(exc_virtualization_exception)
                         ve_raise_debug(regs);
                 else
                         ve_raise_fault(regs, 0);
-#ifdef CONFIG_TDX_FUZZ_KAFL
-		// report #VE faults as errors to investigate
-		tdx_fuzz_event(TDX_FUZZ_ERROR);
-#endif
 	}
 
 
