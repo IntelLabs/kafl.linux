@@ -357,9 +357,9 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 {
 	u64 var;
 
-	// skip any fuzzing blockers
+	// skip fuzzing blockers or focus on particular types of input
 	switch(type) {
-#ifndef CONFIG_TDX_FUZZ_KAFL_MSR
+#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_MSR
 		case TDX_FUZZ_MSR_READ:
 			return orig_var;
 #endif
@@ -378,7 +378,6 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 				case 0xafe0 ... 0xafe2: // ACPI PCI hotplug
 					return orig_var;
 #endif
-//#define CONFIG_TDX_FUZZ_KAFL_SKIP_PCI_SCAN
 #ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_PCI_SCAN
 				case 0xcf8 ... 0xcff:
 				case 0xc000 ... 0xcfff:
