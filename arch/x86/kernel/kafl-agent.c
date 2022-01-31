@@ -297,17 +297,20 @@ void kafl_agent_done(void)
 
 u64 kafl_fuzz_var(u64 var, int num_bytes)
 {
-	if (ve_pos + num_bytes <= ve_num) {
-		while (num_bytes--)
-			var = (var << 8) ^ ve_buf[ve_pos++];
-	}
-	else {
-		ve_mis++;
+	u64 new_var = 0;
+
+	BUG_ON(num_bytes > 8);
+
+	if (ve_pos + num_bytes > ve_num) {
+		ve_mis += num_bytes;
 		if (exit_at_eof && !agent_flags.dump_observed)
 			kafl_agent_done();
 	}
 
-	return var;
+	memcpy(&new_var, ve_buf + ve_pos, num_bytes);
+	ve_pos += num_bytes;
+
+	return new_var;
 }
 
 char *tdx_fuzz_loc_str[] = {
