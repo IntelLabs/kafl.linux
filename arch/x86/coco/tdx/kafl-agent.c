@@ -174,8 +174,8 @@ void kafl_agent_init(void)
 #endif
 
 	/* ensure that the virtual memory is *really* present in physical memory... */
-	memset(observed_payload_buffer, 0xff, PAYLOAD_BUFFER_SIZE);
-	memset(payload, 0xff, PAYLOAD_BUFFER_SIZE);
+	memset(observed_payload_buffer, 0xff, sizeof(observed_payload_buffer));
+	memset(payload_buffer, 0xff, sizeof(payload_buffer));
 
 	hprintf("Submitting payload buffer address to hypervisor (%lx)\n", payload);
 	kAFL_hypercall(HYPERCALL_KAFL_GET_PAYLOAD, (uint64_t)payload);
@@ -198,8 +198,8 @@ void kafl_agent_init(void)
 	hprintf("Starting kAFL loop...\n");
 	kAFL_hypercall(HYPERCALL_KAFL_NEXT_PAYLOAD, 0);
 
-	ve_buf = (u8*)payload->data;
-	ve_num = payload->size / sizeof(ve_buf[0]);
+	ve_buf = payload->data;
+	ve_num = payload->size;
 	ve_pos = 0;
 	ve_mis = 0;
 
@@ -220,11 +220,9 @@ void kafl_agent_init(void)
 		BUG_ON(agent_flags.dump_callers  && agent_flags.dump_stats);
 	}
 
-
-
 	if (agent_flags.dump_observed) {
-		ob_buf = (u8*)observed_payload_buffer;
-		ob_num = sizeof(observed_payload_buffer)/sizeof(ob_buf[0]);
+		ob_buf = observed_payload_buffer;
+		ob_num = sizeof(observed_payload_buffer);
 		ob_pos = 0;
 	}
 
@@ -245,7 +243,7 @@ void kafl_agent_stats(void)
 	// Dump observed values
 	if (agent_flags.dump_observed) {
 		pr_debug("Dumping observed input...\n");
-		kafl_dump_observed_payload("payload_XXXXXX", false, (uint8_t*)ob_buf, ob_pos*sizeof(ob_buf[0]));
+		kafl_dump_observed_payload("payload_XXXXXX", false, (uint8_t*)ob_buf, ob_pos);
 	}
 
 	if (agent_flags.dump_stats) {
@@ -295,21 +293,6 @@ void kafl_agent_done(void)
 	kAFL_hypercall(HYPERCALL_KAFL_RELEASE, ve_mis*sizeof(ve_buf[0]));
 }
 
-u64 kafl_fuzz_var(u64 var, int num_bytes)
-{
-	if (ve_pos + num_bytes <= ve_num) {
-		while (num_bytes--)
-			var = (var << 8) ^ ve_buf[ve_pos++];
-	}
-	else {
-		ve_mis++;
-		if (exit_at_eof && !agent_flags.dump_observed)
-			kafl_agent_done();
-	}
-
-	return var;
-}
-
 char *tdx_fuzz_loc_str[] = {
 	"MSR",
 	"MIO",
@@ -326,19 +309,19 @@ char *tdx_fuzz_loc_str[] = {
 	"RANDOM",
 };
 
-u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
+/*
+ * Return 0 to skip fuzzing based on type/addr
+ */
+static bool kafl_fuzz_filter(uintptr_t addr, enum tdx_fuzz_loc type)
 {
-	u64 var;
-
-	// skip fuzzing blockers or focus on particular types of input
 	switch(type) {
 #ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_MSR
 		case TDX_FUZZ_MSR_READ:
-			return orig_var;
+			return 0;
 #endif
 #ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_RNG_SEEDING
 		case TDX_FUZZ_RANDOM:
-			return 42;
+			return 0;
 #endif
 		case TDX_FUZZ_PORT_IN:
 			switch (addr) {
@@ -349,89 +332,132 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 			 */
 				case 0xb000 ... 0xb006: // ACPI init?
 				case 0xafe0 ... 0xafe2: // ACPI PCI hotplug
-					return orig_var;
+					return 0;
 #endif
 #ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_PCI_SCAN
 				case 0xcf8 ... 0xcff:
 				case 0xc000 ... 0xcfff:
-					return orig_var;
+					return 0;
 #endif
 				default:
-					break;
+					return 1;
 			}
-			break;
-#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_IOAPIC_READS
 		case TDX_FUZZ_MMIO_READ:
-			if (addr == 0xfec00000 || addr == 0xfec00010) {
-				return orig_var;
-			}
-			break;
+			switch (addr) {
+#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_IOAPIC_READS
+				case 0xfec00000 ... 0xfec00010: // IOAPIC?
+					return 0;
 #endif
+				default:
+					return 1;
+			}
 #ifndef CONFIG_TDX_FUZZ_KAFL_VIRTIO
 		case TDX_FUZZ_VIRTIO:
-			return orig_var;
+			return 0;
 #endif
 #ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_CPUID
 		case TDX_FUZZ_CPUID1:
 		case TDX_FUZZ_CPUID2:
 		case TDX_FUZZ_CPUID3:
 		case TDX_FUZZ_CPUID4:
-			return orig_var;
+			return 0;
 #endif
+		case TDX_FUZZ_DEBUGFS:
 		default:
 			; // continue to fuzzing
 	}
 
-	/*
-	 * For tracing runtime stimulus or boot phases, keep stats but do not fuzz
-	 * location_stats[] are reset on kafl_agent_init(), providing
-	 * a harness-specific counter.
-	 */
-	location_stats[type]++;
-	trace_tdx_fuzz((u64)__builtin_return_address(0), size, orig_var, var, type);
+	return 1;
+}
 
-	if (!fuzz_enabled || !fuzz_tdcall) {
-		return orig_var;
+static size_t _kafl_fuzz_buf(void *buf, size_t num_bytes)
+{
+	if (ve_pos + num_bytes <= ve_num) {
+		memcpy(buf, ve_buf + ve_pos, num_bytes);
+		ve_pos += num_bytes;
+		return num_bytes;
 	}
 
+	// insufficient fuzz buffer!
+	ve_mis += num_bytes;
+	if (exit_at_eof && !agent_flags.dump_observed) {
+		kafl_agent_done(); /* no return */
+	}
+	return 0;
+}
+
+/*
+ * Fuzz target buffer `fuzz_buf` depending on input and add/type filter settings
+ * Returns number of bytes actually fuzzed (typically all or nothing)
+ */
+size_t kafl_fuzz_buf(void* fuzz_buf, void *orig_buf, uintptr_t addr, size_t num_bytes, enum tdx_fuzz_loc type)
+{
+	size_t num_fuzzed = 0;
+
+	if (!kafl_fuzz_filter(addr, type)) {
+		return 0;
+	}
+
+	/*
+	 * Do trace event + location statis only for things we actually would have
+	 * fuzzed. Actual fuzzing is still gated by fuzz_enable setting.
+	 */
+	location_stats[type]++;
+	trace_tdx_fuzz((u64)__builtin_return_address(0), num_bytes, 0, 0, type);
+
+	if (!fuzz_enabled) {
+		return 0;
+	}
+
+	/*
+	 * If agent was set to 'enable' only, perform init + snapshot
+	 * here at last possible moment before first injection
+	 *
+	 * Note: If the harness/config does not actually consume any
+	 * input, the fuzzer frontend will wait forever on this..
+	 */
 	if (!agent_initialized) {
 		kafl_agent_init();
 	}
 
-	var = kafl_fuzz_var(orig_var, size);
-	
+	num_fuzzed = _kafl_fuzz_buf(fuzz_buf, num_bytes);
 
 	if (agent_flags.dump_callers) {
-		printk(KERN_WARNING "\nfuzz_var: %s[%d], addr: %16lx, orig: %16llx, isr: %lx\n",
-				tdx_fuzz_loc_str[type], size, addr, orig_var, in_interrupt());
+		pr_warn("\nfuzz_var: %s[%ld], addr: %16lx, isr: %lx\n",
+				tdx_fuzz_loc_str[type], num_bytes, addr, in_interrupt());
 		if (type == TDX_FUZZ_PORT_IN && !tdx_allowed_port(addr)) {
-			printk(KERN_WARNING "\tNote: port %lx is outside allow-list\n", addr);
+			pr_warn("\tWarning: port %lx is outside allow-list!\n", addr);
 		}
 		dump_stack();
 	}
 
 	if (agent_flags.dump_observed) {
-		// record input seen so far
-		// execution may be (have been) partly driven by fuzzer
-		int num_bytes = size;
-		u8 *pvar = (u8*)&var;
-		if (ob_pos <= ob_num - num_bytes) {
-			while (num_bytes) {
-				// TODO: debug KASAN null-ptr-deref around here?!
-				BUG_ON(!ob_buf);
-				BUG_ON(!pvar);
-				if (ob_buf && pvar) {
-					ob_buf[ob_pos++] = pvar[sizeof(var)-num_bytes];
-				}
-				num_bytes--;
-			}
-		} else {
+		// record input seen/used on this execution
+		// with exit_at_eof=0, this should produce good seeds?
+		if (ob_pos + num_bytes > ob_num) {
 			pr_warn("Warning: insufficient space in dump_payload\n");
 			kafl_agent_done();
 		}
+
+		memcpy(ob_buf + ob_pos, fuzz_buf, num_fuzzed);
+		ob_pos += num_fuzzed;
+		memcpy(ob_buf + ob_pos, orig_buf, num_bytes-num_fuzzed);
+		ob_pos += (num_bytes-num_fuzzed);
 	}
 
-	return var;
+	return num_fuzzed;
+}
+
+u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
+{
+	u64 fuzzed_var;
+
+	if (fuzz_tdcall) {
+		if (size == kafl_fuzz_buf(&fuzzed_var, &orig_var, addr, size, type)) {
+			return fuzzed_var;
+		}
+	}
+	return orig_var;
 }
 
 bool tdx_fuzz_err(enum tdx_fuzz_loc type)
@@ -785,6 +811,8 @@ static struct file_operations control_fops = {
 
 static int kafl_buf_get_u8(void *data, u64 *val)
 {
+	u8 tmp = 0;
+
 	if (!fuzz_enabled) {
 		return -EINVAL;
 	}
@@ -793,14 +821,17 @@ static int kafl_buf_get_u8(void *data, u64 *val)
 		kafl_agent_init();
 	}
 	
-	*val = kafl_fuzz_var(*val, sizeof(u8)) & 0xFF;
+	if (!kafl_fuzz_buf(&tmp, val, 0, sizeof(u8), TDX_FUZZ_DEBUGFS)) {
+		pr_warn("Warning, failed to fill u8 from fuzz buffer?!");
+	}
+	*val = tmp;
 
 	return 0;
 }
 
 static int kafl_buf_get_u32(void *data, u64 *val)
 {
-	//int num = sizeof(u32);
+	u32 tmp = 0;
 
 	if (!fuzz_enabled) {
 		return -EINVAL;
@@ -810,7 +841,10 @@ static int kafl_buf_get_u32(void *data, u64 *val)
 		kafl_agent_init();
 	}
 
-	*val = kafl_fuzz_var(*val, sizeof(u32)) & 0xFFFFFFFF;
+	if (!kafl_fuzz_buf(&tmp, val, 0, sizeof(u32), TDX_FUZZ_DEBUGFS)) {
+		pr_warn("Warning, failed to fill u8 from fuzz buffer?!");
+	}
+	*val = tmp;
 
 	return 0;
 }
