@@ -730,11 +730,13 @@ static ssize_t control_write(struct file *f, const char __user *usr_buf,
 {
 	char buf[256];
 
-	// Make sure it's zeroed
-	memset(buf, 0, 256);
+	if (len > 255) {
+		pr_warn("Bad control input size, truncating: %ld >> %d", len, 255);
+		len = 255;
+	}
 
-	// Copy at most 255 bytes, to make sure buf is 0-terminated (necessary??)
-	len = strncpy_from_user(buf, usr_buf, len < 256 ? len : 255);
+	buf[len] = '\0';
+	len = strncpy_from_user(buf, usr_buf, len);
 
 	if (0 == strncmp("start\n", buf, len)) {
 		tdx_fuzz_event(TDX_FUZZ_START);
