@@ -19,7 +19,7 @@
 #include "ubsan.h"
 
 #ifdef CONFIG_TDX_FUZZ_KAFL
-#include <asm/tdx.h>
+#include <asm/kafl-agent.h>
 #endif
 
 static const char * const type_check_kinds[] = {
@@ -162,7 +162,7 @@ static void ubsan_epilogue(void)
 		panic("panic_on_warn set ...\n");
 
 #ifdef CONFIG_TDX_FUZZ_KAFL
-	tdx_fuzz_event(TDX_FUZZ_UBSAN);
+	kafl_fuzz_event(KAFL_UBSAN);
 #endif
 }
 

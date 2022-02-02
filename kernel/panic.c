@@ -283,7 +283,7 @@ void panic(const char *fmt, ...)
 
 #ifdef CONFIG_TDX_FUZZ_KAFL
 	/* after printing stack and optional kgdb, raise to kAFL */
-	tdx_fuzz_event(TDX_FUZZ_PANIC);
+	kafl_fuzz_event(KAFL_PANIC);
 #endif
 
 	/*
@@ -601,7 +601,7 @@ void oops_exit(void)
 
 #ifdef CONFIG_TDX_FUZZ_KAFL
 	/* raise issue to kAFL */
-	tdx_fuzz_event(TDX_FUZZ_PANIC);
+	kafl_fuzz_event(KAFL_PANIC);
 #endif
 }
 
