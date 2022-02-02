@@ -337,7 +337,7 @@ fail:
 
 halt_loop:
 #ifdef CONFIG_TDX_FUZZ_KAFL
-	tdx_fuzz_event(TDX_FUZZ_HALT);
+	kafl_fuzz_event(KAFL_HALT);
 #endif
 	while (true)
 		halt();

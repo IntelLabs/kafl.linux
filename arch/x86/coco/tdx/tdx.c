@@ -315,7 +315,7 @@ void __cpuidle tdx_safe_halt(void)
 
 #ifdef CONFIG_TDX_FUZZ_KAFL
 	// don't wait for guest to time out
-	tdx_fuzz_event(TDX_FUZZ_SAFE_HALT);
+	kafl_fuzz_event(KAFL_SAFE_HALT);
 #endif
 
 	/*

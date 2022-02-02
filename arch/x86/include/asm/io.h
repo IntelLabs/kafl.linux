@@ -46,6 +46,8 @@
 #include <asm/pgtable_types.h>
 #include <asm/shared/io.h>
 
+#include <asm/kafl-agent.h>
+
 #define build_mmio_read(name, size, type, reg, barrier) \
 static inline type name(const volatile void __iomem *addr) \
 { type ret; asm volatile("mov" size " %1,%0":reg (ret) \

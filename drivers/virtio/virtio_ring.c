@@ -2292,7 +2292,7 @@ void *virtqueue_get_buf(struct virtqueue *_vq, unsigned int *len)
 #ifdef CONFIG_TDX_FUZZ_KAFL_VIRTIO
 	// Overwrite @buf with fuzz input
 	if (buf) {
-		memcpy_virtio(buf, buf, *len);
+		kafl_fuzz_buffer(buf, buf, (uintptr_t)buf, *len, TDX_FUZZ_VIRTIO);
 	}
 #endif
 	return (void *)buf;

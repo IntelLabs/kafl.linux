@@ -23,6 +23,7 @@
 #include <linux/pci_hotplug.h>
 
 #include <asm/kafl-agent.h>
+#include <asm/kafl-api.h>
 
 #undef pr_fmt
 #define pr_fmt(fmt) "kAFL: " fmt
@@ -40,6 +41,7 @@ static bool exit_at_eof = true;
 static agent_config_t agent_config = {0};
 static host_config_t host_config = {0};
 
+static char hprintf_buffer[HPRINTF_MAX_SIZE] __attribute__((aligned(4096)));
 static kafl_dump_file_t dump_file __attribute__((aligned(4096)));
 static uint8_t payload_buffer[PAYLOAD_BUFFER_SIZE] __attribute__((aligned(4096)));
 static uint8_t observed_payload_buffer[PAYLOAD_BUFFER_SIZE*2] __attribute__((aligned(4096)));
@@ -60,22 +62,23 @@ static u8 *ob_buf;
 static u32 ob_num;
 static u32 ob_pos;
 
-const char *tdx_fuzz_event_name[TDX_FUZZ_EVENT_MAX] = {
-	"TDX_FUZZ_ENABLE",
-	"TDX_FUZZ_START",
-	"TDX_FUZZ_ABORT",
-	"TDX_FUZZ_SETCR3",
-	"TDX_FUZZ_DONE",
-	"TDX_FUZZ_PANIC",
-	"TDX_FUZZ_KASAN",
-	"TDX_FUZZ_UBSAN",
-	"TDX_FUZZ_HALT",
-	"TDX_FUZZ_REBOOT",
-	"TDX_FUZZ_SAFE_HALT",
-	"TDX_FUZZ_TIMEOUT",
-	"TDX_FUZZ_ERROR",
-	"TDX_FUZZ_PAUSE",
-	"TDX_FUZZ_RESUME"
+const char *kafl_event_name[KAFL_EVENT_MAX] = {
+	"KAFL_ENABLE",
+	"KAFL_START",
+	"KAFL_ABORT",
+	"KAFL_SETCR3",
+	"KAFL_DONE",
+	"KAFL_PAUSE",
+	"KAFL_RESUME",
+	"KAFL_TRACE",
+	"KAFL_PANIC",
+	"KAFL_KASAN",
+	"KAFL_UBSAN",
+	"KAFL_HALT",
+	"KAFL_REBOOT",
+	"KAFL_SAFE_HALT",
+	"KAFL_TIMEOUT",
+	"KAFL_ERROR",
 };
 
 void kafl_raise_panic(void) {
@@ -94,15 +97,24 @@ void kafl_agent_setrange(void)
 	//ranges[0] = (uintptr_t)&fuzzme & PAGE_MASK;
 	ranges[1] = ranges[0] + PAGE_SIZE;
 	ranges[2] = 0;
-	hprintf("Setting range %lu: %lx-%lx\n", ranges[2], ranges[0], ranges[1]);
+	kafl_hprintf("Setting range %lu: %lx-%lx\n", ranges[2], ranges[0], ranges[1]);
 	kAFL_hypercall(HYPERCALL_KAFL_RANGE_SUBMIT, (uintptr_t)ranges);
 }
 
 void kafl_agent_abort(char *msg)
 {
-	hprintf(msg);
+	kafl_hprintf(msg);
 	kAFL_hypercall(HYPERCALL_KAFL_USER_ABORT, 0);
 	BUG();
+}
+
+void kafl_hprintf(const char *fmt, ...)
+{
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf((char*)hprintf_buffer, HPRINTF_MAX_SIZE, fmt, args);
+	kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)hprintf_buffer);
+	va_end(args);
 }
 
 static
@@ -160,7 +172,7 @@ void kafl_agent_init(void)
 		kafl_agent_abort("Warning: Agent was already initialized!\n");
 	}
 
-	hprintf("[*] Initialize kAFL Agent\n");
+	kafl_hprintf("[*] Initialize kAFL Agent\n");
 
 	/* initial fuzzer handshake */
 	kAFL_hypercall(HYPERCALL_KAFL_ACQUIRE, 0);
@@ -177,15 +189,15 @@ void kafl_agent_init(void)
 	memset(observed_payload_buffer, 0xff, sizeof(observed_payload_buffer));
 	memset(payload_buffer, 0xff, sizeof(payload_buffer));
 
-	hprintf("Submitting payload buffer address to hypervisor (%lx)\n", payload);
-	kAFL_hypercall(HYPERCALL_KAFL_GET_PAYLOAD, (uint64_t)payload);
+	kafl_hprintf("Submitting payload buffer address to hypervisor (%lx)\n", (uintptr_t)payload);
+	kAFL_hypercall(HYPERCALL_KAFL_GET_PAYLOAD, (uintptr_t)payload);
 
 	kAFL_hypercall(HYPERCALL_KAFL_SET_AGENT_CONFIG, (uintptr_t)&agent_config);
 	kAFL_hypercall(HYPERCALL_KAFL_GET_HOST_CONFIG, (uintptr_t)&host_config);
 
-	hprintf("[host_config] bitmap sizes = <0x%x,0x%x>\n", host_config.bitmap_size, host_config.ijon_bitmap_size);
-	hprintf("[host_config] payload size = %dKB\n", host_config.payload_buffer_size/1024);
-	hprintf("[host_config] worker id = %02u\n", host_config.worker_id);
+	kafl_hprintf("[host_config] bitmap sizes = <0x%x,0x%x>\n", host_config.bitmap_size, host_config.ijon_bitmap_size);
+	kafl_hprintf("[host_config] payload size = %dKB\n", host_config.payload_buffer_size/1024);
+	kafl_hprintf("[host_config] worker id = %02u\n", host_config.worker_id);
 
 	if (host_config.payload_buffer_size > PAYLOAD_BUFFER_SIZE) {
 		kafl_agent_abort("Host agent buffer is larger than agent side allocation!\n");
@@ -195,7 +207,7 @@ void kafl_agent_init(void)
 	//kafl_agent_setrange();
 
 	// fetch fuzz input for later #VE injection
-	hprintf("Starting kAFL loop...\n");
+	kafl_hprintf("Starting kAFL loop...\n");
 	kAFL_hypercall(HYPERCALL_KAFL_NEXT_PAYLOAD, 0);
 
 	ve_buf = payload->data;
@@ -370,7 +382,7 @@ static bool kafl_fuzz_filter(uintptr_t addr, enum tdx_fuzz_loc type)
 	return 1;
 }
 
-static size_t _kafl_fuzz_buf(void *buf, size_t num_bytes)
+static size_t _kafl_fuzz_buffer(void *buf, size_t num_bytes)
 {
 	if (ve_pos + num_bytes <= ve_num) {
 		memcpy(buf, ve_buf + ve_pos, num_bytes);
@@ -390,7 +402,9 @@ static size_t _kafl_fuzz_buf(void *buf, size_t num_bytes)
  * Fuzz target buffer `fuzz_buf` depending on input and add/type filter settings
  * Returns number of bytes actually fuzzed (typically all or nothing)
  */
-size_t kafl_fuzz_buf(void* fuzz_buf, void *orig_buf, uintptr_t addr, size_t num_bytes, enum tdx_fuzz_loc type)
+size_t kafl_fuzz_buffer(void* fuzz_buf, const void *orig_buf,
+                     const uintptr_t addr, const size_t num_bytes,
+                     const enum tdx_fuzz_loc type)
 {
 	size_t num_fuzzed = 0;
 
@@ -420,7 +434,7 @@ size_t kafl_fuzz_buf(void* fuzz_buf, void *orig_buf, uintptr_t addr, size_t num_
 		kafl_agent_init();
 	}
 
-	num_fuzzed = _kafl_fuzz_buf(fuzz_buf, num_bytes);
+	num_fuzzed = _kafl_fuzz_buffer(fuzz_buf, num_bytes);
 
 	if (agent_flags.dump_callers) {
 		pr_warn("\nfuzz_var: %s[%ld], addr: %16lx, isr: %lx\n",
@@ -453,7 +467,7 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 	u64 fuzzed_var;
 
 	if (fuzz_tdcall) {
-		if (size == kafl_fuzz_buf(&fuzzed_var, &orig_var, addr, size, type)) {
+		if (size == kafl_fuzz_buffer(&fuzzed_var, &orig_var, addr, size, type)) {
 			return fuzzed_var;
 		}
 	}
@@ -519,7 +533,7 @@ static int kp_handler_pre(struct kretprobe_instance *ri, struct pt_regs *regs)
 	pr_info("pause fuzzing for '%s' fuzz_enabled=%d, agent_initialized=%d\n", p->symbol_name, fuzz_enabled, agent_initialized);
 	has_been_initialized = agent_initialized;
 	has_been_enabled = fuzz_enabled;
-	tdx_fuzz_event(TDX_FUZZ_PAUSE);
+	kafl_fuzz_event(KAFL_PAUSE);
 	return 0;
 }
 
@@ -538,10 +552,10 @@ static int kp_harness_handler_pre(struct kretprobe_instance *ri, struct pt_regs 
 	struct kprobe *p = &ri->rph->rp->kp;
 
 	pr_info("start fuzzing for %s\n", p->symbol_name);
-	tdx_fuzz_event(TDX_TRACE_LOCATIONS);
-	//tdx_fuzz_event(TDX_FUZZ_START);
+	kafl_fuzz_event(KAFL_TRACE);
+	//kafl_fuzz_event(KAFL_START);
 	//dump_stack();
-	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+	kafl_fuzz_event(KAFL_ENABLE);
 	return 0;
 }
 
@@ -549,8 +563,8 @@ static int kp_harness_handler_post(struct kretprobe_instance *ri, struct pt_regs
 {
 	struct kprobe *p = &ri->rph->rp->kp;
 
-	tdx_fuzz_event(TDX_TRACE_LOCATIONS);
-	tdx_fuzz_event(TDX_FUZZ_DONE);
+	kafl_fuzz_event(KAFL_TRACE);
+	kafl_fuzz_event(KAFL_DONE);
 	pr_info("end fuzzing for %s (SHOULD NOT REACH THIS!!)\n", p->symbol_name);
 	return 0;
 }
@@ -692,42 +706,41 @@ void kafl_fuzz_function_disable(char *fname)
 }
 
 
-void tdx_fuzz_event(enum tdx_fuzz_event e)
+void kafl_fuzz_event(enum kafl_event e)
 {
 	// pre-init actions
 	switch (e) {
-		case TDX_FUZZ_START:
+		case KAFL_START:
 			pr_warn("[*] Agent start!\n");
 			kafl_agent_init();
 			fuzz_enabled = true;
 			return;
-		case TDX_FUZZ_ENABLE:
+		case KAFL_ENABLE:
 			pr_warn("[*] Agent enable!\n");
 			fallthrough;
-		case TDX_FUZZ_RESUME:
+		case KAFL_RESUME:
 			fuzz_enabled = true;
 			return;
-		case TDX_FUZZ_DONE:
+		case KAFL_DONE:
 			return kafl_agent_done();
-		case TDX_FUZZ_ABORT:
+		case KAFL_ABORT:
 			return kafl_agent_abort("kAFL got ABORT event.\n");
-		case TDX_FUZZ_SETCR3:
+		case KAFL_SETCR3:
 			return kafl_agent_setcr3();
-		case TDX_FUZZ_PAUSE:
+		case KAFL_PAUSE:
 			fuzz_enabled = false;
 			return;
-		case TDX_FUZZ_SAFE_HALT:
+		case KAFL_SAFE_HALT:
 			// seems like a benign implementation of once in userspace, nohz_idle() constantly calls this to halt()
 			return;
-		case TDX_TRACE_LOCATIONS:
+		case KAFL_TRACE:
 			return kafl_trace_locations();
 		default:
 			break;
 	}
 
-
 	if (!agent_initialized) {
-		pr_alert("Got event %s but not initialized?!\n", tdx_fuzz_event_name[e]);
+		pr_alert("Got event %s but not initialized?!\n", kafl_event_name[e]);
 		//dump_stack();
 		return;
 	}
@@ -735,19 +748,74 @@ void tdx_fuzz_event(enum tdx_fuzz_event e)
 	// post-init actions - abort if we see these before fuzz_initialized=true
 	// Use this table to selectively raise error conditions
 	switch (e) {
-		case TDX_FUZZ_KASAN:
-		case TDX_FUZZ_UBSAN:
+		case KAFL_KASAN:
+		case KAFL_UBSAN:
 			return kafl_raise_kasan();
-		case TDX_FUZZ_PANIC:
-		case TDX_FUZZ_ERROR:
-		case TDX_FUZZ_HALT:
-		case TDX_FUZZ_REBOOT:
+		case KAFL_PANIC:
+		case KAFL_ERROR:
+		case KAFL_HALT:
+		case KAFL_REBOOT:
 			return kafl_raise_panic();
-		case TDX_FUZZ_TIMEOUT:
+		case KAFL_TIMEOUT:
 			return kafl_agent_abort("TODO: add a timeout handler?!\n");
 		default:
 			return kafl_agent_abort("Unrecognized fuzz event.\n");
 	}
+}
+
+/*
+ * Set verbosity of kernel to hprintf logging
+ * Beyond early boot, this can be set using hprintf= cmdline
+ */
+//static int vprintk_level = KERN_DEBUG[1];
+static int vprintk_level = KERN_WARNING[1];
+//static int vprintk_level = '0'; // mute
+
+static int __init kafl_vprintk_setup(char *str)
+{
+	if (str[0] >= '0' && str[0] <= '9') {
+		vprintk_level = str[0];
+		//hprintf("hprintf_setup: %x => %d (%d)\n", str[0], vprintk_level, vprintk_level-'0');
+	}
+
+	return 1;
+}
+__setup("hprintf=", kafl_vprintk_setup);
+
+/*
+ * Redirect kernel printk() to hprintf
+ */
+int kafl_vprintk(const char *fmt, va_list args)
+{
+	static int last_msg_level = 0;
+
+	char *buf;
+
+	if (vprintk_level == '0')
+		return 0; // mute printk - kafl_hprintf() still works
+
+	// some callers give level as arg..
+	vscnprintf((char*)hprintf_buffer, HPRINTF_MAX_SIZE, fmt, args);
+	buf = hprintf_buffer;
+
+	if (buf[0] != KERN_SOH[0]) {
+		kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)hprintf_buffer);
+		return 0;
+	}
+
+	if (buf[1] == KERN_CONT[1]) {
+		if (last_msg_level <= vprintk_level) {
+			kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)buf+2);
+		}
+		return 0;
+	}
+
+	last_msg_level = buf[1];
+	if (buf[1] <= vprintk_level) {
+		kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)buf+2);
+	}
+
+	return 0;
 }
 
 #ifdef CONFIG_TDX_FUZZ_KAFL_DEBUGFS
@@ -765,34 +833,34 @@ static ssize_t control_write(struct file *f, const char __user *usr_buf,
 	len = strncpy_from_user(buf, usr_buf, len);
 
 	if (0 == strncmp("start\n", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_START);
+		kafl_fuzz_event(KAFL_START);
 	}
 	else if (0 == strncmp("enable\n", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_ENABLE);
+		kafl_fuzz_event(KAFL_ENABLE);
 	}
 	else if (0 == strncmp("done\n", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_DONE);
+		kafl_fuzz_event(KAFL_DONE);
 	}
 	else if (0 == strncmp("abort\n", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_ABORT);
+		kafl_fuzz_event(KAFL_ABORT);
 	}
 	else if (0 == strncmp("setcr3\n", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_SETCR3);
+		kafl_fuzz_event(KAFL_SETCR3);
 	}
 	else if (0 == strncmp("pause\n", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_PAUSE);
+		kafl_fuzz_event(KAFL_PAUSE);
 	}
 	else if (0 == strncmp("resume\n", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_RESUME);
+		kafl_fuzz_event(KAFL_RESUME);
 	}
 	else if (0 == strncmp("panic\n", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_PANIC);
+		kafl_fuzz_event(KAFL_PANIC);
 	}
 	else if (0 == strncmp("kasan\n", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_KASAN);
+		kafl_fuzz_event(KAFL_KASAN);
 	}
 	else if (0 == strncmp("ubsan\n", buf, len)) {
-		tdx_fuzz_event(TDX_FUZZ_UBSAN);
+		kafl_fuzz_event(KAFL_UBSAN);
 	}
 	else {
 		pr_warn("Unrecognized event - %s", buf);
@@ -821,7 +889,7 @@ static int kafl_buf_get_u8(void *data, u64 *val)
 		kafl_agent_init();
 	}
 	
-	if (!kafl_fuzz_buf(&tmp, val, 0, sizeof(u8), TDX_FUZZ_DEBUGFS)) {
+	if (!kafl_fuzz_buffer(&tmp, val, 0, sizeof(u8), TDX_FUZZ_DEBUGFS)) {
 		pr_warn("Warning, failed to fill u8 from fuzz buffer?!");
 	}
 	*val = tmp;
@@ -841,7 +909,7 @@ static int kafl_buf_get_u32(void *data, u64 *val)
 		kafl_agent_init();
 	}
 
-	if (!kafl_fuzz_buf(&tmp, val, 0, sizeof(u32), TDX_FUZZ_DEBUGFS)) {
+	if (!kafl_fuzz_buffer(&tmp, val, 0, sizeof(u32), TDX_FUZZ_DEBUGFS)) {
 		pr_warn("Warning, failed to fill u8 from fuzz buffer?!");
 	}
 	*val = tmp;
@@ -852,7 +920,7 @@ static int kafl_buf_get_u32(void *data, u64 *val)
 DEFINE_DEBUGFS_ATTRIBUTE(buf_get_u8_fops, kafl_buf_get_u8, NULL, "%llu");
 DEFINE_DEBUGFS_ATTRIBUTE(buf_get_u32_fops, kafl_buf_get_u32, NULL, "%llu");
 
-static int __init tdx_fuzz_init(void)
+static int __init kafl_debugfs_init(void)
 {
 	struct dentry *dbp, *statp;
 
@@ -893,5 +961,5 @@ static int __init tdx_fuzz_init(void)
 	return 0;
 }
 
-__initcall(tdx_fuzz_init)
+__initcall(kafl_debugfs_init)
 #endif
