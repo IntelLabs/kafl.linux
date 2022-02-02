@@ -930,7 +930,7 @@ static void __init _tdx_trace_locations(const char *label, const char *location)
 	// fails to do very first print, perhaps because hprintf= cmdline has not
 	// been parsed yet. Refactor to kafl_dump_stats() and use kafl_hprintf()?
 	printk("tdx_trace_locations for %s in %s:\n", label, location);
-	tdx_fuzz_event(TDX_TRACE_LOCATIONS);
+	kafl_fuzz_event(KAFL_TRACE);
 #endif
 }
 #define tdx_trace_locs(label) _tdx_trace_locations(label, __func__)
@@ -943,7 +943,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	set_task_stack_end_magic(&init_task);
 	tdx_trace_locs("start_kernel");
 #if defined CONFIG_TDX_FUZZ_HARNESS_EARLYBOOT  || defined CONFIG_TDX_FUZZ_HARNESS_START_KERNEL || defined CONFIG_TDX_FUZZ_HARNESS_FULL_BOOT
-	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+	kafl_fuzz_event(KAFL_ENABLE);
 #endif
 	smp_setup_processor_id();
 	debug_objects_early_init();
@@ -998,7 +998,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	sort_main_extable();
 #ifdef CONFIG_TDX_FUZZ_HARNESS_EARLYBOOT
 	// end of early boot harness before trap_init() / mm_init()?
-	tdx_fuzz_event(TDX_FUZZ_DONE);
+	kafl_fuzz_event(KAFL_DONE);
 #endif
 	tdx_trace_locs("trap_init");
 
@@ -1006,7 +1006,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	mm_init();
 
 #ifdef CONFIG_TDX_FUZZ_HARNESS_POST_TRAP
-	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+	kafl_fuzz_event(KAFL_ENABLE);
 #endif
 	tdx_trace_locs("post_trap");
 
@@ -1162,10 +1162,10 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	
 #if defined CONFIG_TDX_FUZZ_HARNESS_POST_TRAP || defined CONFIG_TDX_FUZZ_HARNESS_START_KERNEL
 	// end of early boot fuzzing
-	tdx_fuzz_event(TDX_FUZZ_DONE);
+	kafl_fuzz_event(KAFL_DONE);
 #endif
 #if defined CONFIG_TDX_FUZZ_HARNESS_REST_INIT
-	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+	kafl_fuzz_event(KAFL_ENABLE);
 #endif
 	tdx_trace_locs("rest_init");
 
@@ -1291,7 +1291,7 @@ trace_initcall_finish_cb(void *data, initcall_t fn, int ret)
 	printk(KERN_DEBUG "initcall %pS returned %d after %lld usecs, irqs_disabled() %d\n",
 		 fn, ret, duration, irqs_disabled());
 #ifdef CONFIG_TDX_FUZZ_KAFL
-	tdx_fuzz_event(TDX_TRACE_LOCATIONS);
+	kafl_fuzz_event(KAFL_TRACE);
 #endif
 }
 
@@ -1415,7 +1415,7 @@ int __init_or_module do_one_initcall(initcall_t fn)
 		if (strncmp(buf, fuzz_targets[i], 128) == 0) {
 			fuzzing = true;
 			fuzz_count++;
-			tdx_fuzz_event(TDX_FUZZ_ENABLE);
+			kafl_fuzz_event(KAFL_ENABLE);
 			break;
 		}
 	}
@@ -1428,9 +1428,9 @@ int __init_or_module do_one_initcall(initcall_t fn)
 #ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
 	if (fuzzing) {
 		if (fuzz_count >= sizeof(fuzz_targets) / sizeof(char *)) {
-			tdx_fuzz_event(TDX_FUZZ_DONE);
+			kafl_fuzz_event(KAFL_DONE);
 		} else {
-			tdx_fuzz_event(TDX_FUZZ_PAUSE);
+			kafl_fuzz_event(KAFL_PAUSE);
 		}
 	}
 #endif
@@ -1507,7 +1507,7 @@ static void __init do_initcall_level(int level, char *command_line)
 
 #if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS
 	if (level == CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL)
-		tdx_fuzz_event(TDX_FUZZ_ENABLE);
+		kafl_fuzz_event(KAFL_ENABLE);
 #endif
 
 	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
@@ -1515,7 +1515,7 @@ static void __init do_initcall_level(int level, char *command_line)
 
 #if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS
 	if (level == CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL)
-		tdx_fuzz_event(TDX_FUZZ_DONE);
+		kafl_fuzz_event(KAFL_DONE);
 #endif
 }
 
@@ -1549,14 +1549,14 @@ static void __init do_basic_setup(void)
 {
 	cpuset_init_smp();
 #if defined CONFIG_TDX_FUZZ_HARNESS_DO_BASIC
-	tdx_fuzz_event(TDX_FUZZ_ENABLE);
+	kafl_fuzz_event(KAFL_ENABLE);
 #endif
 	driver_init();
 	init_irq_proc();
 	do_ctors();
 	do_initcalls();
 #if defined CONFIG_TDX_FUZZ_HARNESS_DO_BASIC || defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
-	tdx_fuzz_event(TDX_FUZZ_DONE);
+	kafl_fuzz_event(KAFL_DONE);
 #endif
 }
 
@@ -1678,7 +1678,7 @@ static int __ref kernel_init(void *unused)
 
 #if defined CONFIG_TDX_FUZZ_HARNESS_FULL_BOOT || defined CONFIG_TDX_FUZZ_HARNESS_REST_INIT
 	// End fuzzing before dropping to userspace
-	tdx_fuzz_event(TDX_FUZZ_DONE);
+	kafl_fuzz_event(KAFL_DONE);
 #endif
 
 	if (ramdisk_execute_command) {
