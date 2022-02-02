@@ -188,7 +188,10 @@ TRACE_EVENT(tdx_fuzz,
 				   { TDX_FUZZ_CPUID2, "cpuid2" },
 				   { TDX_FUZZ_CPUID3, "cpuid3" },
 				   { TDX_FUZZ_CPUID4, "cpuid4" },
-				   { TDX_FUZZ_VIRTIO, "virtio" })
+				   { TDX_FUZZ_VIRTIO, "virtio" },
+				   { TDX_FUZZ_MAP_ERR, "map_err" },
+				   { TDX_FUZZ_RANDOM, "random" },
+				   { TDX_FUZZ_DEBUGFS, "debugfs" })
 	)
 );
 

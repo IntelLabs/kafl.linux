@@ -132,7 +132,7 @@ static void end_report(unsigned long *flags, unsigned long addr)
 	kasan_enable_current();
 
 #ifdef CONFIG_TDX_FUZZ_KAFL
-	tdx_fuzz_event(TDX_FUZZ_KASAN);
+	kafl_fuzz_event(KAFL_KASAN);
 #endif
 }
 

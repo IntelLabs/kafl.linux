@@ -616,8 +616,8 @@ static void native_machine_emergency_restart(void)
 	}
 
 #ifdef CONFIG_TDX_FUZZ_KAFL
-	// covers force-restart and emergency_restart
-	tdx_fuzz_event(TDX_FUZZ_REBOOT);
+	// this event covers force-restart and emergency_restart
+	kafl_fuzz_event(KAFL_REBOOT);
 #endif
 
 	for (;;) {
@@ -726,7 +726,7 @@ void native_machine_shutdown(void)
 
 #ifdef CONFIG_TDX_FUZZ_KAFL
 	// covers native_machine_{restart,halt,power_off}
-	tdx_fuzz_event(TDX_FUZZ_HALT);
+	kafl_fuzz_event(KAFL_HALT);
 #endif
 }
 
