@@ -10,7 +10,6 @@
 #include <linux/string.h>
 
 #include <asm/tdx.h>
-#include <asm/kafl-api.h>
 
 enum kafl_event {
 	KAFL_ENABLE,
@@ -33,9 +32,13 @@ enum kafl_event {
 };
 
 void kafl_fuzz_event(enum kafl_event e);
+
 void kafl_fuzz_function(char *fname);
 void kafl_fuzz_function_disable(char *fname);
+
 size_t kafl_fuzz_buffer(void* fuzz_buf, const void *orig_buf, const uintptr_t addr,
                         const size_t num_bytes, const enum tdx_fuzz_loc type);
+
+int kafl_vprintk(const char *fmt, va_list args);
 
 #endif /* KAFL_AGENT_H */
