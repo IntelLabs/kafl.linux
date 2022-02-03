@@ -41,6 +41,7 @@ static bool exit_at_eof = true;
 static agent_config_t agent_config = {0};
 static host_config_t host_config = {0};
 
+static char hprintf_buffer[HPRINTF_MAX_SIZE] __attribute__((aligned(4096)));
 static kafl_dump_file_t dump_file __attribute__((aligned(4096)));
 static uint8_t payload_buffer[PAYLOAD_BUFFER_SIZE] __attribute__((aligned(4096)));
 static uint8_t observed_payload_buffer[PAYLOAD_BUFFER_SIZE*2] __attribute__((aligned(4096)));
@@ -96,15 +97,24 @@ void kafl_agent_setrange(void)
 	//ranges[0] = (uintptr_t)&fuzzme & PAGE_MASK;
 	ranges[1] = ranges[0] + PAGE_SIZE;
 	ranges[2] = 0;
-	hprintf("Setting range %lu: %lx-%lx\n", ranges[2], ranges[0], ranges[1]);
+	kafl_hprintf("Setting range %lu: %lx-%lx\n", ranges[2], ranges[0], ranges[1]);
 	kAFL_hypercall(HYPERCALL_KAFL_RANGE_SUBMIT, (uintptr_t)ranges);
 }
 
 void kafl_agent_abort(char *msg)
 {
-	hprintf(msg);
+	kafl_hprintf(msg);
 	kAFL_hypercall(HYPERCALL_KAFL_USER_ABORT, 0);
 	BUG();
+}
+
+void kafl_hprintf(const char *fmt, ...)
+{
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf((char*)hprintf_buffer, HPRINTF_MAX_SIZE, fmt, args);
+	kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)hprintf_buffer);
+	va_end(args);
 }
 
 static
@@ -162,7 +172,7 @@ void kafl_agent_init(void)
 		kafl_agent_abort("Warning: Agent was already initialized!\n");
 	}
 
-	hprintf("[*] Initialize kAFL Agent\n");
+	kafl_hprintf("[*] Initialize kAFL Agent\n");
 
 	/* initial fuzzer handshake */
 	kAFL_hypercall(HYPERCALL_KAFL_ACQUIRE, 0);
@@ -179,15 +189,15 @@ void kafl_agent_init(void)
 	memset(observed_payload_buffer, 0xff, sizeof(observed_payload_buffer));
 	memset(payload_buffer, 0xff, sizeof(payload_buffer));
 
-	hprintf("Submitting payload buffer address to hypervisor (%lx)\n", (uintptr_t)payload);
+	kafl_hprintf("Submitting payload buffer address to hypervisor (%lx)\n", (uintptr_t)payload);
 	kAFL_hypercall(HYPERCALL_KAFL_GET_PAYLOAD, (uintptr_t)payload);
 
 	kAFL_hypercall(HYPERCALL_KAFL_SET_AGENT_CONFIG, (uintptr_t)&agent_config);
 	kAFL_hypercall(HYPERCALL_KAFL_GET_HOST_CONFIG, (uintptr_t)&host_config);
 
-	hprintf("[host_config] bitmap sizes = <0x%x,0x%x>\n", host_config.bitmap_size, host_config.ijon_bitmap_size);
-	hprintf("[host_config] payload size = %dKB\n", host_config.payload_buffer_size/1024);
-	hprintf("[host_config] worker id = %02u\n", host_config.worker_id);
+	kafl_hprintf("[host_config] bitmap sizes = <0x%x,0x%x>\n", host_config.bitmap_size, host_config.ijon_bitmap_size);
+	kafl_hprintf("[host_config] payload size = %dKB\n", host_config.payload_buffer_size/1024);
+	kafl_hprintf("[host_config] worker id = %02u\n", host_config.worker_id);
 
 	if (host_config.payload_buffer_size > PAYLOAD_BUFFER_SIZE) {
 		kafl_agent_abort("Host agent buffer is larger than agent side allocation!\n");
@@ -197,7 +207,7 @@ void kafl_agent_init(void)
 	//kafl_agent_setrange();
 
 	// fetch fuzz input for later #VE injection
-	hprintf("Starting kAFL loop...\n");
+	kafl_hprintf("Starting kAFL loop...\n");
 	kAFL_hypercall(HYPERCALL_KAFL_NEXT_PAYLOAD, 0);
 
 	ve_buf = payload->data;
@@ -778,12 +788,11 @@ __setup("hprintf=", kafl_vprintk_setup);
 int kafl_vprintk(const char *fmt, va_list args)
 {
 	static int last_msg_level = 0;
-	static char hprintf_buffer[HPRINTF_MAX_SIZE] __attribute__((aligned(4096)));
 
 	char *buf;
 
 	if (vprintk_level == '0')
-		return 0; // mute printk - hprintf() still works
+		return 0; // mute printk - kafl_hprintf() still works
 
 	// some callers give level as arg..
 	vscnprintf((char*)hprintf_buffer, HPRINTF_MAX_SIZE, fmt, args);
