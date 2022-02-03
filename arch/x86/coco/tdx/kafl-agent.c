@@ -23,6 +23,7 @@
 #include <linux/pci_hotplug.h>
 
 #include <asm/kafl-agent.h>
+#include <asm/kafl-api.h>
 
 #undef pr_fmt
 #define pr_fmt(fmt) "kAFL: " fmt
@@ -750,6 +751,62 @@ void kafl_fuzz_event(enum kafl_event e)
 		default:
 			return kafl_agent_abort("Unrecognized fuzz event.\n");
 	}
+}
+
+/*
+ * Set verbosity of kernel to hprintf logging
+ * Beyond early boot, this can be set using hprintf= cmdline
+ */
+//static int vprintk_level = KERN_DEBUG[1];
+static int vprintk_level = KERN_WARNING[1];
+//static int vprintk_level = '0'; // mute
+
+static int __init kafl_vprintk_setup(char *str)
+{
+	if (str[0] >= '0' && str[0] <= '9') {
+		vprintk_level = str[0];
+		//hprintf("hprintf_setup: %x => %d (%d)\n", str[0], vprintk_level, vprintk_level-'0');
+	}
+
+	return 1;
+}
+__setup("hprintf=", kafl_vprintk_setup);
+
+/*
+ * Redirect kernel printk() to hprintf
+ */
+int kafl_vprintk(const char *fmt, va_list args)
+{
+	static int last_msg_level = 0;
+	static char hprintf_buffer[HPRINTF_MAX_SIZE] __attribute__((aligned(4096)));
+
+	char *buf;
+
+	if (vprintk_level == '0')
+		return 0; // mute printk - hprintf() still works
+
+	// some callers give level as arg..
+	vscnprintf((char*)hprintf_buffer, HPRINTF_MAX_SIZE, fmt, args);
+	buf = hprintf_buffer;
+
+	if (buf[0] != KERN_SOH[0]) {
+		kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)hprintf_buffer);
+		return 0;
+	}
+
+	if (buf[1] == KERN_CONT[1]) {
+		if (last_msg_level <= vprintk_level) {
+			kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)buf+2);
+		}
+		return 0;
+	}
+
+	last_msg_level = buf[1];
+	if (buf[1] <= vprintk_level) {
+		kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)buf+2);
+	}
+
+	return 0;
 }
 
 #ifdef CONFIG_TDX_FUZZ_KAFL_DEBUGFS

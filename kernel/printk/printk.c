@@ -51,6 +51,10 @@
 #include <linux/uaccess.h>
 #include <asm/sections.h>
 
+#ifndef CONFIG_TDX_FUZZ_KAFL
+#include <asm/kafl-agent.h>
+#endif
+
 #include <trace/events/initcall.h>
 #define CREATE_TRACE_POINTS
 #include <trace/events/printk.h>
@@ -2283,63 +2287,6 @@ int vprintk_default(const char *fmt, va_list args)
 }
 EXPORT_SYMBOL_GPL(vprintk_default);
 
-#ifdef CONFIG_TDX_FUZZ_KAFL
-#include <asm/cmdline.h>
-#include <asm/kafl-agent.h>
-static int last_msg_level = 0;
-static char hprintf_buffer[HPRINTF_MAX_SIZE] __attribute__((aligned(4096)));
-
-/*
- * default / early boot verbosity of hprintf logging
- */
-//static int hprintf_level = KERN_DEBUG[1];
-static int hprintf_level = KERN_WARNING[1];
-//static int hprintf_level = '0'; // mute
-
-int kafl_hprintf(const char *fmt, va_list args)
-{
-	char *buf;
-
-	if (hprintf_level == '0')
-		return 0; // mute printk - hprintf() still works
-
-	// some callers give level as arg..
-	vscnprintf((char*)hprintf_buffer, HPRINTF_MAX_SIZE, fmt, args);
-	buf = hprintf_buffer;
-
-	if (buf[0] != KERN_SOH[0]) {
-		kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)hprintf_buffer);
-		return 0;
-	}
-
-	if (buf[1] == KERN_CONT[1]) {
-		if (last_msg_level <= hprintf_level) {
-			kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)buf+2);
-		}
-		return 0;
-	}
-
-	last_msg_level = buf[1];
-	if (buf[1] <= hprintf_level) {
-		kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)buf+2);
-	}
-
-	return 0;
-}
-
-static int __init kafl_hprintf_setup(char *str)
-{
-	if (str[0] >= '0' && str[0] <= '9') {
-		hprintf_level = str[0];
-		//hprintf("hprintf_setup: %x => %d (%d)\n", str[0], hprintf_level, hprintf_level-'0');
-		printk(KERN_DEBUG "hprintf_setup: %x => %d (%d)\n", str[0], hprintf_level, hprintf_level-'0');
-	}
-
-	return 1;
-}
-__setup("hprintf=", kafl_hprintf_setup);
-#endif
-
 asmlinkage __visible int _printk(const char *fmt, ...)
 {
 	va_list args;
@@ -2349,7 +2296,7 @@ asmlinkage __visible int _printk(const char *fmt, ...)
 #ifndef CONFIG_TDX_FUZZ_KAFL
 	r = vprintk(fmt, args);
 #else
-	r = kafl_hprintf(fmt, args);
+	r = kafl_vprintk(fmt, args);
 #endif
 	va_end(args);
 
@@ -2412,7 +2359,7 @@ asmlinkage __visible void early_printk(const char *fmt, ...)
 	n = vscnprintf(buf, sizeof(buf), fmt, ap);
 	early_console->write(early_console, buf, n);
 #else
-	kafl_hprintf(fmt, ap);
+	kafl_vprintk(fmt, ap);
 #endif
 	va_end(ap);
 
@@ -3586,7 +3533,7 @@ int vprintk_deferred(const char *fmt, va_list args)
 	r = vprintk_emit(0, LOGLEVEL_SCHED, NULL, fmt, args);
 	defer_console_output();
 #else
-	r = kafl_hprintf(fmt, args);
+	r = kafl_vprintk(fmt, args);
 #endif
 
 	return r;
@@ -3601,7 +3548,7 @@ int _printk_deferred(const char *fmt, ...)
 #ifndef CONFIG_TDX_FUZZ_KAFL
 	r = vprintk_deferred(fmt, args);
 #else
-	r = kafl_hprintf(fmt, args);
+	r = kafl_vprintk(fmt, args);
 #endif
 	va_end(args);
 
