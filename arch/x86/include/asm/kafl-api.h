@@ -111,19 +111,6 @@ static inline uint64_t kAFL_hypercall(uint64_t p1, uint64_t p2)
 }
 #endif
 
-static void hprintf(const char * format, ...) __attribute__ ((unused, format (printf, 1, 2)));
-static void hprintf(const char * format, ...)
-{
-	static char hprintf_buffer[HPRINTF_MAX_SIZE] __attribute__((aligned(4096)));
-
-	va_list args;
-	va_start(args, format);
-	vsnprintf((char*)hprintf_buffer, HPRINTF_MAX_SIZE, format, args);
-	kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)hprintf_buffer);
-	//vprintf(format, args);
-	va_end(args);
-}
-
 typedef struct host_config_s {
 	uint32_t bitmap_size;
 	uint32_t ijon_bitmap_size;
