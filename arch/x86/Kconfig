@@ -1068,6 +1068,12 @@ config TDX_FUZZ_HARNESS_DOINITCALLS_ACPI
 	  Fuzz initcalls for ACPI initialiation
 	  Reproducer for https://jira.devtools.intel.com/browse/LCK-10311
 
+config TDX_FUZZ_HARNESS_VIRTIO_BLK_PROBE
+	bool "Virtio-Blk probe"
+	help
+	  Fuzz VirtIO block device probing phase
+
+
 config TDX_FUZZ_HARNESS_FULL_BOOT
 	bool "Full Boot"
 	help
