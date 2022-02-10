@@ -29,23 +29,36 @@
 #define pr_fmt(fmt) "kAFL: " fmt
 
 
-static bool agent_initialized = false;
-static bool fuzz_enabled = false;
-static bool fuzz_tdcall = true;   // enable TDX fuzzing by default
-static bool fuzz_tderror = false; // TDX error fuzzing not supported
+bool agent_initialized = false;
+bool fuzz_enabled = false;
+bool fuzz_tdcall = true;   // enable TDX fuzzing by default
+bool fuzz_tderror = false; // TDX error fuzzing not supported
 
 /* abort at end of payload - otherwise we keep feeding unmodified input
  * which means we see coverage that is not represented in the payload */
-static bool exit_at_eof = true;
+bool exit_at_eof = true;
 
-static agent_config_t agent_config = {0};
-static host_config_t host_config = {0};
+agent_config_t agent_config = {0};
+host_config_t host_config = {0};
 
-static char hprintf_buffer[HPRINTF_MAX_SIZE] __attribute__((aligned(4096)));
-static kafl_dump_file_t dump_file __attribute__((aligned(4096)));
-static uint8_t payload_buffer[PAYLOAD_BUFFER_SIZE] __attribute__((aligned(4096)));
-static uint8_t observed_payload_buffer[PAYLOAD_BUFFER_SIZE*2] __attribute__((aligned(4096)));
-static uint32_t location_stats[TDX_FUZZ_MAX];
+char hprintf_buffer[HPRINTF_MAX_SIZE] __attribute__((aligned(4096)));
+kafl_dump_file_t dump_file __attribute__((aligned(4096)));
+uint32_t location_stats[TDX_FUZZ_MAX];
+
+/* kmalloc() may not always be available - e.g. early boot */
+//#define KAFL_ASSUME_KMALLOC
+#ifdef KAFL_ASSUME_KMALLOC
+size_t payload_buffer_size = 0;
+size_t observed_buffer_size = 0;
+uint8_t *payload_buffer = NULL;
+uint8_t *observed_buffer = NULL;
+#else
+size_t payload_buffer_size = PAYLOAD_MAX_SIZE;
+size_t observed_buffer_size = 2*PAYLOAD_MAX_SIZE;
+uint8_t payload_buffer[PAYLOAD_MAX_SIZE] __attribute__((aligned(4096)));
+uint8_t observed_buffer[2*PAYLOAD_MAX_SIZE] __attribute__((aligned(4096)));
+#endif
+
 
 static struct {
 		bool dump_observed;
@@ -53,14 +66,14 @@ static struct {
 		bool dump_callers;
 } agent_flags;
 
-static u8 *ve_buf;
-static u32 ve_num;
-static u32 ve_pos;
-static u32 ve_mis;
+u8 *ve_buf;
+u32 ve_num;
+u32 ve_pos;
+u32 ve_mis;
 
-static u8 *ob_buf;
-static u32 ob_num;
-static u32 ob_pos;
+u8 *ob_buf;
+u32 ob_num;
+u32 ob_pos;
 
 const char *kafl_event_name[KAFL_EVENT_MAX] = {
 	"KAFL_ENABLE",
@@ -164,7 +177,7 @@ void kafl_trace_locations(void)
 
 void kafl_agent_init(void)
 {
-	kAFL_payload* payload = (kAFL_payload*)payload_buffer;
+	kAFL_payload *payload = NULL;
 
 	if (agent_initialized) {
 		kafl_habort("Warning: Agent was already initialized!\n");
@@ -183,10 +196,6 @@ void kafl_agent_init(void)
 	kAFL_hypercall(HYPERCALL_KAFL_USER_SUBMIT_MODE, KAFL_MODE_64);
 #endif
 
-	/* ensure that the virtual memory is *really* present in physical memory... */
-	memset(observed_payload_buffer, 0xff, sizeof(observed_payload_buffer));
-	memset(payload_buffer, 0xff, sizeof(payload_buffer));
-	mlock(payload_buffer);
 
 	kAFL_hypercall(HYPERCALL_KAFL_GET_HOST_CONFIG, (uintptr_t)&host_config);
 
@@ -194,9 +203,27 @@ void kafl_agent_init(void)
 	kafl_hprintf("[host_config] payload size = %dKB\n", host_config.payload_buffer_size/1024);
 	kafl_hprintf("[host_config] worker id = %02u\n", host_config.worker_id);
 
-	if (host_config.payload_buffer_size > PAYLOAD_BUFFER_SIZE) {
-		kafl_habort("Host agent buffer is larger than agent side allocation!\n");
+#ifdef KAFL_ASSUME_KMALLOC
+	payload_buffer_size = host_config.payload_buffer_size;
+	observed_buffer_size = 2*host_config.payload_buffer_size;
+	payload_buffer = kmalloc(payload_buffer_size, GFP_KERNEL|__GFP_NOFAIL);
+	observed_buffer = kmalloc(observed_buffer_size, GFP_KERNEL|__GFP_NOFAIL);
+
+	if (!payload_buffer || !observed_buffer) {
+		kafl_habort("Failed to allocate host payload buffer!\n");
 	}
+#else
+	if (host_config.payload_buffer_size > PAYLOAD_MAX_SIZE) {
+		kafl_habort("Insufficient payload buffer size!\n");
+	}
+#endif
+
+	/* ensure that the virtual memory is *really* present in physical memory... */
+	memset(payload_buffer, 0xff, payload_buffer_size);
+	memset(observed_buffer, 0xff, observed_buffer_size);
+
+	kafl_hprintf("Submitting payload buffer address to hypervisor (%lx)\n", (uintptr_t)payload_buffer);
+	kAFL_hypercall(HYPERCALL_KAFL_GET_PAYLOAD, (uintptr_t)payload_buffer);
 
 	agent_config.agent_magic = NYX_AGENT_MAGIC;
 	agent_config.agent_version = NYX_AGENT_VERSION;
@@ -206,14 +233,10 @@ void kafl_agent_init(void)
 	agent_config.agent_non_reload_mode = 0;
 	agent_config.trace_buffer_vaddr = 0;
 	agent_config.ijon_trace_buffer_vaddr = 0;
-	agent_config.coverage_bitmap_size = host_config.bitmap_size;
+	//agent_config.coverage_bitmap_size = host_config.bitmap_size;
 	agent_config.input_buffer_size = 0;
 	agent_config.dump_payloads = 0;
 	kAFL_hypercall(HYPERCALL_KAFL_SET_AGENT_CONFIG, (uintptr_t)&agent_config);
-
-	kafl_hprintf("Submitting payload buffer address to hypervisor (%lx)\n", (uintptr_t)payload);
-	kAFL_hypercall(HYPERCALL_KAFL_GET_PAYLOAD, (uintptr_t)payload);
-
 
 	// set IP filter range from agent?
 	//kafl_agent_setrange();
@@ -222,6 +245,7 @@ void kafl_agent_init(void)
 	kafl_hprintf("Starting kAFL loop...\n");
 	kAFL_hypercall(HYPERCALL_KAFL_NEXT_PAYLOAD, 0);
 
+	payload = (kAFL_payload*)payload_buffer;
 	ve_buf = payload->data;
 	ve_num = payload->size;
 	ve_pos = 0;
@@ -245,8 +269,8 @@ void kafl_agent_init(void)
 	}
 
 	if (agent_flags.dump_observed) {
-		ob_buf = observed_payload_buffer;
-		ob_num = sizeof(observed_payload_buffer);
+		ob_buf = observed_buffer;
+		ob_num = sizeof(observed_buffer);
 		ob_pos = 0;
 	}
 
@@ -274,12 +298,13 @@ void kafl_agent_stats(void)
 
 		// flag if payload buffer is >90% and we quit due to missing input
 		char maxed_out = ' ';
-		if (ve_mis && MAX_PAYLOAD_LEN/10*9 < (ve_pos) * sizeof(ve_buf[0])) {
+		size_t max_plen = payload_buffer_size - sizeof(int32_t) - sizeof(agent_flags_t);
+		if (ve_mis && max_plen/10*9 < (ve_pos) * sizeof(ve_buf[0])) {
 			maxed_out = '*';
 		}
 
-		ob_num = snprintf(observed_payload_buffer,
-				          sizeof(observed_payload_buffer),
+		ob_num = snprintf(observed_buffer,
+				          observed_buffer_size,
 						  "%05u/%u: %5u, %5u, %5u;\trng=%u; cpuid=<%u,%u,%u,%u>; virtio=%u; err=<%u,%u,%u,%u> %c\n",
 				          ve_pos, ve_mis,
 				          location_stats[TDX_FUZZ_MSR_READ],
@@ -298,7 +323,7 @@ void kafl_agent_stats(void)
 						  maxed_out);
 		pr_debug("Dumping fuzzer location stats\n");
 		kafl_dump_observed_payload("fuzzer_location_stats.lst", true,
-			   observed_payload_buffer, ob_num);
+			   observed_buffer, ob_num);
 	}
 
 	kafl_trace_locations();

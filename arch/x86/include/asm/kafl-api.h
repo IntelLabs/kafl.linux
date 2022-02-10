@@ -62,8 +62,8 @@
 #define HYPERCALL_KAFL_NESTED_RELEASE		(3 | HYPERTRASH_HYPERCALL_MASK)
 #define HYPERCALL_KAFL_NESTED_HPRINTF		(4 | HYPERTRASH_HYPERCALL_MASK)gre
 
-#define PAYLOAD_BUFFER_SIZE			(256 << 10)	/* up to 256KB payloads */
-#define HPRINTF_MAX_SIZE					0x1000					/* up to 4KB hprintf strings */
+#define PAYLOAD_MAX_SIZE			        (256 << 10)    /* up to 256KB payloads */
+#define HPRINTF_MAX_SIZE					0x1000         /* up to 4KB hprintf strings */
 
 typedef union {
 	struct {
@@ -74,7 +74,6 @@ typedef union {
 	uint32_t raw_data;
 } __attribute__((packed)) agent_flags_t;
 
-#define MAX_PAYLOAD_LEN (PAYLOAD_BUFFER_SIZE-sizeof(int32_t)-sizeof(agent_flags_t))
 typedef struct {
 	agent_flags_t flags;
 	int32_t size;
