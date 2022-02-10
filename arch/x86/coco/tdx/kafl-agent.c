@@ -101,11 +101,9 @@ void kafl_agent_setrange(void)
 	kAFL_hypercall(HYPERCALL_KAFL_RANGE_SUBMIT, (uintptr_t)ranges);
 }
 
-void kafl_agent_abort(char *msg)
+void kafl_habort(char *msg)
 {
-	kafl_hprintf(msg);
-	kAFL_hypercall(HYPERCALL_KAFL_USER_ABORT, 0);
-	BUG();
+	kAFL_hypercall(HYPERCALL_KAFL_USER_ABORT, (uintptr_t)msg);
 }
 
 void kafl_hprintf(const char *fmt, ...)
@@ -169,7 +167,7 @@ void kafl_agent_init(void)
 	kAFL_payload* payload = (kAFL_payload*)payload_buffer;
 
 	if (agent_initialized) {
-		kafl_agent_abort("Warning: Agent was already initialized!\n");
+		kafl_habort("Warning: Agent was already initialized!\n");
 	}
 
 	kafl_hprintf("[*] Initialize kAFL Agent\n");
@@ -188,11 +186,8 @@ void kafl_agent_init(void)
 	/* ensure that the virtual memory is *really* present in physical memory... */
 	memset(observed_payload_buffer, 0xff, sizeof(observed_payload_buffer));
 	memset(payload_buffer, 0xff, sizeof(payload_buffer));
+	mlock(payload_buffer);
 
-	kafl_hprintf("Submitting payload buffer address to hypervisor (%lx)\n", (uintptr_t)payload);
-	kAFL_hypercall(HYPERCALL_KAFL_GET_PAYLOAD, (uintptr_t)payload);
-
-	kAFL_hypercall(HYPERCALL_KAFL_SET_AGENT_CONFIG, (uintptr_t)&agent_config);
 	kAFL_hypercall(HYPERCALL_KAFL_GET_HOST_CONFIG, (uintptr_t)&host_config);
 
 	kafl_hprintf("[host_config] bitmap sizes = <0x%x,0x%x>\n", host_config.bitmap_size, host_config.ijon_bitmap_size);
@@ -200,8 +195,25 @@ void kafl_agent_init(void)
 	kafl_hprintf("[host_config] worker id = %02u\n", host_config.worker_id);
 
 	if (host_config.payload_buffer_size > PAYLOAD_BUFFER_SIZE) {
-		kafl_agent_abort("Host agent buffer is larger than agent side allocation!\n");
+		kafl_habort("Host agent buffer is larger than agent side allocation!\n");
 	}
+
+	agent_config.agent_magic = NYX_AGENT_MAGIC;
+	agent_config.agent_version = NYX_AGENT_VERSION;
+	agent_config.agent_timeout_detection = 0;
+	agent_config.agent_tracing = 0;
+	agent_config.agent_ijon_tracing = 0;
+	agent_config.agent_non_reload_mode = 0;
+	agent_config.trace_buffer_vaddr = 0;
+	agent_config.ijon_trace_buffer_vaddr = 0;
+	agent_config.coverage_bitmap_size = host_config.bitmap_size;
+	agent_config.input_buffer_size = 0;
+	agent_config.dump_payloads = 0;
+	kAFL_hypercall(HYPERCALL_KAFL_SET_AGENT_CONFIG, (uintptr_t)&agent_config);
+
+	kafl_hprintf("Submitting payload buffer address to hypervisor (%lx)\n", (uintptr_t)payload);
+	kAFL_hypercall(HYPERCALL_KAFL_GET_PAYLOAD, (uintptr_t)payload);
+
 
 	// set IP filter range from agent?
 	//kafl_agent_setrange();
@@ -295,7 +307,7 @@ void kafl_agent_stats(void)
 void kafl_agent_done(void)
 {
 	if (!agent_initialized) {
-		kafl_agent_abort("Attempt to finish kAFL run but never initialized\n");
+		kafl_habort("Attempt to finish kAFL run but never initialized\n");
 	}
 
 	kafl_agent_stats();
@@ -724,7 +736,7 @@ void kafl_fuzz_event(enum kafl_event e)
 		case KAFL_DONE:
 			return kafl_agent_done();
 		case KAFL_ABORT:
-			return kafl_agent_abort("kAFL got ABORT event.\n");
+			return kafl_habort("kAFL got ABORT event.\n");
 		case KAFL_SETCR3:
 			return kafl_agent_setcr3();
 		case KAFL_PAUSE:
@@ -757,9 +769,9 @@ void kafl_fuzz_event(enum kafl_event e)
 		case KAFL_REBOOT:
 			return kafl_raise_panic();
 		case KAFL_TIMEOUT:
-			return kafl_agent_abort("TODO: add a timeout handler?!\n");
+			return kafl_habort("TODO: add a timeout handler?!\n");
 		default:
-			return kafl_agent_abort("Unrecognized fuzz event.\n");
+			return kafl_habort("Unrecognized fuzz event.\n");
 	}
 }
 
