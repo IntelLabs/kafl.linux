@@ -1,13 +1,14 @@
 /*
- * This file is part of Redqueen.
+ * kAFl/Nyx low-level interface definitions
  *
- * Copyright 2019 Sergej Schumilo, Cornelius Aschermann
+ * Copyright 2022 Sergej Schumilo, Cornelius Aschermann
+ * Copyright 2022 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef KAFL_USER_H
-#define KAFL_USER_H
+#ifndef NYX_API_H
+#define NYX_API_H
 
 //#include <stdarg.h>
 //#include <stddef.h>
@@ -15,20 +16,20 @@
 #define HYPERCALL_KAFL_RAX_ID				0x01f
 #define HYPERCALL_KAFL_ACQUIRE				0
 #define HYPERCALL_KAFL_GET_PAYLOAD			1
-#define HYPERCALL_KAFL_GET_PROGRAM			2
-#define HYPERCALL_KAFL_GET_ARGV				3
+#define HYPERCALL_KAFL_GET_PROGRAM			2  /* deprecated */
+#define HYPERCALL_KAFL_GET_ARGV				3  /* deprecated */
 #define HYPERCALL_KAFL_RELEASE				4
 #define HYPERCALL_KAFL_SUBMIT_CR3			5
 #define HYPERCALL_KAFL_SUBMIT_PANIC			6
 #define HYPERCALL_KAFL_SUBMIT_KASAN			7
 #define HYPERCALL_KAFL_PANIC				8
 #define HYPERCALL_KAFL_KASAN				9
-#define HYPERCALL_KAFL_LOCK					10
-#define HYPERCALL_KAFL_INFO					11
+#define HYPERCALL_KAFL_LOCK					10 /* deprecated */
+#define HYPERCALL_KAFL_INFO					11 /* deprecated */
 #define HYPERCALL_KAFL_NEXT_PAYLOAD			12
 #define HYPERCALL_KAFL_PRINTF				13
-#define HYPERCALL_KAFL_PRINTK_ADDR			14
-#define HYPERCALL_KAFL_PRINTK				15
+#define HYPERCALL_KAFL_PRINTK_ADDR			14 /* deprecated */
+#define HYPERCALL_KAFL_PRINTK				15 /* deprecated */
 
 /* user space only hypercalls */
 #define HYPERCALL_KAFL_USER_RANGE_ADVISE	16
@@ -36,20 +37,21 @@
 #define HYPERCALL_KAFL_USER_FAST_ACQUIRE	18
 /* 19 is already used for exit reason KVM_EXIT_KAFL_TOPA_MAIN_FULL */
 #define HYPERCALL_KAFL_USER_ABORT			20
-#define HYPERCALL_KAFL_RANGE_SUBMIT			29
+#define HYPERCALL_KAFL_TIMEOUT				21 /* deprecated */
+#define HYPERCALL_KAFL_RANGE_SUBMIT		29
 #define HYPERCALL_KAFL_REQ_STREAM_DATA		30
 #define HYPERCALL_KAFL_PANIC_EXTENDED		32
 
-/* incremental snapshot (+ debug version) */
 #define HYPERCALL_KAFL_CREATE_TMP_SNAPSHOT	33
-#define HYPERCALL_KAFL_DEBUG_TMP_SNAPSHOT	34
+#define HYPERCALL_KAFL_DEBUG_TMP_SNAPSHOT	34 /* hypercall for debugging / development purposes */
 
-/* get/set options and capabilities */
 #define HYPERCALL_KAFL_GET_HOST_CONFIG		35
 #define HYPERCALL_KAFL_SET_AGENT_CONFIG		36
 
-/* write a file back to hypervisor */
 #define HYPERCALL_KAFL_DUMP_FILE			37
+
+#define HYPERCALL_KAFL_REQ_STREAM_DATA_BULK 38
+#define HYPERCALL_KAFL_PERSIST_PAGE_PAST_SNAPSHOT 39
 
 /* hypertrash only hypercalls */
 #define HYPERTRASH_HYPERCALL_MASK			0xAA000000
@@ -58,11 +60,10 @@
 #define HYPERCALL_KAFL_NESTED_CONFIG		(1 | HYPERTRASH_HYPERCALL_MASK)
 #define HYPERCALL_KAFL_NESTED_ACQUIRE		(2 | HYPERTRASH_HYPERCALL_MASK)
 #define HYPERCALL_KAFL_NESTED_RELEASE		(3 | HYPERTRASH_HYPERCALL_MASK)
-#define HYPERCALL_KAFL_NESTED_HPRINTF		(4 | HYPERTRASH_HYPERCALL_MASK)
-
+#define HYPERCALL_KAFL_NESTED_HPRINTF		(4 | HYPERTRASH_HYPERCALL_MASK)gre
 
 #define PAYLOAD_BUFFER_SIZE			(256 << 10)	/* up to 256KB payloads */
-#define HPRINTF_MAX_SIZE			0x1000		/* up to 4KB hprintf strings */
+#define HPRINTF_MAX_SIZE					0x1000					/* up to 4KB hprintf strings */
 
 typedef union {
 	struct {
@@ -77,8 +78,8 @@ typedef union {
 typedef struct {
 	agent_flags_t flags;
 	int32_t size;
-	uint8_t data[MAX_PAYLOAD_LEN];
-} __attribute__((packed)) kAFL_payload;
+	uint8_t data[];
+} kAFL_payload;
 
 typedef struct {
 	uint64_t ip[4];
@@ -90,14 +91,13 @@ typedef struct {
 #define KAFL_MODE_32	1
 #define KAFL_MODE_16	2
 
-/* Todo: Add support for hypercall return values */
 #if defined(__i386__)
 static inline uint32_t kAFL_hypercall(uint32_t p1, uint32_t p2)
 {
 	uint32_t nr = HYPERCALL_KAFL_RAX_ID;
 	asm volatile ("vmcall"
-			: "=a" (nr)
-			: "a"(nr), "b"(p1), "c"(p2));
+				  : "=a" (nr)
+				  : "a"(nr), "b"(p1), "c"(p2));
 	return nr;
 }
 #elif defined(__x86_64__)
@@ -105,13 +105,21 @@ static inline uint64_t kAFL_hypercall(uint64_t p1, uint64_t p2)
 {
 	uint64_t nr = HYPERCALL_KAFL_RAX_ID;
 	asm volatile ("vmcall"
-			: "=a" (nr)
-			: "a"(nr), "b"(p1), "c"(p2));
+				  : "=a" (nr)
+				  : "a"(nr), "b"(p1), "c"(p2));
 	return nr;
 }
 #endif
 
+#define NYX_HOST_MAGIC  0x4878794e
+#define NYX_AGENT_MAGIC 0x4178794e
+
+#define NYX_HOST_VERSION 1
+#define NYX_AGENT_VERSION 1
+
 typedef struct host_config_s {
+	uint32_t host_magic;
+	uint32_t host_version;
 	uint32_t bitmap_size;
 	uint32_t ijon_bitmap_size;
 	uint32_t payload_buffer_size;
@@ -120,14 +128,17 @@ typedef struct host_config_s {
 } __attribute__((packed)) host_config_t;
 
 typedef struct agent_config_s {
+	uint32_t agent_magic;
+	uint32_t agent_version;
 	uint8_t agent_timeout_detection;
 	uint8_t agent_tracing;
 	uint8_t agent_ijon_tracing;
 	uint8_t agent_non_reload_mode;
 	uint64_t trace_buffer_vaddr;
 	uint64_t ijon_trace_buffer_vaddr;
-
-	uint8_t dump_payloads; /* is set by the hypervisor */
+	uint32_t coverage_bitmap_size;
+	uint32_t input_buffer_size;
+	uint8_t dump_payloads; /* set by hypervisor */
 	/* more to come */
 } __attribute__((packed)) agent_config_t;
 
@@ -138,4 +149,4 @@ typedef struct kafl_dump_file_s {
 	uint8_t append;
 } __attribute__((packed)) kafl_dump_file_t;
 
-#endif
+#endif /* NYX_API_H */
