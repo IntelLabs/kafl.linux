@@ -764,6 +764,7 @@ void __init tdx_early_init(void)
 	setup_clear_cpu_cap(X86_FEATURE_APERFMPERF);
 	setup_clear_cpu_cap(X86_FEATURE_TME);
 	setup_clear_cpu_cap(X86_FEATURE_CQM_LLC);
+	setup_clear_cpu_cap(X86_FEATURE_MBA);
 
 	cc_set_vendor(CC_VENDOR_INTEL);
 	cc_mask = get_cc_mask();
