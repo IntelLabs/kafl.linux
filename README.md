@@ -1,4 +1,6 @@
-# Linux branches for use with kAFL
+# Linux branches for fuzzing with kAFL
+
+WARNING - this project contains experimental and unsupported software for purpose of research. Do not use for production.
 
 Overview:
 
