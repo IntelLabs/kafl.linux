@@ -45,11 +45,20 @@ char hprintf_buffer[HPRINTF_MAX_SIZE] __attribute__((aligned(4096)));
 kafl_dump_file_t dump_file __attribute__((aligned(4096)));
 uint32_t location_stats[TDX_FUZZ_MAX];
 
+/* kmalloc() may not always be available - e.g. early boot */
+//#define KAFL_ASSUME_KMALLOC
+#ifdef KAFL_ASSUME_KMALLOC
 size_t payload_buffer_size = 0;
-uint8_t *payload_buffer = NULL;
-
 size_t observed_buffer_size = 0;
+uint8_t *payload_buffer = NULL;
 uint8_t *observed_buffer = NULL;
+#else
+size_t payload_buffer_size = PAYLOAD_MAX_SIZE;
+size_t observed_buffer_size = 2*PAYLOAD_MAX_SIZE;
+uint8_t payload_buffer[PAYLOAD_MAX_SIZE] __attribute__((aligned(4096)));
+uint8_t observed_buffer[2*PAYLOAD_MAX_SIZE] __attribute__((aligned(4096)));
+#endif
+
 
 static struct {
 		bool dump_observed;
@@ -194,15 +203,21 @@ void kafl_agent_init(void)
 	kafl_hprintf("[host_config] payload size = %dKB\n", host_config.payload_buffer_size/1024);
 	kafl_hprintf("[host_config] worker id = %02u\n", host_config.worker_id);
 
-	/* allocate payload buffer sufficient for host SHM */
+#ifdef KAFL_ASSUME_KMALLOC
 	payload_buffer_size = host_config.payload_buffer_size;
 	observed_buffer_size = 2*host_config.payload_buffer_size;
-	payload_buffer = kmalloc(payload_buffer_size, GFP_KERNEL);
-	observed_buffer = kmalloc(observed_buffer_size, GFP_KERNEL);
+	payload_buffer = kmalloc(payload_buffer_size, GFP_KERNEL|__GFP_NOFAIL);
+	observed_buffer = kmalloc(observed_buffer_size, GFP_KERNEL|__GFP_NOFAIL);
 
 	if (!payload_buffer || !observed_buffer) {
 		kafl_habort("Failed to allocate host payload buffer!\n");
 	}
+#else
+	if (host_config.payload_buffer_size > PAYLOAD_MAX_SIZE) {
+		kafl_habort("Insufficient payload buffer size!\n");
+	}
+#endif
+
 	/* ensure that the virtual memory is *really* present in physical memory... */
 	memset(payload_buffer, 0xff, payload_buffer_size);
 	memset(observed_buffer, 0xff, observed_buffer_size);

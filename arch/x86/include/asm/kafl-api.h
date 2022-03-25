@@ -62,7 +62,8 @@
 #define HYPERCALL_KAFL_NESTED_RELEASE		(3 | HYPERTRASH_HYPERCALL_MASK)
 #define HYPERCALL_KAFL_NESTED_HPRINTF		(4 | HYPERTRASH_HYPERCALL_MASK)gre
 
-#define HPRINTF_MAX_SIZE					0x1000					/* up to 4KB hprintf strings */
+#define PAYLOAD_MAX_SIZE			        (256 << 10)    /* up to 256KB payloads */
+#define HPRINTF_MAX_SIZE					0x1000         /* up to 4KB hprintf strings */
 
 typedef union {
 	struct {
