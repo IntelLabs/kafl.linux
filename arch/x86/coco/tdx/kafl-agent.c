@@ -471,8 +471,6 @@ size_t kafl_fuzz_buffer(void* fuzz_buf, const void *orig_buf,
 		kafl_agent_init();
 	}
 
-	num_fuzzed = _kafl_fuzz_buffer(fuzz_buf, num_bytes);
-
 	if (agent_flags.dump_callers) {
 		pr_warn("\nfuzz_var: %s[%ld], addr: %16lx, isr: %lx\n",
 				tdx_fuzz_loc_str[type], num_bytes, addr, in_interrupt());
@@ -481,6 +479,8 @@ size_t kafl_fuzz_buffer(void* fuzz_buf, const void *orig_buf,
 		}
 		dump_stack();
 	}
+
+	num_fuzzed = _kafl_fuzz_buffer(fuzz_buf, num_bytes);
 
 	if (agent_flags.dump_observed) {
 		// record input seen/used on this execution
