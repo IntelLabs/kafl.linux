@@ -131,7 +131,7 @@ void kafl_hprintf(const char *fmt, ...)
 static
 void kafl_dump_observed_payload(char *filename, int append, uint8_t *buf, uint32_t buflen)
 {
-	char fname_buf[128];
+	static char fname_buf[128];
 	strncpy(fname_buf, filename, sizeof(fname_buf));
 	dump_file.file_name_str_ptr = (uint64_t)fname_buf;
 	dump_file.data_ptr = (uint64_t)buf;
