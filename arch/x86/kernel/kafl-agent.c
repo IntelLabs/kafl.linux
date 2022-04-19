@@ -298,33 +298,6 @@ char *tdx_fuzz_loc_str[] = {
 	"VIRTIO",
 };
 
-static bool tdx_fuzz_port_allowed(short int port)
-{
-	switch (port) {
-	/* MC146818 RTC */
-	case 0x70 ... 0x71:
-	/* PCI */
-	case 0xcf8 ... 0xcff:
-		return true;
-	/* ACPI ports list:
-	 * 0600-0603 : ACPI PM1a_EVT_BLK
-	 * 0604-0605 : ACPI PM1a_CNT_BLK
-	 * 0608-060b : ACPI PM_TMR
-	 * 0620-062f : ACPI GPE0_BLK
-	 */
-	case 0x600 ... 0x62f:
-		return true;
-	/* COM1 */
-	case 0x3f8:
-	case 0x3f9:
-	case 0x3fa:
-	case 0x3fd:
-		return tdx_debug_enabled();
-	default:
-		return false;
-	}
-}
-
 u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 {
 	u64 var;
@@ -381,7 +354,7 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 		kafl_agent_init();
 	}
 
-	if (type == TDX_FUZZ_PORT_IN && tdx_fuzz_port_allowed(addr)) {
+	if (type == TDX_FUZZ_PORT_IN && !tdx_allowed_port(addr)) {
 		pr_warn("tdx_fuzz() for not-allowed port %ld\n", addr);
 	}
 
