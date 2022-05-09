@@ -915,12 +915,19 @@ config TDX_FUZZ
 	help
 	  Support fuzzing of TDX guests against attacks from hosts
 
+	  Implements a simple PRNG-based input injection for TDX fuzz hooks.
+	  Injection is configured using Linux fault injection framework.
+
 config TDX_FUZZ_KAFL
 	bool "kAFL Fuzzing for TDX"
 	depends on INTEL_TDX_GUEST && !TDX_FUZZ
 	select INTEL_TDX_KVM_SDV
 	help
 	  Support fuzzing of TDX guests using kAFL
+
+	  Implements fuzzing TDX VMM inputs (CPUID, MSR, PIO, MMIO)
+	  and VirtIO shared memory reads. Injection scope can be
+	  configured using pre-defined harnesses, KPROBE or debugfs.
 
 config TDX_FUZZ_KAFL_USE_RECOMMENDED
 	bool "Use recommended options"
@@ -970,7 +977,8 @@ config TDX_FUZZ_KAFL_VIRTIO
 	depends on TDX_FUZZ_KAFL
 	default n
 	help
-	  Inject fuzzing inputs for virtioXX_to_cpu wrappers.
+	  Enable VirtIO injection based on hooks to virtioXX_to_cpu
+	  and VirtIO shared memory reads (DMA).
 
 config TDX_FUZZ_KAFL_SKIP_MSR
 	bool "Disable fuzzing MSR inputs"
