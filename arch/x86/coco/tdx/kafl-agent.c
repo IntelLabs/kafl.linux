@@ -15,6 +15,7 @@
 #include <linux/string.h>
 #include <asm/tdx.h>
 #include <asm/trace/tdx.h>
+#include <asm-generic/sections.h>
 
 #include <linux/pci.h>
 #include <linux/msi.h>
@@ -81,9 +82,6 @@ const char *kafl_event_name[KAFL_EVENT_MAX] = {
 	"KAFL_ABORT",
 	"KAFL_SETCR3",
 	"KAFL_DONE",
-	"KAFL_PAUSE",
-	"KAFL_RESUME",
-	"KAFL_TRACE",
 	"KAFL_PANIC",
 	"KAFL_KASAN",
 	"KAFL_UBSAN",
@@ -92,32 +90,44 @@ const char *kafl_event_name[KAFL_EVENT_MAX] = {
 	"KAFL_SAFE_HALT",
 	"KAFL_TIMEOUT",
 	"KAFL_ERROR",
+	"KAFL_PAUSE",
+	"KAFL_RESUME",
+	"KAFL_TRACE",
 };
 
-void kafl_raise_panic(void) {
+static void kafl_raise_panic(void) {
 	kAFL_hypercall(HYPERCALL_KAFL_PANIC, 0);
 }
 
-void kafl_raise_kasan(void) {
+static void kafl_raise_kasan(void) {
 	kAFL_hypercall(HYPERCALL_KAFL_KASAN, 0);
 }
 
-void kafl_agent_setrange(void)
+static void kafl_agent_setrange(int id, void* start, void* end)
 {
-	uintptr_t ranges[3];
-	ranges[0] = (uintptr_t)&pci_scan_bridge & PAGE_MASK;
-	ranges[0] = (uintptr_t)&tdx_handle_virtualization_exception & PAGE_MASK;
-	//ranges[0] = (uintptr_t)&fuzzme & PAGE_MASK;
-	ranges[1] = ranges[0] + PAGE_SIZE;
-	ranges[2] = 0;
-	kafl_hprintf("Setting range %lu: %lx-%lx\n", ranges[2], ranges[0], ranges[1]);
-	kAFL_hypercall(HYPERCALL_KAFL_RANGE_SUBMIT, (uintptr_t)ranges);
+	uintptr_t range[3];
+	range[0] = (uintptr_t)start & PAGE_MASK;
+	range[1] = ((uintptr_t)end + PAGE_SIZE-1) & PAGE_MASK;
+	range[2] = id;
+
+	kafl_hprintf("Setting range %lu: %lx-%lx\n", range[2], range[0], range[1]);
+	kAFL_hypercall(HYPERCALL_KAFL_RANGE_SUBMIT, (uintptr_t)range);
 }
 
-void kafl_habort(char *msg)
+static void kafl_habort(char *msg)
 {
 	kAFL_hypercall(HYPERCALL_KAFL_USER_ABORT, (uintptr_t)msg);
 }
+
+// dedicated assert for raising kAFL/harness level issues
+#define kafl_assert(exp) \
+	do { \
+		if (!(exp)) { \
+			kafl_hprintf("kAFL ASSERT at %s:%d, %s\n", __FILE__, __LINE__, #exp); \
+			kafl_habort("assertion fail (see hprintf logs)"); \
+		} \
+		BUG_ON(!(exp)); \
+	} while (0)
 
 void kafl_hprintf(const char *fmt, ...)
 {
@@ -128,8 +138,7 @@ void kafl_hprintf(const char *fmt, ...)
 	va_end(args);
 }
 
-static
-void kafl_dump_observed_payload(char *filename, int append, uint8_t *buf, uint32_t buflen)
+static void kafl_dump_observed_payload(char *filename, int append, uint8_t *buf, uint32_t buflen)
 {
 	static char fname_buf[128];
 	strncpy(fname_buf, filename, sizeof(fname_buf));
@@ -141,18 +150,18 @@ void kafl_dump_observed_payload(char *filename, int append, uint8_t *buf, uint32
 	kAFL_hypercall(HYPERCALL_KAFL_DUMP_FILE, (uintptr_t)&dump_file);
 }
 
-void kafl_agent_setcr3(void)
+static void kafl_agent_setcr3(void)
 {
 	pr_debug("Submitting current CR3 value to hypervisor...\n");
 	kAFL_hypercall(HYPERCALL_KAFL_SUBMIT_CR3, 0);
 }
 
-void kafl_stats_clear(void)
+static void kafl_stats_clear(void)
 {
 	memset(location_stats, 0, sizeof(location_stats));
 }
 
-void kafl_trace_locations(void)
+static void kafl_trace_locations(void)
 {
 #ifdef CONFIG_TDX_FUZZ_KAFL_TRACE_LOCATIONS
 	printk("kAFL locations: msrs=%u, mmio=%u, pio=%u, virtio=%u, rng=%u; cpuid=<%u,%u,%u,%u>; err=<%u,%u,%u,%u>\n",
@@ -175,7 +184,7 @@ void kafl_trace_locations(void)
 	return;
 }
 
-void kafl_agent_init(void)
+static void kafl_agent_init(void)
 {
 	kAFL_payload *payload = NULL;
 
@@ -238,8 +247,9 @@ void kafl_agent_init(void)
 	agent_config.dump_payloads = 0;
 	kAFL_hypercall(HYPERCALL_KAFL_SET_AGENT_CONFIG, (uintptr_t)&agent_config);
 
-	// set IP filter range from agent?
-	//kafl_agent_setrange();
+	// set PT filter ranges based on exported linker map symbols in sections.h
+	kafl_agent_setrange(0, _stext, _etext);
+	kafl_agent_setrange(1, _sinittext, _einittext);
 
 	// fetch fuzz input for later #VE injection
 	kafl_hprintf("Starting kAFL loop...\n");
@@ -251,6 +261,7 @@ void kafl_agent_init(void)
 	ve_pos = 0;
 	ve_mis = 0;
 
+#ifndef CONFIG_TDX_FUZZ_KAFL_VANILLA_PAYLOAD
 	if (payload->flags.raw_data != 0) {
 		pr_debug("Runtime payload->flags=0x%04x\n", payload->flags.raw_data);
 		pr_debug("\t dump_observed = %u\n",         payload->flags.dump_observed);
@@ -263,10 +274,11 @@ void kafl_agent_init(void)
 		agent_flags.dump_callers  = payload->flags.dump_callers;
 
 		// dump modes are exclusive - sharing the observed_* and ob_* buffers
-		BUG_ON(agent_flags.dump_observed && agent_flags.dump_callers);
-		BUG_ON(agent_flags.dump_observed && agent_flags.dump_stats);
-		BUG_ON(agent_flags.dump_callers  && agent_flags.dump_stats);
+		kafl_assert(!(agent_flags.dump_observed && agent_flags.dump_callers));
+		kafl_assert(!(agent_flags.dump_observed && agent_flags.dump_stats));
+		kafl_assert(!(agent_flags.dump_callers  && agent_flags.dump_stats));
 	}
+#endif
 
 	if (agent_flags.dump_observed) {
 		ob_buf = observed_buffer;
@@ -281,7 +293,7 @@ void kafl_agent_init(void)
 	kAFL_hypercall(HYPERCALL_KAFL_ACQUIRE, 0); 
 }
 
-void kafl_agent_stats(void)
+static void kafl_agent_stats(void)
 {
 	if (!agent_initialized) {
 		// agent stats are undefined!
@@ -329,7 +341,7 @@ void kafl_agent_stats(void)
 	kafl_trace_locations();
 }
 
-void kafl_agent_done(void)
+static void kafl_agent_done(void)
 {
 	if (!agent_initialized) {
 		kafl_habort("Attempt to finish kAFL run but never initialized\n");
@@ -492,12 +504,18 @@ size_t kafl_fuzz_buffer(void* fuzz_buf, const void *orig_buf,
 
 		memcpy(ob_buf + ob_pos, fuzz_buf, num_fuzzed);
 		ob_pos += num_fuzzed;
-		memcpy(ob_buf + ob_pos, orig_buf, num_bytes-num_fuzzed);
+		// Avoid KASAN warnings on user memory access
+		if (access_ok(orig_buf, num_bytes-num_fuzzed)) {
+			copy_from_user(ob_buf + ob_pos, orig_buf, num_bytes-num_fuzzed);
+		} else {
+			memcpy(ob_buf + ob_pos, orig_buf, num_bytes-num_fuzzed);
+		}
 		ob_pos += (num_bytes-num_fuzzed);
 	}
 
 	return num_fuzzed;
 }
+EXPORT_SYMBOL(kafl_fuzz_buffer);
 
 u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 {
@@ -510,6 +528,7 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 	}
 	return orig_var;
 }
+EXPORT_SYMBOL(tdx_fuzz);
 
 bool tdx_fuzz_err(enum tdx_fuzz_loc type)
 {
@@ -524,6 +543,7 @@ bool tdx_fuzz_err(enum tdx_fuzz_loc type)
 	WARN(1,"tdx_fuzz_err() is not implemented\n");
 	return false;
 }
+EXPORT_SYMBOL(tdx_fuzz_err);
 
 struct disallowlist_entry {
         struct list_head next;
@@ -799,6 +819,7 @@ void kafl_fuzz_event(enum kafl_event e)
 			return kafl_habort("Unrecognized fuzz event.\n");
 	}
 }
+EXPORT_SYMBOL(kafl_fuzz_event);
 
 /*
  * Set verbosity of kernel to hprintf logging

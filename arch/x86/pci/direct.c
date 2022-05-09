@@ -35,12 +35,22 @@ static int pci_conf1_read(unsigned int seg, unsigned int bus,
 	switch (len) {
 	case 1:
 		*value = inb(0xCFC + (reg & 3));
+#ifdef CONFIG_TDX_FUZZ_KAFL_VANILLA_INJECTION_SAMPLE
+		/* quick hack to enable PIO injection for PCI read */
+		*value = tdx_fuzz(*value, 0xCFC + (reg & 3), len, TDX_FUZZ_PORT_IN);
+#endif
 		break;
 	case 2:
 		*value = inw(0xCFC + (reg & 2));
+#ifdef CONFIG_TDX_FUZZ_KAFL_VANILLA_INJECTION_SAMPLE
+		*value = tdx_fuzz(*value, 0xCFC + (reg & 2), len, TDX_FUZZ_PORT_IN);
+#endif
 		break;
 	case 4:
 		*value = inl(0xCFC);
+#ifdef CONFIG_TDX_FUZZ_KAFL_VANILLA_INJECTION_SAMPLE
+		*value = tdx_fuzz(*value, 0xCFC, len, TDX_FUZZ_PORT_IN);
+#endif
 		break;
 	}
 

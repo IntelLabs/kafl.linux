@@ -203,6 +203,10 @@ static inline unsigned char mmio_config_readb(void __iomem *pos)
 {
 	u8 val;
 	asm volatile("movb (%1),%%al" : "=a" (val) : "r" (pos));
+#ifdef CONFIG_TDX_FUZZ_KAFL_VANILLA_INJECTION_SAMPLE
+		/* quick hack to enable PIO injection for PCI read */
+		val = tdx_fuzz(val, (uintptr_t)pos, 1, TDX_FUZZ_MMIO_READ);
+#endif
 	return val;
 }
 
@@ -210,6 +214,9 @@ static inline unsigned short mmio_config_readw(void __iomem *pos)
 {
 	u16 val;
 	asm volatile("movw (%1),%%ax" : "=a" (val) : "r" (pos));
+#ifdef CONFIG_TDX_FUZZ_KAFL_VANILLA_INJECTION_SAMPLE
+		val = tdx_fuzz(val, (uintptr_t)pos, 2, TDX_FUZZ_MMIO_READ);
+#endif
 	return val;
 }
 
@@ -217,6 +224,9 @@ static inline unsigned int mmio_config_readl(void __iomem *pos)
 {
 	u32 val;
 	asm volatile("movl (%1),%%eax" : "=a" (val) : "r" (pos));
+#ifdef CONFIG_TDX_FUZZ_KAFL_VANILLA_INJECTION_SAMPLE
+		val = tdx_fuzz(val, (uintptr_t)pos, 4, TDX_FUZZ_MMIO_READ);
+#endif
 	return val;
 }
 

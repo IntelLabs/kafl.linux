@@ -342,7 +342,6 @@ static u64 _tdx_fuzz_msr_filtered(unsigned int msr, u64 orig)
                case MSR_SYSCALL_MASK:
                case MSR_IA32_XSS:
                case MSR_TSC_AUX:
-               case MSR_IA32_BNDCFGS:
                case MSR_IA32_SPEC_CTRL:
                case MSR_IA32_PRED_CMD:
                case MSR_IA32_FLUSH_CMD:
@@ -390,6 +389,9 @@ static u64 _tdx_fuzz_msr_filtered(unsigned int msr, u64 orig)
                case MSR_CORE_PERF_GLOBAL_CTRL:
                case MSR_CORE_PERF_GLOBAL_OVF_CTRL:
                case MSR_PERF_METRICS:
+               	       // HW injects #GP unless PERFMON=1
+               	       return orig;
+
                case MSR_IA32_RTIT_STATUS:
                case MSR_IA32_RTIT_ADDR0_A:
                case MSR_IA32_RTIT_ADDR0_B:
@@ -402,7 +404,7 @@ static u64 _tdx_fuzz_msr_filtered(unsigned int msr, u64 orig)
                case MSR_IA32_RTIT_CR3_MATCH:
                case MSR_IA32_RTIT_OUTPUT_BASE:
                case MSR_IA32_RTIT_OUTPUT_MASK:
-                       // HW injects #GP unless PERFMON=1
+                       // HW injects #GP unless XFAM[8]=1
                        return orig;
 
                case MSR_ARCH_LBR_INFO_0 ... MSR_ARCH_LBR_TO_0+0xff:
