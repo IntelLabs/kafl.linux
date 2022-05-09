@@ -15,6 +15,7 @@
 #include <linux/string.h>
 #include <asm/tdx.h>
 #include <asm/trace/tdx.h>
+#include <asm-generic/sections.h>
 
 #include <linux/pci.h>
 #include <linux/msi.h>
@@ -102,16 +103,15 @@ void kafl_raise_kasan(void) {
 	kAFL_hypercall(HYPERCALL_KAFL_KASAN, 0);
 }
 
-void kafl_agent_setrange(void)
+void kafl_agent_setrange(int id, void* start, void* end)
 {
-	uintptr_t ranges[3];
-	ranges[0] = (uintptr_t)&pci_scan_bridge & PAGE_MASK;
-	ranges[0] = (uintptr_t)&tdx_handle_virtualization_exception & PAGE_MASK;
-	//ranges[0] = (uintptr_t)&fuzzme & PAGE_MASK;
-	ranges[1] = ranges[0] + PAGE_SIZE;
-	ranges[2] = 0;
-	kafl_hprintf("Setting range %lu: %lx-%lx\n", ranges[2], ranges[0], ranges[1]);
-	kAFL_hypercall(HYPERCALL_KAFL_RANGE_SUBMIT, (uintptr_t)ranges);
+	uintptr_t range[3];
+	range[0] = (uintptr_t)start & PAGE_MASK;
+	range[1] = ((uintptr_t)end + PAGE_SIZE-1) & PAGE_MASK;
+	range[2] = id;
+
+	kafl_hprintf("Setting range %lu: %lx-%lx\n", range[2], range[0], range[1]);
+	kAFL_hypercall(HYPERCALL_KAFL_RANGE_SUBMIT, (uintptr_t)range);
 }
 
 void kafl_habort(char *msg)
@@ -238,8 +238,9 @@ void kafl_agent_init(void)
 	agent_config.dump_payloads = 0;
 	kAFL_hypercall(HYPERCALL_KAFL_SET_AGENT_CONFIG, (uintptr_t)&agent_config);
 
-	// set IP filter range from agent?
-	//kafl_agent_setrange();
+	// set PT filter ranges based on exported linker map symbols in sections.h
+	kafl_agent_setrange(0, _stext, _etext);
+	kafl_agent_setrange(1, _sinittext, _einittext);
 
 	// fetch fuzz input for later #VE injection
 	kafl_hprintf("Starting kAFL loop...\n");
