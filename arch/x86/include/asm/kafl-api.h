@@ -75,7 +75,9 @@ typedef union {
 } __attribute__((packed)) agent_flags_t;
 
 typedef struct {
+#ifndef CONFIG_TDX_FUZZ_KAFL_VANILLA_PAYLOAD
 	agent_flags_t flags;
+#endif
 	int32_t size;
 	uint8_t data[];
 } kAFL_payload;
