@@ -82,9 +82,6 @@ const char *kafl_event_name[KAFL_EVENT_MAX] = {
 	"KAFL_ABORT",
 	"KAFL_SETCR3",
 	"KAFL_DONE",
-	"KAFL_PAUSE",
-	"KAFL_RESUME",
-	"KAFL_TRACE",
 	"KAFL_PANIC",
 	"KAFL_KASAN",
 	"KAFL_UBSAN",
@@ -93,6 +90,9 @@ const char *kafl_event_name[KAFL_EVENT_MAX] = {
 	"KAFL_SAFE_HALT",
 	"KAFL_TIMEOUT",
 	"KAFL_ERROR",
+	"KAFL_PAUSE",
+	"KAFL_RESUME",
+	"KAFL_TRACE",
 };
 
 void kafl_raise_panic(void) {
