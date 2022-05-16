@@ -263,6 +263,7 @@ void kafl_agent_init(void)
 	ve_pos = 0;
 	ve_mis = 0;
 
+#ifndef CONFIG_TDX_FUZZ_KAFL_VANILLA_PAYLOAD
 	if (payload->flags.raw_data != 0) {
 		pr_debug("Runtime payload->flags=0x%04x\n", payload->flags.raw_data);
 		pr_debug("\t dump_observed = %u\n",         payload->flags.dump_observed);
@@ -279,6 +280,7 @@ void kafl_agent_init(void)
 		kafl_assert(!(agent_flags.dump_observed && agent_flags.dump_stats));
 		kafl_assert(!(agent_flags.dump_callers  && agent_flags.dump_stats));
 	}
+#endif
 
 	if (agent_flags.dump_observed) {
 		ob_buf = observed_buffer;
