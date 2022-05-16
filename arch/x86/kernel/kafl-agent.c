@@ -119,6 +119,17 @@ void kafl_habort(char *msg)
 	kAFL_hypercall(HYPERCALL_KAFL_USER_ABORT, (uintptr_t)msg);
 }
 
+// dedicated assert for raising kAFL/harness level issues
+#define kafl_assert(exp) \
+	do { \
+		if (!(exp)) { \
+			kafl_hprintf("kAFL ASSERT at %s:%d, %s\n", __FILE__, __LINE__, #exp); \
+			kafl_habort("assertion fail (see hprintf logs)"); \
+		} \
+		BUG_ON(!(exp)); \
+	} while (0)
+
+
 void kafl_hprintf(const char *fmt, ...)
 {
 	va_list args;
@@ -264,9 +275,9 @@ void kafl_agent_init(void)
 		agent_flags.dump_callers  = payload->flags.dump_callers;
 
 		// dump modes are exclusive - sharing the observed_* and ob_* buffers
-		BUG_ON(agent_flags.dump_observed && agent_flags.dump_callers);
-		BUG_ON(agent_flags.dump_observed && agent_flags.dump_stats);
-		BUG_ON(agent_flags.dump_callers  && agent_flags.dump_stats);
+		kafl_assert(!(agent_flags.dump_observed && agent_flags.dump_callers));
+		kafl_assert(!(agent_flags.dump_observed && agent_flags.dump_stats));
+		kafl_assert(!(agent_flags.dump_callers  && agent_flags.dump_stats));
 	}
 
 	if (agent_flags.dump_observed) {
