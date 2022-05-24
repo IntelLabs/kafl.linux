@@ -6467,6 +6467,18 @@ static void vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	if (vmx->nested.need_vmcs12_to_shadow_sync)
 		nested_sync_vmcs12_to_shadow(vcpu);
 
+	//printk("VMX: %s vcpu: rip: %lx[%d], rsp: %lx[%d], r8: %lx[%d], r9: %lx[%d]\n",
+	//	   	__func__,
+	//		vcpu->arch.regs[VCPU_REGS_RIP],
+	//		kvm_register_is_dirty(vcpu, VCPU_REGS_RIP),
+	//		vcpu->arch.regs[VCPU_REGS_RSP],
+	//		kvm_register_is_dirty(vcpu, VCPU_REGS_RSP),
+	//		vcpu->arch.regs[VCPU_REGS_R8],
+	//		kvm_register_is_dirty(vcpu, VCPU_REGS_R8),
+	//		vcpu->arch.regs[VCPU_REGS_R9],
+	//		kvm_register_is_dirty(vcpu, VCPU_REGS_R9)
+	//	  );
+
 	if (kvm_register_is_dirty(vcpu, VCPU_REGS_RSP))
 		vmcs_writel(GUEST_RSP, vcpu->arch.regs[VCPU_REGS_RSP]);
 	if (kvm_register_is_dirty(vcpu, VCPU_REGS_RIP))

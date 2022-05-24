@@ -9095,8 +9095,27 @@ static void __set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 
 int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
-	if (vcpu->arch.guest_state_encrypted)
+	/*
+	 * SEAM: Prevent userspace from restoring to legacy x86 reset vector.
+	 * Other RIPs are probably snapshot restore - allow them and globally
+	 * disable guest_state_encrypted to allow other _set() ioctls.
+	 */
+	if (vcpu->arch.guest_state_encrypted && regs->rip == 0xfff0) {
+		printk(KERN_DEBUG "SEAM: %s: rejecting RIP reset to %llx\n", __func__, regs->rip);
 		return -EINVAL;
+	} else {
+		vcpu->arch.guest_state_encrypted = false;
+	}
+
+	//printk("VMX: %s: vcpu[rip,rsp,r8,r9]: %lx,%lx,%lx,%lx <= regs: %llx,%llx,%llx,%llx\n",
+	//		__func__,
+	//		kvm_rip_read(vcpu),
+	//		kvm_rsp_read(vcpu),
+	//		kvm_r8_read(vcpu),
+	//		kvm_r9_read(vcpu),
+	//		regs->rip, regs->rsp,
+	//		regs->r8, regs->r9
+	//	  );
 
 	vcpu_load(vcpu);
 	__set_regs(vcpu, regs);
