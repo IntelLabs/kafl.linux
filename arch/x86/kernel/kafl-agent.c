@@ -506,7 +506,12 @@ size_t kafl_fuzz_buffer(void* fuzz_buf, const void *orig_buf,
 
 		memcpy(ob_buf + ob_pos, fuzz_buf, num_fuzzed);
 		ob_pos += num_fuzzed;
-		memcpy(ob_buf + ob_pos, orig_buf, num_bytes-num_fuzzed);
+		// Avoid KASAN warnings on user memory access
+		if (access_ok(orig_buf, num_bytes-num_fuzzed)) {
+			copy_from_user(ob_buf + ob_pos, orig_buf, num_bytes-num_fuzzed);
+		} else {
+			memcpy(ob_buf + ob_pos, orig_buf, num_bytes-num_fuzzed);
+		}
 		ob_pos += (num_bytes-num_fuzzed);
 	}
 
