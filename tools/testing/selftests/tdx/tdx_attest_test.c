@@ -20,6 +20,7 @@
 #define devname         "/dev/tdx-guest"
 #define HEX_DUMP_SIZE	8
 #define __packed       __attribute__((packed))
+#define QUOTE_SIZE	8192
 
 /*
  * Trusted Execution Environment (TEE) report (TDREPORT_STRUCT) type,
@@ -112,16 +113,11 @@ static void print_array_hex(const char *title, const char *prefix_str,
 }
 #endif
 
-TEST(verify_report)
+/* Helper function to get TDREPORT */
+long get_tdreport(int devfd, __u8 *reportdata, struct tdreport *tdreport)
 {
-	__u8 reportdata[TDX_REPORTDATA_LEN];
-	struct tdreport tdreport;
 	struct tdx_report_req req;
-	int devfd, i;
-
-	devfd = open(devname, O_RDWR | O_SYNC);
-
-	ASSERT_LT(0, devfd);
+	int i;
 
 	/* Generate sample report data */
 	for (i = 0; i < TDX_REPORTDATA_LEN; i++)
@@ -131,11 +127,24 @@ TEST(verify_report)
 	req.subtype     = 0;
 	req.reportdata  = (__u64)reportdata;
 	req.rpd_len     = TDX_REPORTDATA_LEN;
-	req.tdreport    = (__u64)&tdreport;
-	req.tdr_len     = sizeof(tdreport);
+	req.tdreport    = (__u64)tdreport;
+	req.tdr_len     = sizeof(*tdreport);
+
+	return ioctl(devfd, TDX_CMD_GET_REPORT, &req);
+}
+
+TEST(verify_report)
+{
+	__u8 reportdata[TDX_REPORTDATA_LEN];
+	struct tdreport tdreport;
+	int devfd;
+
+	devfd = open(devname, O_RDWR | O_SYNC);
+
+	ASSERT_LT(0, devfd);
 
 	/* Get TDREPORT */
-	ASSERT_EQ(0, ioctl(devfd, TDX_CMD_GET_REPORT, &req));
+	ASSERT_EQ(0, get_tdreport(devfd, reportdata, &tdreport));
 
 #ifdef DEBUG
 	print_array_hex("\n\t\tTDX report data\n", "",
@@ -150,6 +159,51 @@ TEST(verify_report)
 			    reportdata, sizeof(reportdata)));
 
 	ASSERT_EQ(0, close(devfd));
+}
+
+TEST(verify_quote)
+{
+	__u8 reportdata[TDX_REPORTDATA_LEN];
+	struct tdx_quote_hdr *quote_hdr;
+	struct tdx_quote_req req;
+	__u8 *quote_buf = NULL;
+	__u64 quote_buf_size;
+	int devfd;
+
+	/* Open attestation device */
+	devfd = open(devname, O_RDWR | O_SYNC);
+
+	ASSERT_LT(0, devfd);
+
+	/* Add size for quote header */
+	quote_buf_size = sizeof(*quote_hdr) + QUOTE_SIZE;
+
+	/* Allocate quote buffer */
+	quote_buf = malloc(quote_buf_size);
+	ASSERT_NE(NULL, quote_buf);
+
+	quote_hdr = (struct tdx_quote_hdr *)quote_buf;
+
+	/* Initialize GetQuote header */
+	quote_hdr->version = 1;
+	quote_hdr->status  = GET_QUOTE_SUCCESS;
+	quote_hdr->in_len  = TDX_REPORT_LEN;
+	quote_hdr->out_len = 0;
+
+	/* Get TDREPORT data */
+	ASSERT_EQ(0, get_tdreport(devfd, reportdata,
+				(struct tdreport *)&quote_hdr->data));
+
+	/* Fill GetQuote request */
+	req.buf	  = (__u64)quote_buf;
+	req.len	  = quote_buf_size;
+
+	ASSERT_EQ(0, ioctl(devfd, TDX_CMD_GET_QUOTE, &req));
+
+	/* Check whether GetQuote request is successful */
+	EXPECT_EQ(0, quote_hdr->status);
+
+	free(quote_buf);
 }
 
 TEST_HARNESS_MAIN
