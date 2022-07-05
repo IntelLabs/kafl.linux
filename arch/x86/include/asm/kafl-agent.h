@@ -40,8 +40,6 @@ size_t kafl_fuzz_buffer(void* fuzz_buf, const void *orig_buf, const uintptr_t ad
                         const size_t num_bytes, const enum tdx_fuzz_loc type);
 
 int kafl_vprintk(const char *fmt, va_list args);
-
 void kafl_hprintf(const char *fmt, ...) __attribute__ ((unused, format (printf, 1, 2)));
-void kafl_habort(char* msg) __attribute__ ((unused));
 
 #endif /* KAFL_AGENT_H */
