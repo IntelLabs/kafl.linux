@@ -189,6 +189,11 @@ extern void arch_kexec_pre_free_pages(void *vaddr, unsigned int pages);
 void arch_kexec_protect_crashkres(void);
 #define arch_kexec_protect_crashkres arch_kexec_protect_crashkres
 
+#ifdef CONFIG_UNACCEPTED_MEMORY
+int arch_kexec_load(void);
+#define arch_kexec_load arch_kexec_load
+#endif
+
 void arch_kexec_unprotect_crashkres(void);
 #define arch_kexec_unprotect_crashkres arch_kexec_unprotect_crashkres
 
