@@ -27,6 +27,9 @@
 
 #include "tdx.h"
 
+#define CREATE_TRACE_POINTS
+#include <asm/trace/tdx.h>
+
 /* MMIO direction */
 #define EPT_READ	0
 #define EPT_WRITE	1
@@ -53,6 +56,57 @@ static u64 td_attr;
 
 static struct miscdevice tdx_misc_dev;
 int tdx_notify_irq = -1;
+
+/* Traced version of __tdx_hypercall */
+static u64 __trace_tdx_hypercall(struct tdx_hypercall_args *args,
+		unsigned long flags)
+{
+	u64 err;
+
+	trace_tdx_hypercall_enter_rcuidle(args->r11, args->r12, args->r13,
+			args->r14, args->r15);
+	err = __tdx_hypercall(args, flags);
+	trace_tdx_hypercall_exit_rcuidle(err, args->r11, args->r12,
+			args->r13, args->r14, args->r15);
+
+	return err;
+}
+
+/* Traced version of __tdx_module_call */
+static u64 __trace_tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8,
+		u64 r9, struct tdx_module_output *out)
+{
+	struct tdx_module_output dummy_out;
+	u64 err;
+
+	if (!out)
+		out = &dummy_out;
+
+	trace_tdx_module_call_enter_rcuidle(fn, rcx, rdx, r8, r9);
+	err = __tdx_module_call(fn, rcx, rdx, r8, r9, out);
+	trace_tdx_module_call_exit_rcuidle(err, out->rcx, out->rdx,
+			out->r8, out->r9, out->r10, out->r11);
+
+	return err;
+}
+
+/*
+ * Wrapper for standard use of __tdx_hypercall with no output aside from
+ * return code.
+ */
+static inline u64 _trace_tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15)
+{
+	struct tdx_hypercall_args args = {
+		.r10 = TDX_HYPERCALL_STANDARD,
+		.r11 = fn,
+		.r12 = r12,
+		.r13 = r13,
+		.r14 = r14,
+		.r15 = r15,
+	};
+
+	return __trace_tdx_hypercall(&args, 0);
+}
 
 /* Called from __tdx_hypercall() for unrecoverable failure */
 void __tdx_hypercall_failed(void)
@@ -83,7 +137,7 @@ long tdx_kvm_hypercall(unsigned int nr, unsigned long p1, unsigned long p2,
 		.r14 = p4,
 	};
 
-	return __tdx_hypercall(&args, 0);
+	return __trace_tdx_hypercall(&args, 0);
 }
 EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
 #endif
@@ -96,7 +150,7 @@ EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
 static inline void tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 				   struct tdx_module_output *out)
 {
-	if (__tdx_module_call(fn, rcx, rdx, r8, r9, out))
+	if (__trace_tdx_module_call(fn, rcx, rdx, r8, r9, out))
 		panic("TDCALL %lld failed (Buggy TDX module!)\n", fn);
 }
 
@@ -119,7 +173,7 @@ static long tdx_hcall_set_notify_intr(u8 vector)
 	 * Interface (GHCI), sec titled
 	 * "TDG.VP.VMCALL<SetupEventNotifyInterrupt>".
 	 */
-	if (_tdx_hypercall(TDVMCALL_SETUP_NOTIFY_INTR, vector, 0, 0, 0))
+	if (_trace_tdx_hypercall(TDVMCALL_SETUP_NOTIFY_INTR, vector, 0, 0, 0))
 		return -EIO;
 
 	return 0;
@@ -230,7 +284,7 @@ static u64 __cpuidle __halt(const bool irq_disabled, const bool do_sti)
 	 * can keep the vCPU in virtual HLT, even if an IRQ is
 	 * pending, without hanging/breaking the guest.
 	 */
-	return __tdx_hypercall(&args, do_sti ? TDX_HCALL_ISSUE_STI : 0);
+	return __trace_tdx_hypercall(&args, do_sti ? TDX_HCALL_ISSUE_STI : 0);
 }
 
 static int handle_halt(struct ve_info *ve)
@@ -279,7 +333,7 @@ static int read_msr(struct pt_regs *regs, struct ve_info *ve)
 	 * can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), section titled "TDG.VP.VMCALL<Instruction.RDMSR>".
 	 */
-	if (__tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT))
+	if (__trace_tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT))
 		return -EIO;
 
 	regs->ax = lower_32_bits(args.r11);
@@ -301,7 +355,7 @@ static int write_msr(struct pt_regs *regs, struct ve_info *ve)
 	 * can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI) section titled "TDG.VP.VMCALL<Instruction.WRMSR>".
 	 */
-	if (__tdx_hypercall(&args, 0))
+	if (__trace_tdx_hypercall(&args, 0))
 		return -EIO;
 
 	return ve_instr_len(ve);
@@ -374,7 +428,7 @@ static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 	 * ABI can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), section titled "VP.VMCALL<Instruction.CPUID>".
 	 */
-	if (__tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT))
+	if (__trace_tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT))
 		return -EIO;
 
 	/*
@@ -401,7 +455,7 @@ static bool mmio_read(int size, unsigned long addr, unsigned long *val)
 		.r15 = *val,
 	};
 
-	if (__tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT))
+	if (__trace_tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT))
 		return false;
 	*val = args.r11;
 	return true;
@@ -409,8 +463,8 @@ static bool mmio_read(int size, unsigned long addr, unsigned long *val)
 
 static bool mmio_write(int size, unsigned long addr, unsigned long val)
 {
-	return !_tdx_hypercall(hcall_func(EXIT_REASON_EPT_VIOLATION), size,
-			       EPT_WRITE, addr, val);
+	return !_trace_tdx_hypercall(hcall_func(EXIT_REASON_EPT_VIOLATION), size,
+			EPT_WRITE, addr, val);
 }
 
 static int handle_mmio(struct pt_regs *regs, struct ve_info *ve)
@@ -637,7 +691,7 @@ static bool handle_in(struct pt_regs *regs, int size, int port)
 	 * in TDX Guest-Host-Communication Interface (GHCI) section titled
 	 * "TDG.VP.VMCALL<Instruction.IO>".
 	 */
-	success = !__tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT);
+	success = !__trace_tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT);
 
 	/* Update part of the register affected by the emulated instruction */
 	regs->ax &= ~mask;
@@ -771,6 +825,11 @@ static int virt_exception_user(struct pt_regs *regs, struct ve_info *ve)
  */
 static int virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
 {
+
+	trace_tdx_virtualization_exception_rcuidle(regs->ip, ve->exit_reason,
+			ve->exit_qual, ve->gpa, ve->instr_len, ve->instr_info,
+			regs->cx, regs->ax, regs->dx);
+
 	switch (ve->exit_reason) {
 	case EXIT_REASON_HLT:
 		return handle_halt(ve);
@@ -881,7 +940,8 @@ static unsigned long try_accept_one(phys_addr_t start, unsigned long len,
 	}
 
 	tdcall_rcx = start | page_size;
-	if (__tdx_module_call(TDX_ACCEPT_PAGE, tdcall_rcx, 0, 0, 0, NULL))
+	if (__trace_tdx_module_call(TDX_ACCEPT_PAGE, tdcall_rcx, 0, 0,
+				0, NULL))
 		return 0;
 
 	return accept_size;
@@ -901,7 +961,7 @@ static bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end,
 	 * can be found in TDX Guest-Host-Communication Interface (GHCI),
 	 * section "TDG.VP.VMCALL<MapGPA>"
 	 */
-	if (_tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0))
+	if (_trace_tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0))
 		return false;
 
 	/* private->shared conversion  requires only MapGPA call */
