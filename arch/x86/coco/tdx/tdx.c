@@ -6,6 +6,12 @@
 
 #include <linux/cpufeature.h>
 #include <linux/pci.h>
+#include <linux/miscdevice.h>
+#include <linux/mm.h>
+#include <linux/io.h>
+#include <linux/interrupt.h>
+#include <linux/irq.h>
+#include <linux/numa.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
 #include <asm/i8259.h>
@@ -13,6 +19,10 @@
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
 #include <asm/pgtable.h>
+#include <asm/irqdomain.h>
+#include <uapi/asm/tdx.h>
+
+#include "tdx.h"
 
 /* MMIO direction */
 #define EPT_READ	0
@@ -27,6 +37,11 @@
 #define VE_GET_IO_SIZE(e)	(((e) & GENMASK(2, 0)) + 1)
 #define VE_GET_PORT_NUM(e)	((e) >> 16)
 #define VE_IS_IO_STRING(e)	((e) & BIT(4))
+
+#define DRIVER_NAME	"tdx-guest"
+
+static struct miscdevice tdx_misc_dev;
+int tdx_notify_irq = -1;
 
 /* Called from __tdx_hypercall() for unrecoverable failure */
 void __tdx_hypercall_failed(void)
@@ -72,6 +87,31 @@ static inline void tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 {
 	if (__tdx_module_call(fn, rcx, rdx, r8, r9, out))
 		panic("TDCALL %lld failed (Buggy TDX module!)\n", fn);
+}
+
+/*
+ * tdx_hcall_set_notify_intr() - Setup Event Notify Interrupt Vector.
+ *
+ * @vector: Vector address to be used for notification.
+ *
+ * return 0 on success or failure error number.
+ */
+static long tdx_hcall_set_notify_intr(u8 vector)
+{
+	/* Minimum vector value allowed is 32 */
+	if (vector < 32)
+		return -EINVAL;
+
+	/*
+	 * Register callback vector address with VMM. More details
+	 * about the ABI can be found in TDX Guest-Host-Communication
+	 * Interface (GHCI), sec titled
+	 * "TDG.VP.VMCALL<SetupEventNotifyInterrupt>".
+	 */
+	if (_tdx_hypercall(TDVMCALL_SETUP_NOTIFY_INTR, vector, 0, 0, 0))
+		return -EIO;
+
+	return 0;
 }
 
 static u64 get_cc_mask(void)
@@ -772,3 +812,233 @@ void __init tdx_early_init(void)
 
 	pr_info("Guest detected\n");
 }
+
+static long tdx_get_report(void __user *argp)
+{
+	u8 *reportdata = NULL, *tdreport = NULL;
+	struct tdx_report_req req;
+	long ret;
+
+	if (copy_from_user(&req, argp, sizeof(req)))
+		return -EFAULT;
+
+	/*
+	 * Per TDX Module 1.0 specification, section titled
+	 * "TDG.MR.REPORT", REPORTDATA length is fixed as
+	 * TDX_REPORTDATA_LEN, TDREPORT length is fixed as
+	 * TDX_REPORTDATA_LEN, and TDREPORT subtype is fixed
+	 * as 0. Also check for valid user pointers.
+	 */
+	if (!req.reportdata || !req.tdreport ||
+	    req.subtype || req.rpd_len != TDX_REPORTDATA_LEN ||
+	    req.tdr_len != TDX_REPORT_LEN)
+		return -EINVAL;
+
+	reportdata = kzalloc(req.rpd_len, GFP_KERNEL);
+	if (!reportdata) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	tdreport = kzalloc(req.tdr_len, GFP_KERNEL);
+	if (!tdreport) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	if (copy_from_user(reportdata, u64_to_user_ptr(req.reportdata),
+			   req.rpd_len)) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	/*
+	 * Generate TDREPORT using "TDG.MR.REPORT" TDCALL.
+	 *
+	 * Get the TDREPORT using REPORTDATA as input. Refer to
+	 * section 22.3.3 TDG.MR.REPORT leaf in the TDX Module 1.0
+	 * Specification for detailed information.
+	 */
+	ret = __tdx_module_call(TDX_GET_REPORT, virt_to_phys(tdreport),
+				virt_to_phys(reportdata), req.subtype,
+				0, NULL);
+	if (ret) {
+		ret = -EIO;
+		goto out;
+	}
+
+	if (copy_to_user(u64_to_user_ptr(req.tdreport), tdreport, req.tdr_len))
+		ret = -EFAULT;
+
+out:
+	kfree(reportdata);
+	kfree(tdreport);
+	return ret;
+}
+
+static long tdx_verifyreport(void __user *argp)
+{
+	struct tdx_verifyreport_req req;
+	void *reportmac = NULL;
+	long ret;
+
+	/* Copy verifyrequest struct from the user buffer */
+	if (copy_from_user(&req, argp, sizeof(req)))
+		return -EFAULT;
+
+	/*
+	 * Per TDX Module 1.5 specification, section titled
+	 * "TDG.MR.VERIFYREPORT", REPORTMACSTRUCT length is
+	 * fixed as TDX_REPORTMACSTRUCT_LEN.
+	 */
+	if (req.rpm_len != TDX_REPORTMACSTRUCT_LEN)
+		return -EINVAL;
+
+	/* Allocate buffer space for REPORTMACSTRUCT */
+	reportmac = kmalloc(req.rpm_len, GFP_KERNEL);
+	if (!reportmac)
+		return -ENOMEM;
+
+	/* Copy REPORTDATA from the user buffer */
+	if (copy_from_user(reportmac, u64_to_user_ptr(req.reportmac),
+				req.rpm_len)) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	/*
+	 * Verify REPORTMACSTRUCT using "TDG.MR.VERIFYREPORT" TDCALL.
+	 *
+	 * Verify whether REPORTMACSTRUCT is created on current TEE on
+	 * the current platform. Refer to section 8.5.11
+	 * TDG.MR.VERIFYREPORT leaf in the TDX Module 1.5 Specification
+	 * for detailed information.
+	 */
+	ret = __tdx_module_call(TDX_VERIFYREPORT, virt_to_phys(reportmac),
+				0, 0, 0, NULL);
+	if (ret) {
+		pr_debug("VERIFYREPORT TDCALL failed, status:%lx\n", ret);
+		ret = -EIO;
+		goto out;
+	}
+
+	/* Copy TDREPORT back to the user buffer */
+	if (copy_to_user(u64_to_user_ptr(req.reportmac), reportmac,
+				req.rpm_len))
+		ret = -EFAULT;
+
+out:
+	kfree(reportmac);
+	return ret;
+}
+
+static long tdx_guest_ioctl(struct file *file, unsigned int cmd,
+			    unsigned long arg)
+{
+	void __user *argp = (void __user *)arg;
+	long ret = -EINVAL;
+
+	switch (cmd) {
+	case TDX_CMD_GET_REPORT:
+		ret = tdx_get_report(argp);
+		break;
+	case TDX_CMD_GET_QUOTE:
+		ret = tdx_get_quote(argp);
+		break;
+	case TDX_CMD_VERIFYREPORT:
+		ret = tdx_verifyreport(argp);
+		break;
+	default:
+		pr_debug("cmd %d not supported\n", cmd);
+		break;
+	}
+
+	return ret;
+}
+
+static const struct file_operations tdx_guest_fops = {
+	.owner		= THIS_MODULE,
+	.unlocked_ioctl	= tdx_guest_ioctl,
+	.llseek		= no_llseek,
+};
+
+static int __init tdx_guest_init(void)
+{
+	int ret;
+
+	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return -EIO;
+
+	tdx_misc_dev.name = DRIVER_NAME;
+	tdx_misc_dev.minor = MISC_DYNAMIC_MINOR;
+	tdx_misc_dev.fops = &tdx_guest_fops;
+
+	ret = misc_register(&tdx_misc_dev);
+	if (ret) {
+		pr_err("misc device registration failed\n");
+		return ret;
+	}
+
+	ret = tdx_attest_init(&tdx_misc_dev);
+	if (ret) {
+		pr_err("attestation init failed\n");
+		misc_deregister(&tdx_misc_dev);
+		return ret;
+	}
+
+	return 0;
+}
+device_initcall(tdx_guest_init)
+
+/* Reserve an IRQ from x86_vector_domain for TD event notification */
+static int __init tdx_arch_init(void)
+{
+	struct irq_alloc_info info;
+	struct irq_cfg *cfg;
+	int cpu;
+
+	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return 0;
+
+	/* Make sure x86 vector domain is initialized */
+	if (!x86_vector_domain) {
+		pr_err("x86 vector domain is NULL\n");
+		return 0;
+	}
+
+	init_irq_alloc_info(&info, NULL);
+
+	/*
+	 * Event notification vector will be delivered to the CPU
+	 * in which TDVMCALL_SETUP_NOTIFY_INTR hypercall is requested.
+	 * So set the IRQ affinity to the current CPU.
+	 */
+	cpu = get_cpu();
+
+	info.mask = cpumask_of(cpu);
+
+	tdx_notify_irq = irq_domain_alloc_irqs(x86_vector_domain, 1,
+				NUMA_NO_NODE, &info);
+
+	if (tdx_notify_irq < 0) {
+		pr_err("Event notification IRQ allocation failed %d\n",
+				tdx_notify_irq);
+		goto init_failed;
+	}
+
+	irq_set_handler(tdx_notify_irq, handle_edge_irq);
+
+	cfg = irq_cfg(tdx_notify_irq);
+	if (!cfg) {
+		pr_err("Event notification IRQ config not found\n");
+		goto init_failed;
+	}
+
+	if (tdx_hcall_set_notify_intr(cfg->vector))
+		pr_err("Setting event notification interrupt failed\n");
+
+init_failed:
+	put_cpu();
+	return 0;
+}
+arch_initcall(tdx_arch_init);
