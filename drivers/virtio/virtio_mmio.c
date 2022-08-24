@@ -603,6 +603,9 @@ static int virtio_mmio_probe(struct platform_device *pdev)
 	unsigned long magic;
 	int rc;
 
+	if (cc_platform_has(CC_ATTR_GUEST_HARDENED))
+		return -ENODEV;
+
 	vm_dev = devm_kzalloc(&pdev->dev, sizeof(*vm_dev), GFP_KERNEL);
 	if (!vm_dev)
 		return -ENOMEM;

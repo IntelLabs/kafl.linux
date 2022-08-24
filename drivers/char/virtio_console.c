@@ -1567,19 +1567,22 @@ static void handle_control_message(struct virtio_device *vdev,
 	struct port *port;
 	size_t name_size;
 	int err;
+	unsigned id, event;
 
 	cpkt = (struct virtio_console_control *)(buf->buf + buf->offset);
 
-	port = find_port_by_id(portdev, virtio32_to_cpu(vdev, cpkt->id));
-	if (!port &&
-	    cpkt->event != cpu_to_virtio16(vdev, VIRTIO_CONSOLE_PORT_ADD)) {
+	/* Make sure the host cannot change id or event under us */
+	id = virtio32_to_cpu(vdev, READ_ONCE(cpkt->id));
+	event = virtio16_to_cpu(vdev, cpkt->event);
+	port = find_port_by_id(portdev, id);
+	if (!port && event != VIRTIO_CONSOLE_PORT_ADD) {
 		/* No valid header at start of buffer.  Drop it. */
 		dev_dbg(&portdev->vdev->dev,
 			"Invalid index %u in control packet\n", cpkt->id);
 		return;
 	}
 
-	switch (virtio16_to_cpu(vdev, cpkt->event)) {
+	switch (event) {
 	case VIRTIO_CONSOLE_PORT_ADD:
 		if (port) {
 			dev_dbg(&portdev->vdev->dev,
@@ -1587,15 +1590,14 @@ static void handle_control_message(struct virtio_device *vdev,
 			send_control_msg(port, VIRTIO_CONSOLE_PORT_READY, 1);
 			break;
 		}
-		if (virtio32_to_cpu(vdev, cpkt->id) >=
-		    portdev->max_nr_ports) {
+		if (id >= portdev->max_nr_ports) {
 			dev_warn(&portdev->vdev->dev,
 				"Request for adding port with "
 				"out-of-bound id %u, max. supported id: %u\n",
 				cpkt->id, portdev->max_nr_ports - 1);
 			break;
 		}
-		add_port(portdev, virtio32_to_cpu(vdev, cpkt->id));
+		add_port(portdev, id);
 		break;
 	case VIRTIO_CONSOLE_PORT_REMOVE:
 		unplug_port(port);
@@ -1847,6 +1849,9 @@ static int init_vqs(struct ports_device *portdev)
 	int err;
 
 	nr_ports = portdev->max_nr_ports;
+	if (use_multiport(portdev) && nr_ports < 1)
+		return -EINVAL;
+
 	nr_queues = use_multiport(portdev) ? (nr_ports + 1) * 2 : 2;
 
 	vqs = kmalloc_array(nr_queues, sizeof(struct virtqueue *), GFP_KERNEL);

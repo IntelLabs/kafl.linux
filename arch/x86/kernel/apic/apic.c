@@ -53,6 +53,7 @@
 #include <asm/desc.h>
 #include <asm/hpet.h>
 #include <asm/mtrr.h>
+#include <asm/tdx.h>
 #include <asm/time.h>
 #include <asm/smp.h>
 #include <asm/mce.h>
@@ -1785,6 +1786,9 @@ static void __x2apic_enable(void)
 
 static int __init setup_nox2apic(char *str)
 {
+	if (cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return 0;
+
 	if (x2apic_enabled()) {
 		int apicid = native_apic_msr_read(APIC_ID);
 

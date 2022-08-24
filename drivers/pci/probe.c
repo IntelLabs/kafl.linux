@@ -602,7 +602,7 @@ static void pci_init_host_bridge(struct pci_host_bridge *bridge)
 	device_initialize(&bridge->dev);
 }
 
-struct pci_host_bridge *pci_alloc_host_bridge(size_t priv)
+static struct pci_host_bridge *__pci_alloc_host_bridge(size_t priv)
 {
 	struct pci_host_bridge *bridge;
 
@@ -614,6 +614,14 @@ struct pci_host_bridge *pci_alloc_host_bridge(size_t priv)
 	bridge->dev.release = pci_release_host_bridge_dev;
 
 	return bridge;
+}
+
+struct pci_host_bridge* pci_alloc_host_bridge(size_t priv)
+{
+	if (cc_platform_has(CC_ATTR_GUEST_HARDENED))
+		return NULL;
+
+	return __pci_alloc_host_bridge(priv);
 }
 EXPORT_SYMBOL(pci_alloc_host_bridge);
 
@@ -2450,9 +2458,14 @@ void pcie_report_downtraining(struct pci_dev *dev)
 
 static void pci_init_capabilities(struct pci_dev *dev)
 {
-	pci_ea_init(dev);		/* Enhanced Allocation */
+	if (!cc_platform_has(CC_ATTR_GUEST_HARDENED))
+		pci_ea_init(dev);	/* Enhanced Allocation */
+
 	pci_msi_init(dev);		/* Disable MSI */
 	pci_msix_init(dev);		/* Disable MSI-X */
+
+	if (cc_platform_has(CC_ATTR_GUEST_HARDENED))
+		return;
 
 	/* Buffers for saving PCIe and PCI-X capabilities */
 	pci_allocate_cap_save_buffers(dev);
@@ -2682,7 +2695,7 @@ int pci_scan_slot(struct pci_bus *bus, int devfn)
 	} while (fn >= 0);
 
 	/* Only one slot has PCIe device */
-	if (bus->self && nr)
+	if (bus->self && nr && !cc_platform_has(CC_ATTR_GUEST_HARDENED))
 		pcie_aspm_init_link_state(bus->self);
 
 	return nr;
@@ -3028,7 +3041,7 @@ struct pci_bus *pci_create_root_bus(struct device *parent, int bus,
 	int error;
 	struct pci_host_bridge *bridge;
 
-	bridge = pci_alloc_host_bridge(0);
+	bridge = __pci_alloc_host_bridge(0);
 	if (!bridge)
 		return NULL;
 

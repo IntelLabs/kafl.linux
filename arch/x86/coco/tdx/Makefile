@@ -1,3 +1,3 @@
 # SPDX-License-Identifier: GPL-2.0
 
-obj-y += tdx.o tdcall.o attest.o filter.o
+obj-y += tdx.o tdcall.o attest.o filter.o tdx-tests.o
