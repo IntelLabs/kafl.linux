@@ -39,8 +39,11 @@ struct ve_info {
 #ifdef CONFIG_INTEL_TDX_GUEST
 
 void __init tdx_early_init(void);
+bool tdx_debug_enabled(void);
 
 void tdx_get_ve_info(struct ve_info *ve);
+
+void __init tdx_filter_init(void);
 
 bool tdx_handle_virt_exception(struct pt_regs *regs, struct ve_info *ve);
 
@@ -50,10 +53,13 @@ bool tdx_early_handle_ve(struct pt_regs *regs);
 
 extern int tdx_notify_irq;
 
+bool tdx_allowed_port(short int port);
+
 #else
 
 static inline void tdx_early_init(void) { };
 static inline void tdx_safe_halt(void) { };
+static inline void tdx_filter_init(void) { };
 
 static inline bool tdx_early_handle_ve(struct pt_regs *regs) { return false; }
 

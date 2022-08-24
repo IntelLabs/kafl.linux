@@ -40,6 +40,14 @@
 
 #define DRIVER_NAME	"tdx-guest"
 
+/* TD Attributes masks */
+#define        ATTR_DEBUG_MODE                 BIT(0)
+
+/* Caches GPA width from TDG.VP.INFO TDCALL */
+static unsigned int gpa_width;
+/* Caches TD Attributes from TDG.VP.INFO TDCALL */
+static u64 td_attr;
+
 static struct miscdevice tdx_misc_dev;
 int tdx_notify_irq = -1;
 
@@ -114,17 +122,16 @@ static long tdx_hcall_set_notify_intr(u8 vector)
 	return 0;
 }
 
-static u64 get_cc_mask(void)
+static void tdx_parse_tdinfo(void)
 {
 	struct tdx_module_output out;
-	unsigned int gpa_width;
 
 	/*
 	 * TDINFO TDX module call is used to get the TD execution environment
 	 * information like GPA width, number of available vcpus, debug mode
-	 * information, etc. More details about the ABI can be found in TDX
-	 * Guest-Host-Communication Interface (GHCI), section 2.4.2 TDCALL
-	 * [TDG.VP.INFO].
+	 * information, TD attributes etc. More details about the ABI can be
+	 * found in TDX Guest-Host-Communication Interface (GHCI), section
+	 * 2.4.2 TDCALL [TDG.VP.INFO].
 	 *
 	 * The GPA width that comes out of this call is critical. TDX guests
 	 * can not meaningfully run without it.
@@ -133,6 +140,11 @@ static u64 get_cc_mask(void)
 
 	gpa_width = out.rcx & GENMASK(5, 0);
 
+	td_attr = out.rdx;
+}
+
+static u64 get_cc_mask(void)
+{
 	/*
 	 * The highest bit of a guest physical address is the "sharing" bit.
 	 * Set it for shared pages and clear it for private pages.
@@ -183,6 +195,16 @@ static int ve_instr_len(struct ve_info *ve)
 		WARN_ONCE(1, "Unexpected #VE-type: %lld\n", ve->exit_reason);
 		return ve->instr_len;
 	}
+}
+
+static bool is_td_attr_set(u64 mask)
+{
+	return !!(td_attr & mask);
+}
+
+bool tdx_debug_enabled(void)
+{
+	return is_td_attr_set(ATTR_DEBUG_MODE);
 }
 
 static u64 __cpuidle __halt(const bool irq_disabled, const bool do_sti)
@@ -464,6 +486,12 @@ static bool handle_in(struct pt_regs *regs, int size, int port)
 	u64 mask = GENMASK(BITS_PER_BYTE * size, 0);
 	bool success;
 
+	if (!tdx_allowed_port(port)) {
+		regs->ax &= ~mask;
+		regs->ax |= (UINT_MAX & mask);
+		return true;
+	}
+
 	/*
 	 * Emulate the I/O read via hypercall. More info about ABI can be found
 	 * in TDX Guest-Host-Communication Interface (GHCI) section titled
@@ -482,6 +510,9 @@ static bool handle_in(struct pt_regs *regs, int size, int port)
 static bool handle_out(struct pt_regs *regs, int size, int port)
 {
 	u64 mask = GENMASK(BITS_PER_BYTE * size, 0);
+
+	if (!tdx_allowed_port(port))
+		return true;
 
 	/*
 	 * Emulate the I/O write via hypercall. More info about ABI can be found
@@ -512,7 +543,6 @@ static int handle_io(struct pt_regs *regs, struct ve_info *ve)
 	in   = VE_IS_IO_IN(exit_qual);
 	size = VE_GET_IO_SIZE(exit_qual);
 	port = VE_GET_PORT_NUM(exit_qual);
-
 
 	if (in)
 		ret = handle_in(regs, size, port);
@@ -782,6 +812,12 @@ void __init tdx_early_init(void)
 
 	if (memcmp(TDX_IDENT, sig, sizeof(sig)))
 		return;
+
+	/*
+	 * Initializes gpa_width and td_attr. Must be called
+	 * before is_td_attr_set() or get_cc_mask().
+	 */
+	tdx_parse_tdinfo();
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
 	setup_clear_cpu_cap(X86_FEATURE_MCE);
