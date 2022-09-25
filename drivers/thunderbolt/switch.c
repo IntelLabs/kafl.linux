@@ -1618,7 +1618,9 @@ static ssize_t authorized_show(struct device *dev,
 			       struct device_attribute *attr,
 			       char *buf)
 {
-	return sprintf(buf, "%u\n", dev->authorized);
+	struct tb_switch *sw = tb_to_switch(dev);
+
+	return sprintf(buf, "%u\n", sw->authorized);
 }
 
 static int disapprove_switch(struct device *dev, void *not_used)
@@ -1627,7 +1629,7 @@ static int disapprove_switch(struct device *dev, void *not_used)
 	struct tb_switch *sw;
 
 	sw = tb_to_switch(dev);
-	if (sw && sw->dev.authorized) {
+	if (sw && sw->authorized) {
 		int ret;
 
 		/* First children */
@@ -1639,7 +1641,7 @@ static int disapprove_switch(struct device *dev, void *not_used)
 		if (ret)
 			return ret;
 
-		dev->authorized = false;
+		sw->authorized = 0;
 		kobject_uevent_env(&sw->dev.kobj, KOBJ_CHANGE, envp);
 	}
 
@@ -1655,7 +1657,7 @@ static int tb_switch_set_authorized(struct tb_switch *sw, unsigned int val)
 	if (!mutex_trylock(&sw->tb->lock))
 		return restart_syscall();
 
-	if (sw->dev.authorized == !!val)
+	if (!!sw->authorized == !!val)
 		goto unlock;
 
 	switch (val) {
@@ -1686,12 +1688,12 @@ static int tb_switch_set_authorized(struct tb_switch *sw, unsigned int val)
 	}
 
 	if (!ret) {
-		sw->dev.authorized = !!val;
+		sw->authorized = val;
 		/*
 		 * Notify status change to the userspace, informing the new
 		 * value of /sys/bus/thunderbolt/devices/.../authorized.
 		 */
-		sprintf(envp_string, "AUTHORIZED=%u", sw->dev.authorized);
+		sprintf(envp_string, "AUTHORIZED=%u", sw->authorized);
 		kobject_uevent_env(&sw->dev.kobj, KOBJ_CHANGE, envp);
 	}
 
@@ -1793,7 +1795,7 @@ static ssize_t key_store(struct device *dev, struct device_attribute *attr,
 	if (!mutex_trylock(&sw->tb->lock))
 		return restart_syscall();
 
-	if (sw->dev.authorized) {
+	if (sw->authorized) {
 		ret = -EBUSY;
 	} else {
 		kfree(sw->key);
@@ -2322,7 +2324,7 @@ struct tb_switch *tb_switch_alloc(struct tb *tb, struct device *parent,
 
 	/* Root switch is always authorized */
 	if (!route)
-		sw->dev.authorized = true;
+		sw->authorized = true;
 
 	device_initialize(&sw->dev);
 	sw->dev.parent = parent;

@@ -1306,7 +1306,7 @@ static void tb_handle_hotplug(struct work_struct *work)
 		}
 	} else if (port->remote) {
 		tb_port_dbg(port, "got plug event for connected port, ignoring\n");
-	} else if (!port->port && sw->dev.authorized) {
+	} else if (!port->port && sw->authorized) {
 		tb_sw_dbg(sw, "xHCI connect request\n");
 		tb_switch_xhci_connect(sw);
 	} else {
@@ -1393,7 +1393,7 @@ static int tb_scan_finalize_switch(struct device *dev, void *data)
 		 * send uevent to userspace.
 		 */
 		if (sw->boot)
-			sw->dev.authorized = true;
+			sw->authorized = 1;
 
 		dev_set_uevent_suppress(dev, false);
 		kobject_uevent(&dev->kobj, KOBJ_ADD);
