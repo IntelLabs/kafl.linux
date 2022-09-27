@@ -262,7 +262,6 @@ bool tdx_allowed_port(int port)
 }
 
 void __init tdx_filter_init(void)
-		_eturn false;
 {
 	char a_allowed[60];
 	char *allowed;

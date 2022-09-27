@@ -2348,8 +2348,10 @@ struct console *early_console;
 asmlinkage __visible void early_printk(const char *fmt, ...)
 {
 	va_list ap;
+#ifndef CONFIG_TDX_FUZZ_KAFL
 	char buf[512];
 	int n;
+#endif
 
 	if (!early_console)
 		return;

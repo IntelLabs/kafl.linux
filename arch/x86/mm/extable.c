@@ -11,6 +11,9 @@
 #include <asm/kdebug.h>
 #include <asm/insn-eval.h>
 #include <asm/sgx.h>
+#ifdef CONFIG_TDX_FUZZ_KAFL
+#include <asm/kafl-agent.h>
+#endif //CONFIG_TDX_FUZZ_KAFL
 
 static inline unsigned long *pt_regs_nr(struct pt_regs *regs, int nr)
 {
