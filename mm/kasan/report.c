@@ -29,6 +29,9 @@
 #include <trace/events/error_report.h>
 
 #include <asm/sections.h>
+#ifdef CONFIG_TDX_FUZZ_KAFL
+#include <asm/kafl-agent.h>
+#endif
 
 #include <kunit/test.h>
 

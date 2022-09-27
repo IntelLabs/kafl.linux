@@ -506,7 +506,9 @@ size_t kafl_fuzz_buffer(void* fuzz_buf, const void *orig_buf,
 		ob_pos += num_fuzzed;
 		// Avoid KASAN warnings on user memory access
 		if (access_ok(orig_buf, num_bytes-num_fuzzed)) {
-			copy_from_user(ob_buf + ob_pos, orig_buf, num_bytes-num_fuzzed);
+			if (copy_from_user(ob_buf + ob_pos, orig_buf, num_bytes-num_fuzzed)) {
+				return -EFAULT;
+			}
 		} else {
 			memcpy(ob_buf + ob_pos, orig_buf, num_bytes-num_fuzzed);
 		}
@@ -586,7 +588,8 @@ static bool has_been_enabled = false;
 
 static int kp_handler_pre(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
-	struct kprobe *p = &ri->rph->rp->kp;
+	struct kretprobe *krp = get_kretprobe(ri);
+	struct kprobe *p = &krp->kp;
 	pr_info("pause fuzzing for '%s' fuzz_enabled=%d, agent_initialized=%d\n", p->symbol_name, fuzz_enabled, agent_initialized);
 	has_been_initialized = agent_initialized;
 	has_been_enabled = fuzz_enabled;
@@ -596,7 +599,8 @@ static int kp_handler_pre(struct kretprobe_instance *ri, struct pt_regs *regs)
 
 static int kp_handler_post(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
-	struct kprobe *p = &ri->rph->rp->kp;
+	struct kretprobe *krp = get_kretprobe(ri);
+	struct kprobe *p = &krp->kp;
 	// Reset fuzzing enable status
 	pr_info("reset fuzzing state for '%s' fuzz_enabled=%d, has_been_enabled=%d, agent_initialized=%d\n", p->symbol_name, fuzz_enabled, has_been_enabled, agent_initialized);
 	fuzz_enabled = has_been_enabled;
@@ -606,7 +610,8 @@ static int kp_handler_post(struct kretprobe_instance *ri, struct pt_regs *regs)
 
 static int kp_harness_handler_pre(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
-	struct kprobe *p = &ri->rph->rp->kp;
+	struct kretprobe *krp = get_kretprobe(ri);
+	struct kprobe *p = &krp->kp;
 
 	pr_info("start fuzzing for %s\n", p->symbol_name);
 	kafl_fuzz_event(KAFL_TRACE);
@@ -618,7 +623,8 @@ static int kp_harness_handler_pre(struct kretprobe_instance *ri, struct pt_regs 
 
 static int kp_harness_handler_post(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
-	struct kprobe *p = &ri->rph->rp->kp;
+	struct kretprobe *krp = get_kretprobe(ri);
+	struct kprobe *p = &krp->kp;
 
 	kafl_fuzz_event(KAFL_TRACE);
 	kafl_fuzz_event(KAFL_DONE);
