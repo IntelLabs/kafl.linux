@@ -327,15 +327,19 @@ static int read_msr(struct pt_regs *regs, struct ve_info *ve)
 		.r11 = hcall_func(EXIT_REASON_MSR_READ),
 		.r12 = regs->cx,
 	};
+	u64 ret;
 
 	/*
 	 * Emulate the MSR read via hypercall. More info about ABI
 	 * can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), section titled "TDG.VP.VMCALL<Instruction.RDMSR>".
 	 */
-	if (__trace_tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT))
+	ret = __trace_tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT);
+	if (ret || tdx_fuzz_err(TDX_FUZZ_MSR_READ_ERR))
 		return -EIO;
 
+	/* Should filter the MSRs to only fuzz host controlled */
+	args.r11 = tdx_fuzz(args.r11, TDX_FUZZ_MSR_READ);
 	regs->ax = lower_32_bits(args.r11);
 	regs->dx = upper_32_bits(args.r11);
 	return ve_instr_len(ve);
@@ -349,13 +353,15 @@ static int write_msr(struct pt_regs *regs, struct ve_info *ve)
 		.r12 = regs->cx,
 		.r13 = (u64)regs->dx << 32 | regs->ax,
 	};
+	u64 ret;
 
 	/*
 	 * Emulate the MSR write via hypercall. More info about ABI
 	 * can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI) section titled "TDG.VP.VMCALL<Instruction.WRMSR>".
 	 */
-	if (__trace_tdx_hypercall(&args, 0))
+	ret = __trace_tdx_hypercall(&args, 0);
+	if (ret || tdx_fuzz_err(TDX_FUZZ_MSR_WRITE_ERR))
 		return -EIO;
 
 	return ve_instr_len(ve);
@@ -436,10 +442,10 @@ static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 	 * EAX, EBX, ECX, EDX registers after the CPUID instruction execution.
 	 * So copy the register contents back to pt_regs.
 	 */
-	regs->ax = args.r12;
-	regs->bx = args.r13;
-	regs->cx = args.r14;
-	regs->dx = args.r15;
+	regs->ax = tdx_fuzz(args.r12, TDX_FUZZ_CPUID1);
+	regs->bx = tdx_fuzz(args.r13, TDX_FUZZ_CPUID2);
+	regs->cx = tdx_fuzz(args.r14, TDX_FUZZ_CPUID3);
+	regs->dx = tdx_fuzz(args.r15, TDX_FUZZ_CPUID4);
 
 	return ve_instr_len(ve);
 }
@@ -457,7 +463,7 @@ static bool mmio_read(int size, unsigned long addr, unsigned long *val)
 
 	if (__trace_tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT))
 		return false;
-	*val = args.r11;
+	*val = tdx_fuzz(args.r11, TDX_FUZZ_MMIO_READ);
 	return true;
 }
 
@@ -691,12 +697,13 @@ static bool handle_in(struct pt_regs *regs, int size, int port)
 	 * in TDX Guest-Host-Communication Interface (GHCI) section titled
 	 * "TDG.VP.VMCALL<Instruction.IO>".
 	 */
-	success = !__trace_tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT);
+	success = !__trace_tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT) &&
+		  !tdx_fuzz_err(TDX_FUZZ_PORT_IN_ERR);
 
 	/* Update part of the register affected by the emulated instruction */
 	regs->ax &= ~mask;
 	if (success)
-		regs->ax |= args.r11 & mask;
+		regs->ax |= tdx_fuzz(args.r11, TDX_FUZZ_PORT_IN) & mask;
 
 	return success;
 }
@@ -950,6 +957,8 @@ static unsigned long try_accept_one(phys_addr_t start, unsigned long len,
 static bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end,
 					bool enc)
 {
+	u64 ret;
+
 	if (!enc) {
 		/* Set the shared (decrypted) bits: */
 		start |= cc_mkdec(0);
@@ -961,7 +970,8 @@ static bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end,
 	 * can be found in TDX Guest-Host-Communication Interface (GHCI),
 	 * section "TDG.VP.VMCALL<MapGPA>"
 	 */
-	if (_trace_tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0))
+	ret = _trace_tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0);
+	if (ret || tdx_fuzz_err(TDX_FUZZ_MAP_ERR))
 		return false;
 
 	/* private->shared conversion  requires only MapGPA call */

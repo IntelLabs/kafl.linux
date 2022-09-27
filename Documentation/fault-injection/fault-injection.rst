@@ -52,6 +52,10 @@ Available fault injection capabilities
   status code is NVME_SC_INVALID_OPCODE with no retry. The status code and
   retry flag can be set via the debugfs.
 
+- fail_tdx
+
+  inject errors and flipped bits into Intel TDX TDCALL responses.
+
 
 Configure fault-injection capabilities behavior
 -----------------------------------------------
@@ -202,6 +206,48 @@ configuration of fault-injection capabilities.
 	use a negative errno, you better use 'printf' instead of 'echo', e.g.:
 	$ printf %#x -12 > retval
 
+- /sys/kernel/debug/fail_tdx/tdcall
+
+	enable flipping bits in TDX TDCALL responses
+
+- /sys/kernel/debug/fail_tdx/tderrors
+
+	enable injecting errors in TDX TDCALL responses
+
+- /sys/kernel/debug/fail_tdx/seed
+
+	set seed for random generator used for flipping bits in TDX TDCALL
+	responses. Note that each CPU has its own independent random generator.
+
+- /sys/kernel/debug/fail_tdx/num_change_bits
+
+	number of bits to change with tdcall=1 in TDX TDCALL responses.
+	when set to 64 the whole value is replaced with a randon number.
+	otherwise the number of bits specified are randomly flipped.
+
+- /sys/kernel/debug/fail_tdx/inject
+
+        a file that allows to write values to inject as output values
+        of TDCALL operations. This replaces the random bit flipping
+        when the file is open. Each write must be 16 bytes, with the
+        first 8 bytes being a location of the TDCALL (see
+        arch/x86/include/asm/tdx.h:tdx_fuzz_loc), and the second 8 bytes
+        the injected output value. This is intended for feedback fuzzers
+        to inject targetted values.
+
+- /sys/kernel/debug/fail_tdx/fallback
+
+        when set to true loop over the last inject values when the
+        inject input buffer runs out.
+
+- /sys/kernel/debug/fail_tdx/stats/*
+
+        some statistic counts on the value injection:
+        inject_success: Number of successfull injections
+        inject_miss_no_fallback: Injection failed with no input data
+        inject_fallback: Injection ran out of data and failed back to previous values.
+        inject_nmi_conflict: Injection race with NMIs.
+
 Boot option
 ^^^^^^^^^^^
 
@@ -214,6 +260,8 @@ use the boot option::
 	fail_make_request=
 	fail_futex=
 	mmc_core.fail_request=<interval>,<probability>,<space>,<times>
+
+        fail_tdx= [seed:N,][tdcall:1,][tderrors:1,][numbits:XX],<interval>,<probability>,<space>,<times>
 
 proc entries
 ^^^^^^^^^^^^
