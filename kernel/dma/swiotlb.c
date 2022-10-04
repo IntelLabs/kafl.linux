@@ -44,8 +44,8 @@
 #include <linux/of.h>
 #include <linux/of_fdt.h>
 #include <linux/of_reserved_mem.h>
-#include <linux/slab.h>
 #endif
+#include <linux/slab.h>
 
 #include <asm/io.h>
 #include <asm/dma.h>
