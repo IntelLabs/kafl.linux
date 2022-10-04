@@ -1149,10 +1149,14 @@ void __init tdx_early_init(void)
 	u64 cc_mask;
 	u32 eax, sig[3];
 
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	kafl_hprintf("TDX force enable..\n");
+#else
 	cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2],  &sig[1]);
 
 	if (memcmp(TDX_IDENT, sig, sizeof(sig)))
 		return;
+#endif
 
 	/*
 	 * Initializes gpa_width and td_attr. Must be called

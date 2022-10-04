@@ -19,6 +19,12 @@ void __tdx_hypercall_failed(void)
 	error("TDVMCALL failed. TDX module bug?");
 }
 
+
+#include <asm/kafl-api.h>
+static void kafl_hprintf(const char *msg) {
+	kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)msg);
+}
+
 bool early_is_tdx_guest(void)
 {
 	static bool once;
@@ -26,6 +32,11 @@ bool early_is_tdx_guest(void)
 
 	if (!IS_ENABLED(CONFIG_INTEL_TDX_GUEST))
 		return false;
+
+	if (IS_ENABLED(CONFIG_INTEL_TDX_KVM_SDV)) {
+		kafl_hprintf("TDX SDV force is_tdx_guest..\n");
+		return true;
+	}
 
 	if (!once) {
 		u32 eax, sig[3];
@@ -88,10 +99,14 @@ void early_tdx_detect(void)
 {
 	u32 eax, sig[3];
 
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	kafl_hprintf("TDX SDV force tdx_detect\n");
+#else
 	cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2],  &sig[1]);
 
 	if (memcmp(TDX_IDENT, sig, sizeof(sig)))
 		return;
+#endif
 
 	/* Use hypercalls instead of I/O instructions */
 	pio_ops.f_inb  = tdx_inb;
