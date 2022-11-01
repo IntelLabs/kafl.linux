@@ -9120,6 +9120,7 @@ int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 	vcpu_load(vcpu);
 	__set_regs(vcpu, regs);
 	vcpu_put(vcpu);
+	vcpu->arch.guest_seamregs_valid = false;
 	return 0;
 }
 
