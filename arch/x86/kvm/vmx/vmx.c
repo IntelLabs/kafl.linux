@@ -5352,7 +5352,7 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 #ifdef CONFIG_KVM_NYX
 		/* Page Dump Capability */
 		if (vcpu->arch.page_dump_bp){
-			if(vcpu->arch.eff_db[0] == vmcs_readl(GUEST_CS_BASE) + rip && vcpu->arch.page_dump_bp_cr3 == (kvm_read_cr3(vcpu) & 0xFFFFFFFFFFFFF000ULL)){
+			if(vcpu->arch.eff_db[0] == vmcs_readl(GUEST_CS_BASE) + kvm_run->debug.arch.pc && vcpu->arch.page_dump_bp_cr3 == (kvm_read_cr3(vcpu) & 0xFFFFFFFFFFFFF000ULL)){
 				kvm_run->exit_reason = KVM_EXIT_KAFL_PAGE_DUMP_BP;
 			}
 			else{

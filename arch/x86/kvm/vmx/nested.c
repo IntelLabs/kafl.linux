@@ -4927,7 +4927,7 @@ void nested_vmx_vmexit(struct kvm_vcpu *vcpu, u32 vm_exit_reason,
 
 	#ifdef CONFIG_KVM_NYX
 			/* required for Hypertrash redqueen */ 
-		update_exception_bitmap(vcpu);
+		vmx_update_exception_bitmap(vcpu);
 	#endif
 
 		return;
@@ -6275,7 +6275,7 @@ u64 g2va_to_g1pa(struct kvm_vcpu *vcpu, struct vmcs12* vmcs12, u64 addr){
 	/* Guest Level 1 VMM is not using EPT and no virtual memory */
 	if(!nested_cpu_has_ept(vmcs12)){
 		//printk("Non-EPT-Mode\n");
-		gfn = vcpu->arch.mmu->gva_to_gpa(vcpu, addr, 0, NULL) >> 12;
+		gfn = vcpu->arch.mmu->gva_to_gpa(vcpu, vcpu->arch.mmu, addr, 0, NULL) >> 12;
 	}
 
 	/* Guest Level 1 VMM *is* using EPT and no virtual memory */
@@ -6287,7 +6287,7 @@ u64 g2va_to_g1pa(struct kvm_vcpu *vcpu, struct vmcs12* vmcs12, u64 addr){
 	//u8 data[8];
 	//r = kvm_read_guest_page_mmu(vcpu, vcpu->arch.walk_mmu, gfn, data, 0, 8, 0);
 	//printk("Data:\t%lx\t%x %x %x %x (Status: %lx)\n", guest_level_2_data_addr, data[0], data[1], data[2], data[3], r);
-	real_gfn = (u64)(vcpu->arch.walk_mmu->translate_gpa(vcpu, ((u64)gfn) << 12, 0, NULL));
+	real_gfn = (u64)kvm_translate_gpa(vcpu, vcpu->arch.mmu, ((u64)gfn) << 12, 0, NULL);
 
 	return real_gfn;
 }
