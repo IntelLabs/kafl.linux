@@ -74,6 +74,25 @@ MODULE_LICENSE("GPL");
 #include "vmx_pt.h"
 #include "vmx_fdl.h"
 static int handle_monitor_trap(struct kvm_vcpu *vcpu);
+
+static int vmx_pt_setup_fd(struct kvm_vcpu *vcpu)
+{
+	return vmx_pt_create_fd(to_vmx(vcpu)->vmx_pt_config);
+}
+
+static int vmx_pt_is_enabled(void)
+{
+	return vmx_pt_enabled();
+}
+
+static int vmx_pt_get_addrn(void)
+{
+	int r = vmx_pt_enabled();
+	if(r == 1){
+		return vmx_pt_get_addrn_value();
+	}
+	return r;
+}
 #endif
 
 #ifdef MODULE
@@ -5261,7 +5280,7 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 #ifdef CONFIG_KVM_NYX
 		/* Page Dump Capability */
 		if (vcpu->arch.page_dump_bp){
-			if(vcpu->arch.eff_db[0] == vmcs_readl(GUEST_CS_BASE) + rip && vcpu->arch.page_dump_bp_cr3 == (kvm_read_cr3(vcpu) & 0xFFFFFFFFFFFFF000ULL)){
+			if(vcpu->arch.eff_db[0] == vmcs_readl(GUEST_CS_BASE) + kvm_run->debug.arch.pc && vcpu->arch.page_dump_bp_cr3 == (kvm_read_cr3(vcpu) & 0xFFFFFFFFFFFFF000ULL)){
 				kvm_run->exit_reason = KVM_EXIT_KAFL_PAGE_DUMP_BP;
 			}
 			else{
@@ -8179,25 +8198,7 @@ void vmx_update_cpu_dirty_logging(struct kvm_vcpu *vcpu)
 		secondary_exec_controls_clearbit(vmx, SECONDARY_EXEC_ENABLE_PML);
 }
 
-#ifdef CONFIG_KVM_NYX
-static int vmx_pt_setup_fd(struct kvm_vcpu *vcpu){
-	return vmx_pt_create_fd(to_vmx(vcpu)->vmx_pt_config);
-}
-
-static int vmx_pt_is_enabled(void){
-	return vmx_pt_enabled();
-}
-
-static int vmx_pt_get_addrn(void){
-	int r = vmx_pt_enabled();
-	if(r == 1){
-		return vmx_pt_get_addrn_value();
-	}
-	return r;
-}
-#endif	
-
-static void vmx_setup_mce(struct kvm_vcpu *vcpu)
+void vmx_setup_mce(struct kvm_vcpu *vcpu)
 {
 	if (vcpu->arch.mcg_cap & MCG_LMCE_P)
 		to_vmx(vcpu)->msr_ia32_feature_control_valid_bits |=
@@ -8875,5 +8876,4 @@ static int __init vmx_init(void)
 
 	return 0;
 }
-<<<<<<< HEAD
 module_init(vmx_init);

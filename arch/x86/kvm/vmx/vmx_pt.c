@@ -243,7 +243,7 @@ static int vmx_pt_mmap(struct file *filp, struct vm_area_struct *vma)
 	if ((vma->vm_end-vma->vm_start) > (TOPA_MAIN_SIZE+TOPA_FALLBACK_SIZE)){
 		return -EINVAL;
 	}
-	vma->vm_flags = (VM_READ | VM_SHARED | VM_DENYWRITE); 
+	vma->vm_flags = (VM_READ | VM_SHARED); 
 	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
