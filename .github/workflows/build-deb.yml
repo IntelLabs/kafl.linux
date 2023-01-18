@@ -1,21 +1,22 @@
 name: Build
 
 on:
-  push:
-    branches:
-      - '*nyx*'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'branch name to build'
+        required: true
+        default: 'kvm-nyx-5.10.73'
 
 jobs:
   debian_package:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "nyx_branch=${GITHUB_REF##*/}" >> $GITHUB_ENV
-
       - uses: actions/checkout@v3
         with:
-          ref: ${{ env.nyx_branch }}
+          ref: ${{ inputs.branch }}
           path: sources
-          
+
       - name: Install ccache
         run: sudo apt-get install -y ccache
 
@@ -37,9 +38,9 @@ jobs:
       - uses: actions/cache@v3
         with:
           path: ~/.cache/ccache
-          key: "${{ runner.os }}-${{ env.nyx_branch }}-${{ hashFiles('.config') }}"
+          key: "${{ runner.os }}-${{ inputs.branch }}-${{ hashFiles('.config') }}"
           restore-keys: |
-            "${{ runner.os }}-${{ env.nyx_branch }}"
+            "${{ runner.os }}-${{ inputs.branch }}"
             "${{ runner.os }}"
 
       - name: Build kernel
@@ -50,5 +51,5 @@ jobs:
 
       - uses: actions/upload-artifact@v3
         with:
-          name: linux-${{ env.nyx_branch }}
+          name: linux-${{ inputs.branch }}
           path: '*.deb'
