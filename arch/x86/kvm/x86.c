@@ -83,7 +83,6 @@
 
 #ifdef CONFIG_KVM_NYX
 #include "vmx/vmx_pt.h"
-#include "vmx/vmx_fdl.h"
 #endif
 
 #define CREATE_TRACE_POINTS
@@ -4507,7 +4506,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		r = 1;
 		break;
 	case KVM_NYX_FDL:
-		r = 1;
+		r = 0;
 		break;
 #endif
 	default:
@@ -6926,7 +6925,7 @@ set_pit2_out:
 		break;
 #ifdef CONFIG_KVM_NYX
 	case KVM_VMX_FDL_SETUP_FD: 
-		r = vmx_fdl_create_fd(kvm->arch.fdl_opaque);
+		r = -EPERM;
 		break;
 #endif
 	default:
@@ -9543,7 +9542,6 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 	unsigned long nr, a0, a1, a2, a3, ret;
 	int op_64_bit;
 #ifdef CONFIG_KVM_NYX
-	int r = 1;
 	struct kvm *kvm = vcpu->kvm;
 #endif
 
@@ -9574,11 +9572,10 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 	/* kAFL Hypercall Interface (ring 0) */
 	
 	if(kvm_x86_ops.get_cpl(vcpu) == 0) {
-		r = 0;
 		if(kvm->arch.printk_addr && kvm->arch.printk_addr == kvm_register_read(vcpu, VCPU_REGS_RIP)){
 			vcpu->run->exit_reason = KVM_EXIT_KAFL_PRINTK; 
 			kvm_x86_ops.skip_emulated_instruction(vcpu);
-			return r;
+			return 0;
 		}
 	}
 
@@ -9587,8 +9584,6 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 #ifdef CONFIG_KVM_NYX
 	/* kAFL Hypercall interface */
 	if (nr == HYPERCALL_KAFL_RAX_ID){
-		r = 0;
-		
 		switch(a0){
 			case (KVM_EXIT_KAFL_SUBMIT_CR3-KAFL_EXIT_OFFSET):
 			case (KVM_EXIT_KAFL_USER_FAST_ACQUIRE-KAFL_EXIT_OFFSET): 
@@ -9611,7 +9606,7 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 
 		
 		kvm_x86_ops.skip_emulated_instruction(vcpu);
-		return r;
+		return 0;
 	}
 #endif
 
@@ -12234,8 +12229,6 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	kvm_xen_init_vm(kvm);
 
 #ifdef CONFIG_KVM_NYX
-	kvm->arch.fdl_opaque = NULL; 
-	vmx_fdl_setup(&(kvm->arch.fdl_opaque));
 	kvm->arch.printk_addr = 0;
 #endif
 	return static_call(kvm_x86_vm_init)(kvm);
@@ -12378,9 +12371,6 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
 	kvm_pic_destroy(kvm);
 	kvm_ioapic_destroy(kvm);
 	kvm_destroy_vcpus(kvm);
-#ifdef CONFIG_KVM_NYX
-	vmx_fdl_destroy(kvm->arch.fdl_opaque);
-#endif
 	kvfree(rcu_dereference_check(kvm->arch.apic_map, 1));
 	kfree(srcu_dereference_check(kvm->arch.pmu_event_filter, &kvm->srcu, 1));
 	kvm_mmu_uninit_vm(kvm);

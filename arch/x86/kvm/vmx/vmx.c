@@ -72,7 +72,6 @@ MODULE_LICENSE("GPL");
 
 #ifdef CONFIG_KVM_NYX
 #include "vmx_pt.h"
-#include "vmx_fdl.h"
 static int handle_monitor_trap(struct kvm_vcpu *vcpu);
 #endif
 
