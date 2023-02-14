@@ -23,12 +23,14 @@ jobs:
       - name: Install build deps
         run: sudo apt-get install -y libelf-dev
 
-      - name: Generate default config
-        run: make x86_64_defconfig
+      - name: Generate olddef config
+        run: make olddefconfig
         working-directory: sources
-        
+      
       - name: Enable Nyx
-        run: ./scripts/config --enable CONFIG_KVM_NYX
+        run: |
+          ./scripts/config --module CONFIG_KVM
+          ./scripts/config --enable CONFIG_KVM_NYX
         working-directory: sources
         
       - name: Append Nyx to kernel version
