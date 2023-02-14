@@ -24,7 +24,7 @@ jobs:
         run: sudo apt-get install -y libelf-dev
 
       - name: Generate olddef config
-        run: make olddefconfig
+        run: make x86_64_defconfig
         working-directory: sources
       
       - name: Configure kernel and enable Nyx
