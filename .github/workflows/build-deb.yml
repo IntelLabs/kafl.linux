@@ -27,8 +27,9 @@ jobs:
         run: make olddefconfig
         working-directory: sources
       
-      - name: Enable Nyx
+      - name: Configure kernel and enable Nyx
         run: |
+          ./scripts/config --disable SYSTEM_TRUSTED_KEYS
           ./scripts/config --module CONFIG_KVM
           ./scripts/config --enable CONFIG_KVM_NYX
         working-directory: sources
