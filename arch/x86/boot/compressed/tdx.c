@@ -16,6 +16,43 @@ void __tdx_hypercall_failed(void)
 	error("TDVMCALL failed. TDX module bug?");
 }
 
+#include <asm/kafl-api.h>
+static void kafl_hprintf(const char *msg) {
+	kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)msg);
+}
+
+static u64 get_cc_mask(void)
+{
+	struct tdx_module_output out;
+	unsigned int gpa_width;
+
+	/*
+	 * TDINFO TDX module call is used to get the TD execution environment
+	 * information like GPA width, number of available vcpus, debug mode
+	 * information, etc. More details about the ABI can be found in TDX
+	 * Guest-Host-Communication Interface (GHCI), section 2.4.2 TDCALL
+	 * [TDG.VP.INFO].
+	 *
+	 * The GPA width that comes out of this call is critical. TDX guests
+	 * can not meaningfully run without it.
+	 */
+	if (__tdx_module_call(TDX_GET_INFO, 0, 0, 0, 0, &out))
+		error("TDCALL GET_INFO failed (Buggy TDX module!)\n");
+
+	gpa_width = out.rcx & GENMASK(5, 0);
+
+	/*
+	 * The highest bit of a guest physical address is the "sharing" bit.
+	 * Set it for shared pages and clear it for private pages.
+	 */
+	return BIT_ULL(gpa_width - 1);
+}
+
+u64 cc_mkdec(u64 val)
+{
+	return val & ~cc_mask;
+}
+
 static inline unsigned int tdx_io_in(int size, u16 port)
 {
 	struct tdx_hypercall_args args = {
@@ -65,10 +102,14 @@ void early_tdx_detect(void)
 {
 	u32 eax, sig[3];
 
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	kafl_hprintf("TDX SDV force tdx_detect\n");
+#else
 	cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2],  &sig[1]);
 
 	if (memcmp(TDX_IDENT, sig, sizeof(sig)))
 		return;
+#endif
 
 	/* Use hypercalls instead of I/O instructions */
 	pio_ops.f_inb  = tdx_inb;
