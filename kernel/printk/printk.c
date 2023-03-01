@@ -51,6 +51,10 @@
 #include <linux/uaccess.h>
 #include <asm/sections.h>
 
+#ifdef CONFIG_TDX_FUZZ_KAFL
+#include <asm/kafl-agent.h>
+#endif
+
 #include <trace/events/initcall.h>
 #define CREATE_TRACE_POINTS
 #include <trace/events/printk.h>
@@ -2334,7 +2338,11 @@ asmlinkage __visible int _printk(const char *fmt, ...)
 	int r;
 
 	va_start(args, fmt);
+#ifndef CONFIG_TDX_FUZZ_KAFL
 	r = vprintk(fmt, args);
+#else
+	r = kafl_vprintk(fmt, args);
+#endif
 	va_end(args);
 
 	return r;
@@ -2381,17 +2389,23 @@ struct console *early_console;
 asmlinkage __visible void early_printk(const char *fmt, ...)
 {
 	va_list ap;
+#ifndef CONFIG_TDX_FUZZ_KAFL
 	char buf[512];
 	int n;
+#endif
 
 	if (!early_console)
 		return;
 
 	va_start(ap, fmt);
+#ifndef CONFIG_TDX_FUZZ_KAFL
 	n = vscnprintf(buf, sizeof(buf), fmt, ap);
+	early_console->write(early_console, buf, n);
+#else
+	kafl_vprintk(fmt, ap);
+#endif
 	va_end(ap);
 
-	early_console->write(early_console, buf, n);
 }
 #endif
 
@@ -3830,8 +3844,12 @@ int vprintk_deferred(const char *fmt, va_list args)
 {
 	int r;
 
+#ifndef CONFIG_TDX_FUZZ_KAFL
 	r = vprintk_emit(0, LOGLEVEL_SCHED, NULL, fmt, args);
 	defer_console_output();
+#else
+	r = kafl_vprintk(fmt, args);
+#endif
 
 	return r;
 }
@@ -3842,7 +3860,11 @@ int _printk_deferred(const char *fmt, ...)
 	int r;
 
 	va_start(args, fmt);
+#ifndef CONFIG_TDX_FUZZ_KAFL
 	r = vprintk_deferred(fmt, args);
+#else
+	r = kafl_vprintk(fmt, args);
+#endif
 	va_end(args);
 
 	return r;
