@@ -976,6 +976,95 @@ config TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
 	  Code rewrite conflicts with kAFL PT decoding, breaking bitmaps & traces.
 	  This option disables rewriting paravirtualization code during boot.
 
+config TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	bool
+	depends on TDX_FUZZ_KAFL
+	help
+	 Enable initcall-specific harnesses.
+
+choice
+	prompt "Select fuzzing harness"
+	default TDX_FUZZ_HARNESS_NONE
+	depends on TDX_FUZZ_KAFL
+	help
+	 Select a predefined harness to execute as part of boot.
+
+config TDX_FUZZ_HARNESS_NONE
+	bool "None"
+	help
+	 Define your own kAFL harness.
+	 Use this to boot to userspace and launch via sharedir.
+
+config TDX_FUZZ_HARNESS_EARLYBOOT
+	bool "Early Boot"
+	help
+	 Fuzz early boot from start_kernel() to mm_init()
+
+config TDX_FUZZ_HARNESS_POST_TRAP
+	bool "Post-Trap"
+	help
+	  Fuzz boot sequence from MMU/trap setup to arch_call_rest_init()
+	
+	  Recommended options:
+	  - CONFIG_TDX_FUZZ_KAFL_SKIP_RNG_SEEDING = y
+	  - CONFIG_TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE = y
+	  - CONFIG_TDX_FUZZ_KAFL_DISABLE_CPUID_FUZZ = y
+	  - (CONFIG_TDX_FUZZ_KAFL_SKIP_ACPI_PI || CONFIG_TDX_FUZZ_KAFL_SKIP_IOAPIC_READS)
+
+config TDX_FUZZ_HARNESS_START_KERNEL
+	bool "Start_Kernel"
+	help
+	  Fuzz bulk of start_kernel(). Superset of Early-Boot + Post-Trap harness.
+
+config TDX_FUZZ_HARNESS_REST_INIT
+	bool "Rest-Init"
+	help
+	 Fuzz rest_init() up ramdisk entry
+
+config TDX_FUZZ_HARNESS_DO_BASIC
+	bool "Basic Setup"
+	help
+	  Fuzz do_basic_setup(), part of rest_init() and including all initcalls.
+
+config TDX_FUZZ_HARNESS_DOINITCALLS
+	bool "Initcall-Levels"
+	help
+	 Fuzz do_initcalls() loop. Select initcall level below.
+
+config TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+	select TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	bool "PCI init"
+	help
+	  Fuzz initcalls for basic PCI initialiation
+
+config TDX_FUZZ_HARNESS_DOINITCALLS_ACPI
+	select TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	bool "ACPI init"
+	help
+	  Fuzz initcalls for ACPI initialiation
+	  Reproducer for https://jira.devtools.intel.com/browse/LCK-10311
+
+config TDX_FUZZ_HARNESS_FULL_BOOT
+	bool "Full Boot"
+	help
+	  Wrap whole boot sequence from start_kernel() to executing 'init'.
+	  Mainly useful for tracing?
+
+endchoice
+
+config TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
+	int "Limit initcall fuzzing to level"
+	range 0 8
+	default 3
+	depends on TDX_FUZZ_HARNESS_DOINITCALLS
+	depends on TDX_FUZZ_KAFL
+	help
+	  Fuzz all initcalls at given level.
+	  Good catch-all option but can be slow and lack depth.
+
+	  Interesting stuff seems to happen mostly at levels 3 + 4.
+	  Some virtIO also on level 6.
+
 endif #HYPERVISOR_GUEST
 
 source "arch/x86/Kconfig.cpu"
