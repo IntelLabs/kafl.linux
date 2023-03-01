@@ -114,6 +114,10 @@
 
 #include <kunit/test.h>
 
+#ifdef CONFIG_TDX_FUZZ_KAFL
+#include <asm/kafl-agent.h>
+#endif
+
 static int kernel_init(void *);
 
 extern void init_IRQ(void);
@@ -941,12 +945,21 @@ static void __init print_unknown_bootoptions(void)
 	memblock_free(unknown_options, len);
 }
 
+static void __init _tdx_trace_locations(const char *label, const char *location)
+{
+}
+#define tdx_trace_locs(label) _tdx_trace_locations(label, __func__)
+
 asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
 
 	set_task_stack_end_magic(&init_task);
+	tdx_trace_locs("start_kernel");
+#if defined CONFIG_TDX_FUZZ_HARNESS_EARLYBOOT  || defined CONFIG_TDX_FUZZ_HARNESS_START_KERNEL || defined CONFIG_TDX_FUZZ_HARNESS_FULL_BOOT
+	kafl_fuzz_event(KAFL_ENABLE);
+#endif
 	smp_setup_processor_id();
 	debug_objects_early_init();
 	init_vmlinux_build_id();
@@ -1001,9 +1014,21 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	setup_log_buf(0);
 	vfs_caches_init_early();
 	sort_main_extable();
+#ifdef CONFIG_TDX_FUZZ_HARNESS_EARLYBOOT
+	// end of early boot harness before trap_init() / mm_init()?
+	kafl_fuzz_event(KAFL_DONE);
+#endif
+	tdx_trace_locs("trap_init");
+
 	trap_init();
 	mm_init();
 	poking_init();
+
+#ifdef CONFIG_TDX_FUZZ_HARNESS_POST_TRAP
+	kafl_fuzz_event(KAFL_ENABLE);
+#endif
+	tdx_trace_locs("post_trap");
+
 	ftrace_init();
 
 	/* trace_printk can be enabled here */
@@ -1147,6 +1172,15 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	acpi_subsystem_init();
 	arch_post_acpi_subsys_init();
 	kcsan_init();
+	
+#if defined CONFIG_TDX_FUZZ_HARNESS_POST_TRAP || defined CONFIG_TDX_FUZZ_HARNESS_START_KERNEL
+	// end of early boot fuzzing
+	kafl_fuzz_event(KAFL_DONE);
+#endif
+#if defined CONFIG_TDX_FUZZ_HARNESS_REST_INIT
+	kafl_fuzz_event(KAFL_ENABLE);
+#endif
+	tdx_trace_locs("rest_init");
 
 	/* Do the rest non-__init'ed, we're now alive */
 	arch_call_rest_init();
@@ -1263,11 +1297,54 @@ trace_initcall_finish_cb(void *data, initcall_t fn, int ret)
 	ktime_t rettime, *calltime = data;
 
 	rettime = ktime_get();
-	printk(KERN_DEBUG "initcall %pS returned %d after %lld usecs\n",
-		 fn, ret, (unsigned long long)ktime_us_delta(rettime, *calltime));
+	printk(KERN_DEBUG "initcall %pS returned %d after %lld usecs, irqs_disabled() %d\n",
+		 fn, ret, (unsigned long long)ktime_us_delta(rettime, *calltime), irqs_disabled());
 }
 
 static ktime_t initcall_calltime;
+
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+const char *fuzz_targets[] = {
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_PCI
+		/*
+		 * Basic PCI init - seems to work well and is stable
+		 */
+        "pci_subsys_init",
+        "pci_arch_init"
+
+		/*
+		 * No untrusted inputs consumed here
+		 * (all higher level PCI function should be disabled)
+		 *
+		"pci_iommu_init",
+		"pci_proc_init",
+		"pcie_portdrv_init",
+		"serial_pci_driver_init",
+		"ahci_pci_driver_init",
+		"xhci_pci_driver_init",
+
+		"pci_resource_alignment_sysfs_init",
+		"pci_sysfs_init",
+
+		"pcibus_class_init",
+		"pci_driver_init",
+
+		"acpi_pci_init",
+		 */
+#endif
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_ACPI
+		/* This one is fun but its not clear if bugs are real.
+		 *
+		 * Our setup triggers ACPI PIO to ranges that are not in tdx_allowed_port()
+		 * and prevent us from booting outside debug mode. It is not clear why
+		 * this is happening, could be the modified Qemu -machine type.
+		 *
+		 * Reproducer for https://jira.devtools.intel.com/browse/LCK-10311
+		 */
+		"acpi_init",
+#endif
+};
+#endif
 
 #ifdef TRACEPOINTS_ENABLED
 static void __init initcall_debug_enable(void)
@@ -1302,13 +1379,41 @@ int __init_or_module do_one_initcall(initcall_t fn)
 	int count = preempt_count();
 	char msgbuf[64];
 	int ret;
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	int i;
+	bool fuzzing = false;
+	static int fuzz_count = 0;
+#endif
 
 	if (initcall_blacklisted(fn))
 		return -EPERM;
 
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	for (i = 0; i < sizeof(fuzz_targets)/sizeof(char *); i++) {
+		char buf[128];
+		sprint_symbol_no_offset(buf, (unsigned long)fn);
+		if (strncmp(buf, fuzz_targets[i], 128) == 0) {
+			fuzzing = true;
+			fuzz_count++;
+			kafl_fuzz_event(KAFL_ENABLE);
+			break;
+		}
+	}
+#endif
+
 	do_trace_initcall_start(fn);
 	ret = fn();
 	do_trace_initcall_finish(fn, ret);
+
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	if (fuzzing) {
+		if (fuzz_count >= sizeof(fuzz_targets) / sizeof(char *)) {
+			kafl_fuzz_event(KAFL_DONE);
+		} else {
+			kafl_fuzz_event(KAFL_PAUSE);
+		}
+	}
+#endif
 
 	msgbuf[0] = 0;
 
@@ -1379,8 +1484,19 @@ static void __init do_initcall_level(int level, char *command_line)
 		   NULL, ignore_unknown_bootoption);
 
 	trace_initcall_level(initcall_level_names[level]);
+
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS
+	if (level == CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL)
+		kafl_fuzz_event(KAFL_ENABLE);
+#endif
+
 	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
 		do_one_initcall(initcall_from_entry(fn));
+
+#if defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS
+	if (level == CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL)
+		kafl_fuzz_event(KAFL_DONE);
+#endif
 }
 
 static void __init do_initcalls(void)
@@ -1412,10 +1528,16 @@ static void __init do_initcalls(void)
 static void __init do_basic_setup(void)
 {
 	cpuset_init_smp();
+#if defined CONFIG_TDX_FUZZ_HARNESS_DO_BASIC
+	kafl_fuzz_event(KAFL_ENABLE);
+#endif
 	driver_init();
 	init_irq_proc();
 	do_ctors();
 	do_initcalls();
+#if defined CONFIG_TDX_FUZZ_HARNESS_DO_BASIC || defined CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	kafl_fuzz_event(KAFL_DONE);
+#endif
 }
 
 static void __init do_pre_smp_initcalls(void)
@@ -1547,6 +1669,11 @@ static int __ref kernel_init(void *unused)
 	rcu_end_inkernel_boot();
 
 	do_sysctl_args();
+
+#if defined CONFIG_TDX_FUZZ_HARNESS_FULL_BOOT || defined CONFIG_TDX_FUZZ_HARNESS_REST_INIT
+	// End fuzzing before dropping to userspace
+	kafl_fuzz_event(KAFL_DONE);
+#endif
 
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
