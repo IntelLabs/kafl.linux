@@ -919,6 +919,31 @@ config TDX_FUZZ_KAFL
 	  and VirtIO shared memory reads. Injection scope can be
 	  configured using pre-defined harnesses, KPROBE or debugfs.
 
+config TDX_FUZZ_KAFL_USE_RECOMMENDED
+	bool "Use recommended options"
+	depends on TDX_FUZZ_KAFL && !JUMP_LABEL && !DYNAMIC_FTRACE && !KPROBES
+	select UNWINDER_FRAME_POINTER
+	select TDX_FUZZ_KAFL_DETERMINISTIC
+	select TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
+	select TDX_FUZZ_KAFL_SKIP_CPUID
+	default y
+	help
+	  Select recommended options for kAFL fuzzing.
+
+	  - Framepointer stack unwinder (ORC can cause libxdc decode errors)
+	  - Skip CPUID fuzzing (false positives, does not model real platform)
+
+	  Self-modifying will often conflict wiht the libxdc page cache,
+	  so try to avoid these for final/production harnesses:
+	  jump labels, paravirt, ftrace, kprobe, ...
+
+config TDX_FUZZ_KAFL_DETERMINISTIC
+	bool "Deterministic execution fixes"
+	depends on TDX_FUZZ_KAFL
+	default y
+	help
+	  Use strictly ordered workqueues and bypass PRNG seeding.
+
 config TDX_FUZZ_KAFL_DEBUGFS
 	bool "Enable debugfs interface"
 	depends on TDX_FUZZ_KAFL
