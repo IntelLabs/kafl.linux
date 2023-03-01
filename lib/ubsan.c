@@ -19,6 +19,10 @@
 
 #include "ubsan.h"
 
+#ifdef CONFIG_TDX_FUZZ_KAFL
+#include <asm/kafl-agent.h>
+#endif
+
 #ifdef CONFIG_UBSAN_TRAP
 /*
  * Only include matches for UBSAN checks that are actually compiled in.
@@ -84,6 +88,7 @@ const char *report_ubsan_failure(struct pt_regs *regs, u32 check_type)
 }
 
 #else
+
 static const char * const type_check_kinds[] = {
 	"load of",
 	"store to",
@@ -221,6 +226,10 @@ static void ubsan_epilogue(void)
 	current->in_ubsan--;
 
 	check_panic_on_warn("UBSAN");
+
+#ifdef CONFIG_TDX_FUZZ_KAFL
+	kafl_fuzz_event(KAFL_UBSAN);
+#endif
 }
 
 void __ubsan_handle_divrem_overflow(void *_data, void *lhs, void *rhs)
