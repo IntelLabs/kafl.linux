@@ -24,6 +24,8 @@
 #include <asm/pgtable.h>
 #include <asm/irqdomain.h>
 
+#include <asm/kafl-agent.h>
+
 #define CREATE_TRACE_POINTS
 #include <asm/trace/tdx.h>
 
@@ -63,11 +65,11 @@ static u64 __trace_tdx_hypercall(struct tdx_hypercall_args *args,
 {
 	u64 err;
 
-	trace_tdx_hypercall_enter_rcuidle(args->r11, args->r12, args->r13,
-			args->r14, args->r15);
+	//trace_tdx_hypercall_enter_rcuidle(args->r11, args->r12, args->r13,
+	//		args->r14, args->r15);
 	err = __tdx_hypercall(args, flags);
-	trace_tdx_hypercall_exit_rcuidle(err, args->r11, args->r12,
-			args->r13, args->r14, args->r15);
+	//trace_tdx_hypercall_exit_rcuidle(err, args->r11, args->r12,
+	//		args->r13, args->r14, args->r15);
 
 	return err;
 }
@@ -421,12 +423,124 @@ void __cpuidle tdx_safe_halt(void)
 {
 	const bool irq_disabled = false;
 
+#ifdef CONFIG_TDX_FUZZ_KAFL
+	// don't wait for guest to time out
+	kafl_fuzz_event(KAFL_SAFE_HALT);
+#endif
+
 	/*
 	 * Use WARN_ONCE() to report the failure.
 	 */
 	if (__halt(irq_disabled))
 		WARN_ONCE(1, "HLT instruction emulation failed\n");
 }
+
+static u64 _tdx_fuzz_msr_filtered(unsigned int msr, u64 orig)
+{
+       /* MSRs managed by HW - should not get these via #VE */
+       switch (msr) {
+               case MSR_EFER:
+               case MSR_IA32_CR_PAT:
+               case MSR_FS_BASE:
+               case MSR_GS_BASE:
+               case MSR_KERNEL_GS_BASE:
+               case MSR_IA32_SYSENTER_CS:
+               case MSR_IA32_SYSENTER_EIP:
+               case MSR_IA32_SYSENTER_ESP:
+               case MSR_STAR:
+               case MSR_LSTAR:
+               case MSR_SYSCALL_MASK:
+               case MSR_IA32_XSS:
+               case MSR_TSC_AUX:
+               case MSR_IA32_SPEC_CTRL:
+               case MSR_IA32_PRED_CMD:
+               case MSR_IA32_FLUSH_CMD:
+               case MSR_IA32_DS_AREA:
+                       BUG();
+       }
+
+       /* MSR exceptions - skip fuzzing MSRs that are debug-only
+        * or where HW injects an error - modulated by asm/msr-list.h */
+       switch (msr) {
+               case MSR_IA32_SMM_MONITOR_CTL:
+               case MSR_IA32_SMBASE:
+               case MSR_IA32_VMX_BASIC:
+               case MSR_IA32_VMX_PINBASED_CTLS:
+               case MSR_IA32_VMX_PROCBASED_CTLS:
+               case MSR_IA32_VMX_EXIT_CTLS:
+               case MSR_IA32_VMX_ENTRY_CTLS:
+               case MSR_IA32_VMX_MISC:
+               case MSR_IA32_VMX_CR0_FIXED0:
+               case MSR_IA32_VMX_CR0_FIXED1:
+               case MSR_IA32_VMX_CR4_FIXED0:
+               case MSR_IA32_VMX_CR4_FIXED1:
+               case MSR_IA32_VMX_VMCS_ENUM:
+               case MSR_IA32_VMX_PROCBASED_CTLS2:
+               case MSR_IA32_VMX_EPT_VPID_CAP:
+               case MSR_IA32_VMX_TRUE_PINBASED_CTLS:
+               case MSR_IA32_VMX_TRUE_PROCBASED_CTLS:
+               case MSR_IA32_VMX_TRUE_EXIT_CTLS:
+               case MSR_IA32_VMX_TRUE_ENTRY_CTLS:
+               case MSR_IA32_VMX_VMFUNC:
+               case MSR_IA32_BNDCFGS:
+               case MSR_IA32_PASID:
+               // HW injects #GP
+                       return orig;
+
+               case MSR_IA32_PERFCTR0:
+               case MSR_IA32_PERFCTR1:
+               case MSR_IA32_PERF_CAPABILITIES:
+               case MSR_CORE_PERF_FIXED_CTR0:
+               case MSR_CORE_PERF_FIXED_CTR1:
+               case MSR_CORE_PERF_FIXED_CTR2:
+               case MSR_CORE_PERF_FIXED_CTR3:
+               case MSR_CORE_PERF_FIXED_CTR_CTRL:
+               case MSR_CORE_PERF_GLOBAL_STATUS:
+               case MSR_CORE_PERF_GLOBAL_CTRL:
+               case MSR_CORE_PERF_GLOBAL_OVF_CTRL:
+               case MSR_PERF_METRICS:
+               	       // HW injects #GP unless PERFMON=1
+               	       return orig;
+
+               case MSR_IA32_RTIT_STATUS:
+               case MSR_IA32_RTIT_ADDR0_A:
+               case MSR_IA32_RTIT_ADDR0_B:
+               case MSR_IA32_RTIT_ADDR1_A:
+               case MSR_IA32_RTIT_ADDR1_B:
+               case MSR_IA32_RTIT_ADDR2_A:
+               case MSR_IA32_RTIT_ADDR2_B:
+               case MSR_IA32_RTIT_ADDR3_A:
+               case MSR_IA32_RTIT_ADDR3_B:
+               case MSR_IA32_RTIT_CR3_MATCH:
+               case MSR_IA32_RTIT_OUTPUT_BASE:
+               case MSR_IA32_RTIT_OUTPUT_MASK:
+                       // HW injects #GP unless XFAM[8]=1
+                       return orig;
+
+               case MSR_ARCH_LBR_INFO_0 ... MSR_ARCH_LBR_TO_0+0xff:
+                       // HW injects #GP unless XFAM[15]=1
+                       return orig;
+
+               case MSR_IA32_PMC0:
+               case MSR_IA32_PMC0+1:
+               case MSR_IA32_PMC0+2:
+               case MSR_IA32_PMC0+3:
+               case MSR_IA32_PMC0+4:
+               case MSR_IA32_PMC0+5:
+               case MSR_IA32_PMC0+6:
+               case MSR_IA32_PMC0+7:
+                       // HW injects #GP unless PERFMON=1
+                       return orig;
+               case MSR_IA32_APICBASE:
+                       // HW ensures x2apic is enabled
+                       orig = tdx_fuzz(orig, TDX_FUZZ_MSR_READ);
+                       return orig     | X2APIC_ENABLE;
+               //case MSR_IA32_UMWAIT_CONTROL:
+               // HW inject #GP unless... CPUID(7,0).ECX[5]??
+       }
+       return tdx_fuzz(orig, TDX_FUZZ_MSR_READ);
+}
+
 
 static int read_msr(struct pt_regs *regs, struct ve_info *ve)
 {
@@ -1047,10 +1161,14 @@ void __init tdx_early_init(void)
 	u64 cc_mask;
 	u32 eax, sig[3];
 
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	kafl_hprintf("TDX force enable..\n");
+#else
 	cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2],  &sig[1]);
 
 	if (memcmp(TDX_IDENT, sig, sizeof(sig)))
 		return;
+#endif
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
 	setup_clear_cpu_cap(X86_FEATURE_MCE);

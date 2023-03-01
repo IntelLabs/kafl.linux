@@ -908,6 +908,74 @@ config INTEL_TDX_KVM_SDV
 	bool "Fixes specific to KVM SDV (incompatible to others)"
 	depends on INTEL_TDX_GUEST
 
+config TDX_FUZZ_KAFL
+	bool "kAFL Fuzzing for TDX"
+	depends on INTEL_TDX_GUEST && !TDX_FUZZ
+	select INTEL_TDX_KVM_SDV
+	help
+	  Support fuzzing of TDX guests using kAFL
+
+	  Implements fuzzing TDX VMM inputs (CPUID, MSR, PIO, MMIO)
+	  and VirtIO shared memory reads. Injection scope can be
+	  configured using pre-defined harnesses, KPROBE or debugfs.
+
+config TDX_FUZZ_KAFL_DEBUGFS
+	bool "Enable debugfs interface"
+	depends on TDX_FUZZ_KAFL
+	default y
+	help
+	  Enable userspace agent interface.
+
+config TDX_FUZZ_KAFL_SKIP_MSR
+	bool "Disable fuzzing MSR inputs"
+	depends on TDX_FUZZ_KAFL
+	default y
+	help
+	  Disable MSR fuzzing. Only some MSRs are controlled by hypervisor. Others,
+	  like APIC timer, may be of little value for fuzzing but can impact
+	  fuzz buffer consumption and deterministic execution.
+
+config TDX_FUZZ_KAFL_SKIP_CPUID
+	bool "Disable fuzzing CPUID inputs"
+	depends on TDX_FUZZ_KAFL
+	default y
+	help
+	  Disable CPUID fuzzing. The CPUID fuzzer does not properly
+	  model values enforced by TDX, leading to false positives.
+
+config TDX_FUZZ_KAFL_SKIP_IOAPIC_READS
+	bool "Disable fuzzing some IOAPIC inputs"
+	depends on TDX_FUZZ_KAFL
+	default n
+	help
+	  Skip fuzzing some IOAPIC ranges, allowing the
+	  fuzzer to focus on other parts.
+
+config TDX_FUZZ_KAFL_SKIP_ACPI_PIO
+	bool "Disable fuzzing some ACPI PIO inputs"
+	depends on TDX_FUZZ_KAFL
+	default n
+	help
+	  Skip fuzzing some ACPI PIO ranges, allowing the
+	  fuzzer to focus on other parts.
+
+config TDX_FUZZ_KAFL_SKIP_RNG_SEEDING
+	bool "Disable fuzzing the PRNG Seed"
+	depends on TDX_FUZZ_KAFL && TDX_FUZZ_KAFL_DETERMINISTIC
+	default y
+	help
+	  When using the deterministic PRNG fix, a single byte of fuzzing
+	  input will be consumed to seed the PRNG on initialization.
+	  Alternatively, setting this option will seed the PRNG with a fixed value.
+
+config TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
+	bool "Disable paravirt rewrite"
+	depends on TDX_FUZZ_KAFL
+	default y
+	help
+	  Code rewrite conflicts with kAFL PT decoding, breaking bitmaps & traces.
+	  This option disables rewriting paravirtualization code during boot.
+
 endif #HYPERVISOR_GUEST
 
 source "arch/x86/Kconfig.cpu"
