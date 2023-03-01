@@ -148,7 +148,7 @@ TRACE_EVENT(tdx_hypercall_exit,
 
 #endif // CONFIG_INTEL_TDX_GUEST
 
-#ifdef CONFIG_TDX_FUZZ
+#if defined(CONFIG_TDX_FUZZ) || defined(CONFIG_TDX_FUZZ_KAFL)
 
 TRACE_EVENT(tdx_fuzz,
 
@@ -187,7 +187,11 @@ TRACE_EVENT(tdx_fuzz,
 				   { TDX_FUZZ_CPUID1, "cpuid1" },
 				   { TDX_FUZZ_CPUID2, "cpuid2" },
 				   { TDX_FUZZ_CPUID3, "cpuid3" },
-				   { TDX_FUZZ_CPUID4, "cpuid4" })
+				   { TDX_FUZZ_CPUID4, "cpuid4" },
+				   { TDX_FUZZ_VIRTIO, "virtio" },
+				   { TDX_FUZZ_MAP_ERR, "map_err" },
+				   { TDX_FUZZ_RANDOM, "random" },
+				   { TDX_FUZZ_DEBUGFS, "debugfs" })
 	)
 );
 
