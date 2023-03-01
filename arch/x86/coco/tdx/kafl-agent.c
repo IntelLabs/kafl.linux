@@ -412,6 +412,10 @@ static bool kafl_fuzz_filter(uintptr_t addr, enum tdx_fuzz_loc type)
 				default:
 					return 1;
 			}
+#ifndef CONFIG_TDX_FUZZ_KAFL_VIRTIO
+		case TDX_FUZZ_VIRTIO:
+			return 0;
+#endif
 #ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_CPUID
 		case TDX_FUZZ_CPUID1:
 		case TDX_FUZZ_CPUID2:
