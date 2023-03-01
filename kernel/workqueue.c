@@ -6183,19 +6183,22 @@ void __init workqueue_init_early(void)
 		attrs->no_numa = true;
 		ordered_wq_attrs[i] = attrs;
 	}
+#ifdef CONFIG_TDX_FUZZ_DETERMINISTIC
+#define ORDERED_WQ 1
+#else
+#define ORDERED_WQ 0
+#endif
 
-	system_wq = alloc_workqueue("events", 0, 0);
-	system_highpri_wq = alloc_workqueue("events_highpri", WQ_HIGHPRI, 0);
-	system_long_wq = alloc_workqueue("events_long", 0, 0);
-	system_unbound_wq = alloc_workqueue("events_unbound", WQ_UNBOUND,
-					    WQ_UNBOUND_MAX_ACTIVE);
+	system_wq = alloc_workqueue("events", 0, ORDERED_WQ);
+	system_highpri_wq = alloc_workqueue("events_highpri", WQ_HIGHPRI, ORDERED_WQ);
+	system_long_wq = alloc_workqueue("events_long", 0, ORDERED_WQ);
+	system_unbound_wq = alloc_workqueue("events_unbound", WQ_UNBOUND, ORDERED_WQ);
 	system_freezable_wq = alloc_workqueue("events_freezable",
-					      WQ_FREEZABLE, 0);
+					      WQ_FREEZABLE, ORDERED_WQ);
 	system_power_efficient_wq = alloc_workqueue("events_power_efficient",
-					      WQ_POWER_EFFICIENT, 0);
+					      WQ_POWER_EFFICIENT, ORDERED_WQ);
 	system_freezable_power_efficient_wq = alloc_workqueue("events_freezable_power_efficient",
-					      WQ_FREEZABLE | WQ_POWER_EFFICIENT,
-					      0);
+					      WQ_FREEZABLE | WQ_POWER_EFFICIENT, ORDERED_WQ);
 	BUG_ON(!system_wq || !system_highpri_wq || !system_long_wq ||
 	       !system_unbound_wq || !system_freezable_wq ||
 	       !system_power_efficient_wq ||
