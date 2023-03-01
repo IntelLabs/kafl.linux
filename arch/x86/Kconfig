@@ -937,6 +937,27 @@ config TDX_FUZZ_KAFL_TRACE_LOCATIONS
 	  automatically reset after output and do not require the agent
 	  to be enabled/initialized.
 
+config TDX_FUZZ_KAFL_VIRTIO
+	bool "Enable fuzzing VirtIO inputs"
+	depends on TDX_FUZZ_KAFL
+	default n
+	help
+	  Enable VirtIO injection.
+
+config TDX_FUZZ_KAFL_VIRTIO_GET_BUF
+	bool "Enable fuzzing virtqueue_get_buf_ctx inputs"
+	depends on TDX_FUZZ_KAFL && TDX_FUZZ_KAFL_VIRTIO
+	default n
+	help
+	  Enable VirtIO injection based on hook in virtqueue_get_buf_ctx().
+	  
+config TDX_FUZZ_KAFL_VIRTIO_TO_CPU
+	bool "Enable fuzzing virtioXX_to_cpu inputs"
+	depends on TDX_FUZZ_KAFL && TDX_FUZZ_KAFL_VIRTIO
+	default n
+	help
+	  Enable VirtIO injection based on hooks to virtioXX_to_cpu().
+
 config TDX_FUZZ_KAFL_SKIP_MSR
 	bool "Disable fuzzing MSR inputs"
 	depends on TDX_FUZZ_KAFL
@@ -1048,12 +1069,25 @@ config TDX_FUZZ_HARNESS_DOINITCALLS_PCI
 	help
 	  Fuzz initcalls for basic PCI initialiation
 
+config TDX_FUZZ_HARNESS_DOINITCALLS_VIRTIO
+	select TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
+	bool "Virtio-Net init"
+	help
+	  Fuzz initcalls for virtio-net initialiation
+	  Reproducer for https://jira.devtools.intel.com/browse/LCK-10484
+
 config TDX_FUZZ_HARNESS_DOINITCALLS_ACPI
 	select TDX_FUZZ_HARNESS_DOINITCALLS_FILTER
 	bool "ACPI init"
 	help
 	  Fuzz initcalls for ACPI initialiation
 	  Reproducer for https://jira.devtools.intel.com/browse/LCK-10311
+
+config TDX_FUZZ_HARNESS_VIRTIO_BLK_PROBE
+	bool "Virtio-Blk probe"
+	help
+	  Fuzz VirtIO block device probing phase
+
 
 config TDX_FUZZ_HARNESS_FULL_BOOT
 	bool "Full Boot"
