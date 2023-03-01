@@ -1352,6 +1352,32 @@ const char *fuzz_targets[] = {
 		 */
 		"acpi_init",
 #endif
+#ifdef CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_VIRTIO
+		/*
+		 * These consume just a few bytes of input but somehow execute very slow/funky.
+		 * The harness does not seem to terminate at all. Need to debug whats going on.
+		 *
+        //"virtio_init", - much earlier in boot, and no inputs consumed(?)
+        "virtio_mmio_init",
+        "virtio_pci_driver_init",
+		"virtio_input_driver_init"
+		*/
+
+		/*
+		 * virtio-net - very good example to see fuzzing + bugs working
+		 */
+        "virtio_net_driver_init",
+
+		/*
+		 * p9 init seems very small, perhaps initializes on mount()?
+		 *
+        "p9_virtio_init",
+		"init_v9fs"
+		*/
+		
+		// others...?
+        //"deferred_probe_initcall",
+#endif
 };
 #endif
 
