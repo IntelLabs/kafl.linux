@@ -60,6 +60,10 @@
 #include <asm/irq_regs.h>
 #include <asm/io.h>
 
+#ifdef  CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC
+#include <asm/tdx.h>
+#endif
+
 /*********************************************************************
  *
  * Initialization and readiness waiting.
@@ -383,6 +387,18 @@ static void _get_random_bytes(void *buf, size_t len)
 	memzero_explicit(chacha_state, sizeof(chacha_state));
 }
 
+#ifdef CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC
+static char _get_tdx_random_byte(char orig_val)
+{
+	static char rnd_seed = 0x0;
+	if (!rnd_seed)
+		rnd_seed = (char)tdx_fuzz(orig_val, -1, 1, TDX_FUZZ_RANDOM);
+	return rnd_seed;
+}
+#else
+static char _get_tdx_random_byte(char orig_val){return 0;}
+#endif
+
 /*
  * This function is the exported kernel interface.  It returns some
  * number of good random numbers, suitable for key generation, seeding
@@ -392,8 +408,12 @@ static void _get_random_bytes(void *buf, size_t len)
  */
 void get_random_bytes(void *buf, size_t len)
 {
+#ifndef CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC
 	warn_unseeded_randomness();
 	_get_random_bytes(buf, len);
+#else
+	memset(buf, _get_tdx_random_byte(0x41), len);
+#endif
 }
 EXPORT_SYMBOL(get_random_bytes);
 
@@ -479,6 +499,9 @@ type get_random_ ##type(void)							\
 	unsigned long flags;							\
 	struct batch_ ##type *batch;						\
 	unsigned long next_gen;							\
+										\
+	if (IS_ENABLED(CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC))			\
+		return _get_tdx_random_byte(0x41);				\
 										\
 	warn_unseeded_randomness();						\
 										\
