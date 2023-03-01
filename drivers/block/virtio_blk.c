@@ -18,6 +18,8 @@
 #include <linux/vmalloc.h>
 #include <uapi/linux/virtio_ring.h>
 
+#include <asm/kafl-agent.h>
+
 #define PART_BITS 4
 #define VQ_NAME_LEN 16
 #define MAX_DISCARD_SEGMENTS 256u
@@ -1234,7 +1236,9 @@ static const struct blk_mq_ops virtio_mq_ops = {
 static unsigned int virtblk_queue_depth;
 module_param_named(queue_depth, virtblk_queue_depth, uint, 0444);
 
-static int virtblk_probe(struct virtio_device *vdev)
+
+
+static int __virtblk_probe(struct virtio_device *vdev)
 {
 	struct virtio_blk *vblk;
 	struct request_queue *q;
@@ -1526,6 +1530,21 @@ out_free_index:
 	ida_free(&vd_index_ida, index);
 out:
 	return err;
+}
+
+static int virtblk_probe(struct virtio_device *vdev) {
+	int ret; 
+
+#ifdef CONFIG_TDX_FUZZ_HARNESS_VIRTIO_BLK_PROBE
+	kafl_fuzz_event(KAFL_START);
+#endif
+
+	ret = __virtblk_probe(vdev);
+
+#ifdef CONFIG_TDX_FUZZ_HARNESS_VIRTIO_BLK_PROBE
+	kafl_fuzz_event(KAFL_DONE);
+#endif
+	return ret;
 }
 
 static void virtblk_remove(struct virtio_device *vdev)
