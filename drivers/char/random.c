@@ -61,6 +61,7 @@
 #include <asm/irq.h>
 #include <asm/irq_regs.h>
 #include <asm/io.h>
+#include <asm/tdx.h>
 
 /*********************************************************************
  *
@@ -404,6 +405,19 @@ static void _get_random_bytes(void *buf, size_t len)
 	memzero_explicit(chacha_state, sizeof(chacha_state));
 }
 
+#define BUILD_TIME_SEED	0x41
+static u8 _get_tdx_random_u8(void)
+{
+	static u8 rnd_seed;
+	if (!rnd_seed)
+		rnd_seed = (u8)tdx_fuzz(BUILD_TIME_SEED, -1, 1, TDX_FUZZ_RANDOM);
+	return rnd_seed;
+}
+
+#define _get_tdx_random_u16()	(_get_tdx_random_u8() << 8)
+#define _get_tdx_random_u32()	(_get_tdx_random_u8() << 24)
+#define _get_tdx_random_u64()	(_get_tdx_random_u8() << 56)
+
 /*
  * This returns random bytes in arbitrary quantities. The quality of the
  * random bytes is good as /dev/urandom. In order to ensure that the
@@ -413,8 +427,16 @@ static void _get_random_bytes(void *buf, size_t len)
  */
 void get_random_bytes(void *buf, size_t len)
 {
+#ifdef CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC
+	u8 *_buf = buf;
+	int i;
+
+	for (i = 0; i < len; i++)
+		_buf[i] = _get_tdx_random_u8();
+#else
 	warn_unseeded_randomness();
 	_get_random_bytes(buf, len);
+#endif
 }
 EXPORT_SYMBOL(get_random_bytes);
 
@@ -500,6 +522,9 @@ type get_random_ ##type(void)							\
 	unsigned long flags;							\
 	struct batch_ ##type *batch;						\
 	unsigned long next_gen;							\
+										\
+	if (IS_ENABLED(CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC))			\
+		return _get_tdx_random_ ##type();				\
 										\
 	warn_unseeded_randomness();						\
 										\

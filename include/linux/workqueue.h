@@ -341,9 +341,15 @@ enum {
 	__WQ_LEGACY		= 1 << 18, /* internal: create*_workqueue() */
 	__WQ_ORDERED_EXPLICIT	= 1 << 19, /* internal: alloc_ordered_workqueue() */
 
+#ifdef CONFIG_TDX_FUZZ_DETERMINISTIC
+	WQ_MAX_ACTIVE		= 1,	  /* I like 512, better ideas? */
+	WQ_MAX_UNBOUND_PER_CPU	= 1,	  /* 4 * #cpus for unbound wq */
+	WQ_DFL_ACTIVE		= WQ_MAX_ACTIVE,
+#else
 	WQ_MAX_ACTIVE		= 512,	  /* I like 512, better ideas? */
 	WQ_MAX_UNBOUND_PER_CPU	= 4,	  /* 4 * #cpus for unbound wq */
 	WQ_DFL_ACTIVE		= WQ_MAX_ACTIVE / 2,
+#endif
 };
 
 /* unbound wq's aren't per-cpu, scale max_active according to #cpus */
