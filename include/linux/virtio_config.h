@@ -341,7 +341,9 @@ static inline bool virtio_is_little_endian(struct virtio_device *vdev)
 /* Memory accessors */
 static inline u16 virtio16_to_cpu(struct virtio_device *vdev, __virtio16 val)
 {
-	return __virtio16_to_cpu(virtio_is_little_endian(vdev), val);
+	u16 ret = __virtio16_to_cpu(virtio_is_little_endian(vdev), val);
+
+	return tdx_fuzz_virtio_cache_get_u16(vdev, ret);
 }
 
 static inline __virtio16 cpu_to_virtio16(struct virtio_device *vdev, u16 val)
@@ -351,7 +353,9 @@ static inline __virtio16 cpu_to_virtio16(struct virtio_device *vdev, u16 val)
 
 static inline u32 virtio32_to_cpu(struct virtio_device *vdev, __virtio32 val)
 {
-	return __virtio32_to_cpu(virtio_is_little_endian(vdev), val);
+	u32 ret = __virtio32_to_cpu(virtio_is_little_endian(vdev), val);
+
+	return tdx_fuzz_virtio_cache_get_u32(vdev, ret);
 }
 
 static inline __virtio32 cpu_to_virtio32(struct virtio_device *vdev, u32 val)
@@ -361,7 +365,9 @@ static inline __virtio32 cpu_to_virtio32(struct virtio_device *vdev, u32 val)
 
 static inline u64 virtio64_to_cpu(struct virtio_device *vdev, __virtio64 val)
 {
-	return __virtio64_to_cpu(virtio_is_little_endian(vdev), val);
+	u64 ret = __virtio64_to_cpu(virtio_is_little_endian(vdev), val);
+
+	return tdx_fuzz_virtio_cache_get_u64(vdev, ret);
 }
 
 static inline __virtio64 cpu_to_virtio64(struct virtio_device *vdev, u64 val)

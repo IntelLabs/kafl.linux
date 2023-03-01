@@ -17,6 +17,10 @@
 #include <linux/cc_platform.h>
 #include <xen/xen.h>
 
+#ifdef CONFIG_TDX_FUZZ_KAFL_VIRTIO
+#include <asm/kafl-agent.h>
+#endif
+
 #ifdef DEBUG
 /* For development, we want to crash whenever the ring is screwed. */
 #define BAD_RING(_vq, fmt, args...)				\
@@ -2319,7 +2323,16 @@ EXPORT_SYMBOL_GPL(virtqueue_get_buf_ctx);
 
 void *virtqueue_get_buf(struct virtqueue *_vq, unsigned int *len)
 {
-	return virtqueue_get_buf_ctx(_vq, len, NULL);
+	char *buf;
+
+	buf = virtqueue_get_buf_ctx(_vq, len, NULL);
+#ifdef CONFIG_TDX_FUZZ_KAFL_VIRTIO
+	// Overwrite @buf with fuzz input
+	if (buf) {
+		kafl_fuzz_buffer(buf, buf, (uintptr_t)buf, *len, TDX_FUZZ_VIRTIO);
+	}
+#endif
+	return (void *)buf;
 }
 EXPORT_SYMBOL_GPL(virtqueue_get_buf);
 /**
@@ -2791,6 +2804,11 @@ clear:
 			__virtio_clear_bit(vdev, i);
 		}
 	}
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	/* For now until all qemus are fixed */
+	if (cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT))
+		__virtio_set_bit(vdev, VIRTIO_F_ACCESS_PLATFORM);
+#endif
 }
 EXPORT_SYMBOL_GPL(vring_transport_features);
 
