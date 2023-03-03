@@ -926,6 +926,17 @@ config TDX_FUZZ_KAFL_DEBUGFS
 	help
 	  Enable userspace agent interface.
 
+config TDX_FUZZ_KAFL_TRACE_LOCATIONS
+	bool "Verbose log input location stats"
+	depends on TDX_FUZZ_KAFL
+	default n
+	help
+	  Enable verbose printing of seen input requests in the kernel log.
+
+	  Only reports inputs that are enabled for fuzzing. Counters are
+	  automatically reset after output and do not require the agent
+	  to be enabled/initialized.
+
 config TDX_FUZZ_KAFL_SKIP_MSR
 	bool "Disable fuzzing MSR inputs"
 	depends on TDX_FUZZ_KAFL
@@ -1064,6 +1075,22 @@ config TDX_FUZZ_HARNESS_DOINITCALLS_LEVEL
 
 	  Interesting stuff seems to happen mostly at levels 3 + 4.
 	  Some virtIO also on level 6.
+
+config TDX_FUZZ_KAFL_VANILLA_PAYLOAD
+	bool
+
+config TDX_FUZZ_KAFL_VANILLA_INJECTION_SAMPLE
+	bool "Example injection for vanilla Linux (non-TDX)"
+	depends on TDX_FUZZ_KAFL && !JUMP_LABEL && !TDX_FUZZ_KAFL_SKIP_ACPI_PIO
+	select TDX_FUZZ_KAFL_VANILLA_PAYLOAD
+	help
+	  Example for kernel fuzzing outside of TDX guest setup.
+
+	  This option enables fuzz input injection for PCI PIO+MMIO reads,
+	  similar to what may happen in TDX threat model. It gives interesting
+	  results in combination with the ACPI or VIRTIO-NET harnesses:
+	  - CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_VIRTIO
+	  - CONFIG_TDX_FUZZ_HARNESS_DOINITCALLS_ACPI
 
 endif #HYPERVISOR_GUEST
 
