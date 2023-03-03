@@ -61,6 +61,12 @@ uint8_t observed_buffer[2*PAYLOAD_MAX_SIZE] __attribute__((aligned(4096)));
 #endif
 
 
+static struct {
+		bool dump_observed;
+		bool dump_stats;
+		bool dump_callers;
+} agent_flags;
+
 u8 *ve_buf;
 u32 ve_num;
 u32 ve_pos;
@@ -157,6 +163,24 @@ static void kafl_stats_clear(void)
 
 static void kafl_trace_locations(void)
 {
+#ifdef CONFIG_TDX_FUZZ_KAFL_TRACE_LOCATIONS
+	printk("kAFL locations: msrs=%u, mmio=%u, pio=%u, virtio=%u, rng=%u; cpuid=<%u,%u,%u,%u>; err=<%u,%u,%u,%u>\n",
+			location_stats[TDX_FUZZ_MSR_READ],
+			location_stats[TDX_FUZZ_MMIO_READ],
+			location_stats[TDX_FUZZ_PORT_IN],
+			location_stats[TDX_FUZZ_VIRTIO],
+			location_stats[TDX_FUZZ_RANDOM],
+			location_stats[TDX_FUZZ_CPUID1],
+			location_stats[TDX_FUZZ_CPUID2],
+			location_stats[TDX_FUZZ_CPUID3],
+			location_stats[TDX_FUZZ_CPUID4],
+			location_stats[TDX_FUZZ_MSR_READ_ERR],
+			location_stats[TDX_FUZZ_MSR_WRITE_ERR],
+			location_stats[TDX_FUZZ_MAP_ERR],
+			location_stats[TDX_FUZZ_PORT_IN_ERR]);
+
+	kafl_stats_clear();
+#endif
 	return;
 }
 
@@ -237,6 +261,31 @@ static void kafl_agent_init(void)
 	ve_pos = 0;
 	ve_mis = 0;
 
+#ifndef CONFIG_TDX_FUZZ_KAFL_VANILLA_PAYLOAD
+	if (payload->flags.raw_data != 0) {
+		pr_debug("Runtime payload->flags=0x%04x\n", payload->flags.raw_data);
+		pr_debug("\t dump_observed = %u\n",         payload->flags.dump_observed);
+		pr_debug("\t dump_stats = %u\n",            payload->flags.dump_stats);
+		pr_debug("\t dump_callers = %u\n",          payload->flags.dump_callers);
+
+		// debugfs cannot handle the bitfield..
+		agent_flags.dump_observed = payload->flags.dump_observed;
+		agent_flags.dump_stats    = payload->flags.dump_stats;
+		agent_flags.dump_callers  = payload->flags.dump_callers;
+
+		// dump modes are exclusive - sharing the observed_* and ob_* buffers
+		kafl_assert(!(agent_flags.dump_observed && agent_flags.dump_callers));
+		kafl_assert(!(agent_flags.dump_observed && agent_flags.dump_stats));
+		kafl_assert(!(agent_flags.dump_callers  && agent_flags.dump_stats));
+	}
+#endif
+
+	if (agent_flags.dump_observed) {
+		ob_buf = observed_buffer;
+		ob_num = sizeof(observed_buffer);
+		ob_pos = 0;
+	}
+
 	kafl_stats_clear();
 	agent_initialized = true;
 
@@ -249,6 +298,44 @@ static void kafl_agent_stats(void)
 	if (!agent_initialized) {
 		// agent stats are undefined!
 		return;
+	}
+
+	// Dump observed values
+	if (agent_flags.dump_observed) {
+		pr_debug("Dumping observed input...\n");
+		kafl_dump_observed_payload("payload_XXXXXX", false, (uint8_t*)ob_buf, ob_pos);
+	}
+
+	if (agent_flags.dump_stats) {
+
+		// flag if payload buffer is >90% and we quit due to missing input
+		char maxed_out = ' ';
+		size_t max_plen = payload_buffer_size - sizeof(int32_t) - sizeof(agent_flags_t);
+		if (ve_mis && max_plen/10*9 < (ve_pos) * sizeof(ve_buf[0])) {
+			maxed_out = '*';
+		}
+
+		ob_num = snprintf(observed_buffer,
+				          observed_buffer_size,
+						  "%05u/%u: %5u, %5u, %5u;\trng=%u; cpuid=<%u,%u,%u,%u>; virtio=%u; err=<%u,%u,%u,%u> %c\n",
+				          ve_pos, ve_mis,
+				          location_stats[TDX_FUZZ_MSR_READ],
+				          location_stats[TDX_FUZZ_MMIO_READ],
+				          location_stats[TDX_FUZZ_PORT_IN],
+				          location_stats[TDX_FUZZ_RANDOM],
+				          location_stats[TDX_FUZZ_CPUID1],
+				          location_stats[TDX_FUZZ_CPUID2],
+				          location_stats[TDX_FUZZ_CPUID3],
+				          location_stats[TDX_FUZZ_CPUID4],
+				          location_stats[TDX_FUZZ_VIRTIO],
+						  location_stats[TDX_FUZZ_MSR_READ_ERR],
+						  location_stats[TDX_FUZZ_MSR_WRITE_ERR],
+						  location_stats[TDX_FUZZ_MAP_ERR],
+						  location_stats[TDX_FUZZ_PORT_IN_ERR],
+						  maxed_out);
+		pr_debug("Dumping fuzzer location stats\n");
+		kafl_dump_observed_payload("fuzzer_location_stats.lst", true,
+			   observed_buffer, ob_num);
 	}
 
 	kafl_trace_locations();
@@ -368,7 +455,7 @@ static size_t _kafl_fuzz_buffer(void *buf, size_t num_bytes)
 
 	// insufficient fuzz buffer!
 	ve_mis += num_bytes;
-	if (exit_at_eof) {
+	if (exit_at_eof && !agent_flags.dump_observed) {
 		kafl_agent_done(); /* no return */
 	}
 	return 0;
@@ -410,7 +497,37 @@ size_t kafl_fuzz_buffer(void* fuzz_buf, const void *orig_buf,
 		kafl_agent_init();
 	}
 
+	if (agent_flags.dump_callers) {
+		pr_warn("\nfuzz_var: %s[%ld], addr: %16lx, isr: %lx\n",
+				tdx_fuzz_loc_str[type], num_bytes, addr, in_interrupt());
+		if (type == TDX_FUZZ_PORT_IN && !tdx_allowed_port(addr)) {
+			pr_warn("\tWarning: port %lx is outside allow-list!\n", addr);
+		}
+		dump_stack();
+	}
+
 	num_fuzzed = _kafl_fuzz_buffer(fuzz_buf, num_bytes);
+
+	if (agent_flags.dump_observed) {
+		// record input seen/used on this execution
+		// with exit_at_eof=0, this should produce good seeds?
+		if (ob_pos + num_bytes > ob_num) {
+			pr_warn("Warning: insufficient space in dump_payload\n");
+			kafl_agent_done();
+		}
+
+		memcpy(ob_buf + ob_pos, fuzz_buf, num_fuzzed);
+		ob_pos += num_fuzzed;
+		// Avoid KASAN warnings on user memory access
+		if (access_ok(orig_buf, num_bytes-num_fuzzed)) {
+			if (copy_from_user(ob_buf + ob_pos, orig_buf, num_bytes-num_fuzzed)) {
+				return -EFAULT;
+			}
+		} else {
+			memcpy(ob_buf + ob_pos, orig_buf, num_bytes-num_fuzzed);
+		}
+		ob_pos += (num_bytes-num_fuzzed);
+	}
 
 	return num_fuzzed;
 }
@@ -898,6 +1015,9 @@ static int __init kafl_debugfs_init(void)
 	debugfs_create_file("control",          0600, dbp, NULL, &control_fops);
 	debugfs_create_file("buf_get_u8",       0400, dbp, NULL, &buf_get_u8_fops);
 	debugfs_create_file("buf_get_u32",      0400, dbp, NULL, &buf_get_u32_fops);
+	debugfs_create_bool("dump_observed",    0600, dbp, &agent_flags.dump_observed);
+	debugfs_create_bool("dump_stats",       0600, dbp, &agent_flags.dump_stats);
+	debugfs_create_bool("dump_callers",     0600, dbp, &agent_flags.dump_callers);
 
 	statp = debugfs_create_dir("status", dbp);
 	debugfs_create_bool("running",          0400, statp, &agent_initialized);
