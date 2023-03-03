@@ -947,6 +947,12 @@ static void __init print_unknown_bootoptions(void)
 
 static void __init _tdx_trace_locations(const char *label, const char *location)
 {
+#ifdef CONFIG_TDX_FUZZ_KAFL_TRACE_LOCATIONS
+	// fails to do very first print, perhaps because hprintf= cmdline has not
+	// been parsed yet. Refactor to kafl_dump_stats() and use kafl_hprintf()?
+	printk("tdx_trace_locations for %s in %s:\n", label, location);
+	kafl_fuzz_event(KAFL_TRACE);
+#endif
 }
 #define tdx_trace_locs(label) _tdx_trace_locations(label, __func__)
 
@@ -1299,6 +1305,9 @@ trace_initcall_finish_cb(void *data, initcall_t fn, int ret)
 	rettime = ktime_get();
 	printk(KERN_DEBUG "initcall %pS returned %d after %lld usecs, irqs_disabled() %d\n",
 		 fn, ret, (unsigned long long)ktime_us_delta(rettime, *calltime), irqs_disabled());
+#ifdef CONFIG_TDX_FUZZ_KAFL_TRACE_LOCATIONS
+	kafl_fuzz_event(KAFL_TRACE);
+#endif
 }
 
 static ktime_t initcall_calltime;
