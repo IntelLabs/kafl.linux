@@ -10,7 +10,7 @@ on:
 
 jobs:
   debian_package:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
         with:
@@ -23,21 +23,27 @@ jobs:
       - name: Install build deps
         run: sudo apt-get install -y libelf-dev
 
-      - name: Generate olddef config
-        run: make x86_64_defconfig
+      - name: Get ubuntu's 22.04 5.15.0-25-generic kernel config
+        run: |
+          sudo apt install -y zstd
+          apt download linux-modules-5.15.0-25-generic
+          ar x linux-modules-5.15.0-25-generic_5.15.0-25.25_amd64.deb data.tar.zst
+          tar -xvf data.tar.zst './boot/config-5.15.0-25-generic'
+          mv  boot/config-5.15.0-25-generic sources/.config
+          rm -r boot/ data.tar.zst linux-modules-5.15.0-25-generic_5.15.0-25.25_amd64.deb
+        
+      - name: make olddefconfig
+        run: make olddefconfig
         working-directory: sources
-      
+
       - name: Configure kernel and enable Nyx
         run: |
           ./scripts/config --disable SYSTEM_TRUSTED_KEYS
           ./scripts/config --module CONFIG_KVM
           ./scripts/config --enable CONFIG_KVM_NYX
+          ./scripts/config --set-str CONFIG_LOCALVERSION -nyx
         working-directory: sources
         
-      - name: Append Nyx to kernel version
-        run: ./scripts/config --set-str CONFIG_LOCALVERSION -nyx
-        working-directory: sources
-
       - uses: actions/cache@v3
         with:
           path: ~/.cache/ccache
