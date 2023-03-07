@@ -31,19 +31,24 @@ jobs:
           tar -xvf data.tar.zst './boot/config-5.15.0-25-generic'
           mv  boot/config-5.15.0-25-generic sources/.config
           rm -r boot/ data.tar.zst linux-modules-5.15.0-25-generic_5.15.0-25.25_amd64.deb
+      
+      - name: Configure kernel and enable Nyx
+        run: |
+          # disable kernel signature
+          ./scripts/config --disable SYSTEM_TRUSTED_KEYS
+          ./scripts/config --disable SYSTEM_REVOCATION_KEYS
+          # enable KVM
+          ./scripts/config --module CONFIG_KVM
+          # enable Nyx
+          ./scripts/config --enable CONFIG_KVM_NYX
+          # tweak locaversion
+          ./scripts/config --set-str CONFIG_LOCALVERSION -nyx
+        working-directory: sources
         
       - name: make olddefconfig
         run: make olddefconfig
         working-directory: sources
 
-      - name: Configure kernel and enable Nyx
-        run: |
-          ./scripts/config --disable SYSTEM_TRUSTED_KEYS
-          ./scripts/config --module CONFIG_KVM
-          ./scripts/config --enable CONFIG_KVM_NYX
-          ./scripts/config --set-str CONFIG_LOCALVERSION -nyx
-        working-directory: sources
-        
       - uses: actions/cache@v3
         with:
           path: ~/.cache/ccache
