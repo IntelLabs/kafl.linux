@@ -60,8 +60,8 @@ jobs:
           # disable kernel signature
           ./scripts/config --disable SYSTEM_TRUSTED_KEYS
           ./scripts/config --disable SYSTEM_REVOCATION_KEYS
-          # disable debug info (otherwise might fail with 'no space left on device' on the runnner)
-          ./scripts/config --disable DEBUG_INFO
+          # compress debug info (otherwise might fail with 'no space left on device' on the runnner)
+          ./scripts/config --enable DEBUG_INFO_COMPRESSED
           # enable KVM
           ./scripts/config --module CONFIG_KVM
           # enable Nyx
