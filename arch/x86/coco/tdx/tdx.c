@@ -533,12 +533,12 @@ static u64 _tdx_fuzz_msr_filtered(unsigned int msr, u64 orig)
                        return orig;
                case MSR_IA32_APICBASE:
                        // HW ensures x2apic is enabled
-                       orig = tdx_fuzz(orig, TDX_FUZZ_MSR_READ);
+                       orig = tdx_fuzz(orig, msr, 8, TDX_FUZZ_MSR_READ);
                        return orig     | X2APIC_ENABLE;
                //case MSR_IA32_UMWAIT_CONTROL:
                // HW inject #GP unless... CPUID(7,0).ECX[5]??
        }
-       return tdx_fuzz(orig, TDX_FUZZ_MSR_READ);
+       return tdx_fuzz(orig, msr, 8, TDX_FUZZ_MSR_READ);
 }
 
 
@@ -560,8 +560,8 @@ static int read_msr(struct pt_regs *regs, struct ve_info *ve)
 	if (ret || tdx_fuzz_err(TDX_FUZZ_MSR_READ_ERR))
 		return -EIO;
 
-	/* Should filter the MSRs to only fuzz host controlled */
-	args.r11 = tdx_fuzz(args.r11, TDX_FUZZ_MSR_READ);
+	/* filter the MSRs to only fuzz host controlled */
+	args.r11 = _tdx_fuzz_msr_filtered(regs->cx, args.r11);
 	regs->ax = lower_32_bits(args.r11);
 	regs->dx = upper_32_bits(args.r11);
 	return ve_instr_len(ve);
@@ -664,10 +664,10 @@ static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 	 * EAX, EBX, ECX, EDX registers after the CPUID instruction execution.
 	 * So copy the register contents back to pt_regs.
 	 */
-	regs->ax = tdx_fuzz(args.r12, TDX_FUZZ_CPUID1);
-	regs->bx = tdx_fuzz(args.r13, TDX_FUZZ_CPUID2);
-	regs->cx = tdx_fuzz(args.r14, TDX_FUZZ_CPUID3);
-	regs->dx = tdx_fuzz(args.r15, TDX_FUZZ_CPUID4);
+	regs->ax = tdx_fuzz(args.r12, -1, 2, TDX_FUZZ_CPUID1);
+	regs->bx = tdx_fuzz(args.r13, -1, 2, TDX_FUZZ_CPUID2);
+	regs->cx = tdx_fuzz(args.r14, -1, 2, TDX_FUZZ_CPUID3);
+	regs->dx = tdx_fuzz(args.r15, -1, 2, TDX_FUZZ_CPUID4);
 
 	return ve_instr_len(ve);
 }
@@ -685,7 +685,7 @@ static bool mmio_read(int size, unsigned long addr, unsigned long *val)
 
 	if (__trace_tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT))
 		return false;
-	*val = tdx_fuzz(args.r11, TDX_FUZZ_MMIO_READ);
+	*val = tdx_fuzz(args.r11, addr, size, TDX_FUZZ_MMIO_READ);
 	return true;
 }
 
@@ -925,7 +925,7 @@ static bool handle_in(struct pt_regs *regs, int size, int port)
 	/* Update part of the register affected by the emulated instruction */
 	regs->ax &= ~mask;
 	if (success)
-		regs->ax |= tdx_fuzz(args.r11, TDX_FUZZ_PORT_IN) & mask;
+		regs->ax |= tdx_fuzz(args.r11, port, size, TDX_FUZZ_PORT_IN) & mask;
 
 	return success;
 }
