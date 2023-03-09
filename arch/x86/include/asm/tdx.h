@@ -53,7 +53,7 @@ bool tdx_early_handle_ve(struct pt_regs *regs);
 
 extern int tdx_notify_irq;
 
-bool tdx_allowed_port(short int port);
+bool tdx_allowed_port(int port);
 
 /* Update the trace point symbolic printing too */
 enum tdx_fuzz_loc {
