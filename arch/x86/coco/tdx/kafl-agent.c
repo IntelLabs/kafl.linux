@@ -416,6 +416,19 @@ size_t kafl_fuzz_buffer(void* fuzz_buf, const void *orig_buf,
 }
 EXPORT_SYMBOL(kafl_fuzz_buffer);
 
+u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
+{
+	u64 fuzzed_var;
+
+	if (fuzz_tdcall) {
+		if (size == kafl_fuzz_buffer(&fuzzed_var, &orig_var, addr, size, type)) {
+			return fuzzed_var;
+		}
+	}
+	return orig_var;
+}
+EXPORT_SYMBOL(tdx_fuzz);
+
 bool tdx_fuzz_err(enum tdx_fuzz_loc type)
 {
 	// for filtering stimulus payloads, raise a trace event in any case
