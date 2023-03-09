@@ -124,7 +124,7 @@ static u64 __tdx_fuzz(u64 var, int bits, enum tdx_fuzz_loc loc)
 	return var;
 }
 
-u64 tdx_fuzz(u64 var, enum tdx_fuzz_loc loc)
+u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc)
 {
 	if (!fuzz_tdcall || !should_fail(&tdx_fault, 1))
 		return var;
