@@ -305,7 +305,8 @@ const struct kvm_stats_header kvm_vcpu_stats_header = {
 
 u64 __read_mostly host_xcr0;
 
-static struct kmem_cache *x86_emulator_cache;
+struct kmem_cache *x86_emulator_cache;
+EXPORT_SYMBOL_GPL(x86_emulator_cache);
 
 /*
  * When called, it means the previous get/set msr reached an invalid msr.
@@ -5314,11 +5315,11 @@ static void kvm_vcpu_ioctl_x86_get_xsave2(struct kvm_vcpu *vcpu,
 static int kvm_vcpu_ioctl_x86_set_xsave(struct kvm_vcpu *vcpu,
 					struct kvm_xsave *guest_xsave)
 {
-	if (fpstate_is_confidential(&vcpu->arch.guest_fpu))
-		return 0;
 	if (vcpu->arch.guest_state_encrypted)
 		return -EINVAL;
 
+	if (fpstate_is_confidential(&vcpu->arch.guest_fpu))
+		return 0;
 	return fpu_copy_uabi_to_guest_fpstate(&vcpu->arch.guest_fpu,
 					      guest_xsave->region,
 					      kvm_caps.supported_xcr0,
@@ -8317,7 +8318,7 @@ static void inject_emulated_exception(struct kvm_vcpu *vcpu)
 		kvm_queue_exception(vcpu, ctxt->exception.vector);
 }
 
-static struct x86_emulate_ctxt *alloc_emulate_ctxt(struct kvm_vcpu *vcpu)
+struct x86_emulate_ctxt *alloc_emulate_ctxt(struct kvm_vcpu *vcpu)
 {
 	struct x86_emulate_ctxt *ctxt;
 
@@ -8333,6 +8334,7 @@ static struct x86_emulate_ctxt *alloc_emulate_ctxt(struct kvm_vcpu *vcpu)
 
 	return ctxt;
 }
+EXPORT_SYMBOL_GPL(alloc_emulate_ctxt);
 
 static void init_emulate_ctxt(struct kvm_vcpu *vcpu)
 {
@@ -11326,12 +11328,23 @@ static void __set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 
 int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
-	if (vcpu->arch.guest_state_encrypted)
+         /*
+          * SEAM: Prevent userspace from restoring to legacy x86 reset vector.
+          * Other RIPs are probably snapshot restore - allow them and globally
+          * disable guest_state_encrypted to allow other _set() ioctls.
+          */
+	if (vcpu->arch.guest_state_encrypted && regs->rip == 0xfff0) {
+		trace_printk("SEAM: %s: rejecting RIP reset to %llx\n", __func__, regs->rip);
+		printk(KERN_DEBUG "SEAM: %s: rejecting RIP reset to %llx\n", __func__, regs->rip);
 		return -EINVAL;
+	} else {
+		vcpu->arch.guest_state_encrypted = false;
+	}
 
 	vcpu_load(vcpu);
 	__set_regs(vcpu, regs);
 	vcpu_put(vcpu);
+	vcpu->arch.guest_seamregs_valid = false;
 	return 0;
 }
 
@@ -11607,7 +11620,9 @@ static int __set_sregs(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs)
 {
 	int pending_vec, max_bits;
 	int mmu_reset_needed = 0;
-	int ret = __set_sregs_common(vcpu, sregs, &mmu_reset_needed, true);
+	int ret;
+
+	ret = __set_sregs_common(vcpu, sregs, &mmu_reset_needed, true);
 
 	if (ret)
 		return ret;
@@ -11664,8 +11679,10 @@ int kvm_arch_vcpu_ioctl_set_sregs(struct kvm_vcpu *vcpu,
 {
 	int ret;
 
-	if (vcpu->arch.guest_state_encrypted)
+	if (kvm_rip_read(vcpu) == 0xfffffff0) {
+		trace_printk("Refusing kvm_arch_vcpu_ioctl_set_sregs()\n");
 		return -EINVAL;
+	}
 
 	vcpu_load(vcpu);
 	ret = __set_sregs(vcpu, sregs);
@@ -12143,8 +12160,6 @@ void kvm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	cpuid_0x1 = kvm_find_cpuid_entry(vcpu, 1);
 	kvm_rdx_write(vcpu, cpuid_0x1 ? cpuid_0x1->eax : 0x600);
 
-	static_call(kvm_x86_vcpu_reset)(vcpu, init_event);
-
 	kvm_set_rflags(vcpu, X86_EFLAGS_FIXED);
 	kvm_rip_write(vcpu, 0xfff0);
 
@@ -12165,6 +12180,12 @@ void kvm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	static_call(kvm_x86_set_cr0)(vcpu, new_cr0);
 	static_call(kvm_x86_set_cr4)(vcpu, 0);
 	static_call(kvm_x86_set_efer)(vcpu, 0);
+
+	/*
+	 * XXX: This needs to be called after RIP and CR are set because
+	 * seam emulation may want to override them during reset.
+	 */
+	static_call(kvm_x86_vcpu_reset)(vcpu, init_event);
 	static_call(kvm_x86_update_exception_bitmap)(vcpu);
 
 	/*
