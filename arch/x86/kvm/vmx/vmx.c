@@ -553,6 +553,15 @@ static int hv_enable_direct_tlbflush(struct kvm_vcpu *vcpu)
 
 #endif /* IS_ENABLED(CONFIG_HYPERV) */
 
+#if 1
+#include "tdx.h"
+
+#include "seam.c"
+
+bool __read_mostly emulate_seam = 1;
+module_param(emulate_seam, bool, 0644);
+#endif
+
 /*
  * Comment's format: document - errata name - stepping - processor name.
  * Refer from
@@ -1560,6 +1569,8 @@ static int vmx_rtit_ctl_check(struct kvm_vcpu *vcpu, u64 data)
 static bool vmx_can_emulate_instruction(struct kvm_vcpu *vcpu, int emul_type,
 					void *insn, int insn_len)
 {
+	if (is_td_vcpu(vcpu))
+		return seam_is_emulatable(vcpu, insn, insn_len);
 	/*
 	 * Emulation of instructions in SGX enclaves is impossible as RIP does
 	 * not point at the failing instruction, and even if it did, the code
@@ -2034,6 +2045,14 @@ static u64 vmx_get_supported_debugctl(struct kvm_vcpu *vcpu, bool host_initiated
 		debugctl |= DEBUGCTLMSR_LBR | DEBUGCTLMSR_FREEZE_LBRS_ON_PMI;
 
 	return debugctl;
+}
+
+int vt_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
+{
+	if (is_td_vcpu(vcpu))
+		return seam_set_msr(vcpu, msr_info);
+
+	return vmx_set_msr(vcpu, msr_info);
 }
 
 /*
@@ -3285,6 +3304,15 @@ static bool vmx_is_valid_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
 	return true;
 }
 
+static inline bool vt_umip_emulated(void)
+{
+	//TODO assuming TD
+	if (1)// is_td_vcpu(vcpu))
+		return false;
+
+	return vmx_umip_emulated();
+}
+
 void vmx_set_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
 {
 	unsigned long old_cr4 = vcpu->arch.cr4;
@@ -3304,7 +3332,7 @@ void vmx_set_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
 	else
 		hw_cr4 |= KVM_PMODE_VM_CR4_ALWAYS_ON;
 
-	if (!boot_cpu_has(X86_FEATURE_UMIP) && vmx_umip_emulated()) {
+	if (!boot_cpu_has(X86_FEATURE_UMIP) && vt_umip_emulated()) {
 		if (cr4 & X86_CR4_UMIP) {
 			secondary_exec_controls_setbit(vmx, SECONDARY_EXEC_DESC);
 			hw_cr4 &= ~X86_CR4_UMIP;
@@ -4728,6 +4756,14 @@ static void __vmx_vcpu_reset(struct kvm_vcpu *vcpu)
 	 */
 	vmx->pi_desc.nv = POSTED_INTR_VECTOR;
 	vmx->pi_desc.sn = 1;
+}
+
+void vt_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
+{
+	if (is_td_vcpu(vcpu))
+		return seam_tdinitvp(vcpu, init_event);
+
+	vmx_vcpu_reset(vcpu, init_event);
 }
 
 static void vmx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
@@ -7095,6 +7131,14 @@ static noinstr void vmx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 	guest_state_exit_irqoff();
 }
 
+fastpath_t vt_vcpu_run(struct kvm_vcpu *vcpu)
+{
+	if (is_td_vcpu(vcpu))
+		return seam_tdenter(vcpu);
+
+	return vmx_vcpu_run(vcpu);
+}
+
 static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -7261,6 +7305,14 @@ static fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	return vmx_exit_handlers_fastpath(vcpu);
 }
 
+void vt_vcpu_free(struct kvm_vcpu *vcpu)
+{
+	if (is_td_vcpu(vcpu))
+		return seam_tdfreevp(vcpu);
+
+	vmx_vcpu_free(vcpu);
+}
+
 static void vmx_vcpu_free(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -7270,6 +7322,14 @@ static void vmx_vcpu_free(struct kvm_vcpu *vcpu)
 	free_vpid(vmx->vpid);
 	nested_vmx_free_vcpu(vcpu);
 	free_loaded_vmcs(vmx->loaded_vmcs);
+}
+
+static int vt_vcpu_create(struct kvm_vcpu *vcpu)
+{
+	if (is_td_vcpu(vcpu))
+		return seam_tdcreatevp(vcpu);
+
+	return vmx_vcpu_create(vcpu);
 }
 
 static int vmx_vcpu_create(struct kvm_vcpu *vcpu)
@@ -7386,6 +7446,25 @@ bool vmx_is_vm_type_supported(unsigned long type)
 #define L1TF_MSG_SMT "L1TF CPU bug present and SMT on, data leak possible. See CVE-2018-3646 and https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/l1tf.html for details.\n"
 #define L1TF_MSG_L1D "L1TF CPU bug present and virtualization mitigation disabled, data leak possible. See CVE-2018-3646 and https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/l1tf.html for details.\n"
 
+int vt_vm_init(struct kvm *kvm)
+{
+	kvm->arch.vm_type = KVM_X86_DEFAULT_VM;
+
+	if (emulate_seam) {
+		kvm->arch.vm_type = KVM_X86_TDX_VM;
+
+		//TODO
+		//kvm->arch.shadow_mmio_value = 0;
+
+		/* kvm_tdx->tdr.pa = INVALID_PAGE; */
+		/* for (i = 0; i < tdx_capabilities.tdcs_nr_pages; i++) */
+		/* 	kvm_tdx->tdcs[i].pa = INVALID_PAGE; */
+		return seam_tdcreate(kvm);
+	}
+
+	return vmx_vm_init(kvm);
+}
+
 static int vmx_vm_init(struct kvm *kvm)
 {
 	if (!ple_gap)
@@ -7437,7 +7516,8 @@ static int __init vmx_check_processor_compat(void)
 				smp_processor_id());
 		return -EIO;
 	}
-	return 0;
+
+	return seam_check_processor_compat();
 }
 
 static u8 vmx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio)
@@ -7672,6 +7752,9 @@ static void vmx_vcpu_after_set_cpuid(struct kvm_vcpu *vcpu)
 
 	/* Refresh #PF interception to account for MAXPHYADDR changes. */
 	vmx_update_exception_bitmap(vcpu);
+
+	if (is_td_vcpu(vcpu) && to_seam(vcpu)->ve_injection_enabled)
+		secondary_exec_controls_setbit(to_vmx(vcpu), SECONDARY_EXEC_EPT_VIOLATION_VE);
 }
 
 static __init void vmx_set_cpu_caps(void)
@@ -7704,7 +7787,7 @@ static __init void vmx_set_cpu_caps(void)
 		kvm_cpu_cap_clear(X86_FEATURE_SGX2);
 	}
 
-	if (vmx_umip_emulated())
+	if (vt_umip_emulated())
 		kvm_cpu_cap_set(X86_FEATURE_UMIP);
 
 	/* CPUID 0xD.1 */
@@ -7913,6 +7996,9 @@ static void vmx_setup_mce(struct kvm_vcpu *vcpu)
 
 static int vmx_smi_allowed(struct kvm_vcpu *vcpu, bool for_injection)
 {
+	if (is_td_vcpu(vcpu))
+		return 0;
+
 	/* we need a nested vmexit to enter SMM, postpone if run is pending */
 	if (to_vmx(vcpu)->nested.nested_run_pending)
 		return -EBUSY;
@@ -7922,6 +8008,9 @@ static int vmx_smi_allowed(struct kvm_vcpu *vcpu, bool for_injection)
 static int vmx_enter_smm(struct kvm_vcpu *vcpu, char *smstate)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	if (WARN_ON_ONCE(is_td_vcpu(vcpu)))
+		return 0;
 
 	/*
 	 * TODO: Implement custom flows for forcing the vCPU out/in of L2 on
@@ -7944,6 +8033,9 @@ static int vmx_leave_smm(struct kvm_vcpu *vcpu, const char *smstate)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	int ret;
+
+	if (WARN_ON_ONCE(is_td_vcpu(vcpu)))
+		return 0;
 
 	if (vmx->nested.smm.vmxon) {
 		vmx->nested.vmxon = true;
@@ -7968,6 +8060,9 @@ static void vmx_enable_smi_window(struct kvm_vcpu *vcpu)
 
 static bool vmx_apic_init_signal_blocked(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu))
+		return true;
+
 	return to_vmx(vcpu)->nested.vmxon && !is_guest_mode(vcpu);
 }
 
@@ -8021,13 +8116,13 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.is_vm_type_supported = vmx_is_vm_type_supported,
 
 	.vm_size = sizeof(struct kvm_vmx),
-	.vm_init = vmx_vm_init,
+	.vm_init = vt_vm_init,
 	.vm_destroy = vmx_vm_destroy,
 
 	.vcpu_precreate = vmx_vcpu_precreate,
-	.vcpu_create = vmx_vcpu_create,
-	.vcpu_free = vmx_vcpu_free,
-	.vcpu_reset = vmx_vcpu_reset,
+	.vcpu_create = vt_vcpu_create,
+	.vcpu_free = vt_vcpu_free,
+	.vcpu_reset = vt_vcpu_reset,
 
 	.prepare_switch_to_guest = vmx_prepare_switch_to_guest,
 	.vcpu_load = vmx_vcpu_load,
@@ -8036,7 +8131,7 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.update_exception_bitmap = vmx_update_exception_bitmap,
 	.get_msr_feature = vmx_get_msr_feature,
 	.get_msr = vmx_get_msr,
-	.set_msr = vmx_set_msr,
+	.set_msr = vt_set_msr,
 	.get_segment_base = vmx_get_segment_base,
 	.get_segment = vmx_get_segment,
 	.set_segment = vmx_set_segment,
@@ -8063,7 +8158,7 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.flush_tlb_guest = vmx_flush_tlb_guest,
 
 	.vcpu_pre_run = vmx_vcpu_pre_run,
-	.vcpu_run = vmx_vcpu_run,
+	.vcpu_run = vt_vcpu_run,
 	.handle_exit = vmx_handle_exit,
 	.skip_emulated_instruction = vmx_skip_emulated_instruction,
 	.update_emulated_instruction = vmx_update_emulated_instruction,
@@ -8405,6 +8500,11 @@ static __init int hardware_setup(void)
 
 	kvm_set_posted_intr_wakeup_handler(pi_wakeup_handler);
 
+#if 0
+//Not needed moved page_shared_mask to td_info
+	if (emulate_seam)
+		seam_hardware_setup();
+#endif
 	return r;
 }
 
@@ -8469,6 +8569,7 @@ module_exit(vmx_exit);
 
 static int __init vmx_init(void)
 {
+	unsigned vcpu_size, vcpu_align;
 	int r, cpu;
 
 #if IS_ENABLED(CONFIG_HYPERV)
@@ -8504,8 +8605,9 @@ static int __init vmx_init(void)
 	}
 #endif
 
-	r = kvm_init(&vmx_init_ops, sizeof(struct vcpu_vmx),
-		     __alignof__(struct vcpu_vmx), THIS_MODULE);
+	seam_early_init(&vcpu_size, &vcpu_align);
+
+	r = kvm_init(&vmx_init_ops, vcpu_size, vcpu_align, THIS_MODULE);
 	if (r)
 		return r;
 
