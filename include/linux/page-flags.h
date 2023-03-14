@@ -922,6 +922,7 @@ static inline bool is_page_hwpoison(struct page *page)
 #define PG_offline	0x00000100
 #define PG_table	0x00000200
 #define PG_guard	0x00000400
+#define PG_unaccepted	0x00000800
 
 #define PageType(page, flag)						\
 	((page->page_type & (PAGE_TYPE_BASE | flag)) == PAGE_TYPE_BASE)
@@ -976,6 +977,13 @@ PAGE_TYPE_OPS(Buddy, buddy)
  * page_offline_freeze()/page_offline_thaw().
  */
 PAGE_TYPE_OPS(Offline, offline)
+
+/*
+ * PageUnaccepted() indicates that the page has to be "accepted" before it can
+ * be read or written. The page allocator must call accept_page() before
+ * touching the page or returning it to the caller.
+ */
+PAGE_TYPE_OPS(Unaccepted, unaccepted)
 
 extern void page_offline_freeze(void);
 extern void page_offline_thaw(void);

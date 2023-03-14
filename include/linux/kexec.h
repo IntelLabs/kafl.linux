@@ -442,6 +442,13 @@ static inline void arch_kexec_protect_crashkres(void) { }
 static inline void arch_kexec_unprotect_crashkres(void) { }
 #endif
 
+#ifndef arch_kexec_load
+static inline int arch_kexec_load(void)
+{
+	return 0;
+}
+#endif
+
 #ifndef page_to_boot_pfn
 static inline unsigned long page_to_boot_pfn(struct page *page)
 {

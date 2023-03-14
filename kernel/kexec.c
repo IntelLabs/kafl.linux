@@ -194,6 +194,10 @@ static inline int kexec_load_check(unsigned long nr_segments,
 			 KEXEC_TYPE_CRASH : KEXEC_TYPE_DEFAULT;
 	int result;
 
+	result = arch_kexec_load();
+	if (result)
+		return result;
+
 	/* We only trust the superuser with rebooting the system. */
 	if (!kexec_load_permitted(image_type))
 		return -EPERM;
