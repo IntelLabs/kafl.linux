@@ -525,7 +525,9 @@ struct device_physical_location {
  * @removable:  Whether the device can be removed from the system. This
  *              should be set by the subsystem / bus driver that discovered
  *              the device.
- *
+ * @authorized: Whether the device is authorized to bind to a driver.
+ * @authorizable: Whether the device uses authorization support from the
+ *                driver core.
  * @offline_disabled: If set, the device is permanently online.
  * @offline:	Set after successful invocation of bus type's .offline().
  * @of_node_reused: Set if the device-tree node is shared with an ancestor
@@ -637,6 +639,8 @@ struct device {
 
 	enum device_removable	removable;
 
+	bool			authorized:1;
+	bool			authorizable:1;
 	bool			offline_disabled:1;
 	bool			offline:1;
 	bool			of_node_reused:1;
@@ -870,6 +874,26 @@ static inline bool dev_has_sync_state(struct device *dev)
 	return false;
 }
 
+static inline void dev_set_authorizable(struct device *dev, bool status)
+{
+	dev->authorizable = status;
+}
+
+static inline bool dev_is_authorizable(struct device *dev)
+{
+	return dev->authorizable;
+}
+
+static inline void dev_set_authorized(struct device *dev, bool status)
+{
+	dev->authorized = status;
+}
+
+static inline bool dev_is_authorized(struct device *dev)
+{
+	return dev->authorized;
+}
+
 static inline void dev_set_removable(struct device *dev,
 				     enum device_removable removable)
 {
@@ -1054,6 +1078,7 @@ extern int (*platform_notify)(struct device *dev);
 
 extern int (*platform_notify_remove)(struct device *dev);
 
+extern bool dev_authorized_init(void);
 
 /*
  * get_device - atomically increment the reference count for the device.
@@ -1097,5 +1122,7 @@ extern long sysfs_deprecated;
 #else
 #define sysfs_deprecated 0
 #endif
+
+bool arch_dev_authorized(struct device *dev);
 
 #endif /* _DEVICE_H_ */
