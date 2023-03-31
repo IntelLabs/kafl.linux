@@ -12292,8 +12292,6 @@ void kvm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	cpuid_0x1 = kvm_find_cpuid_entry(vcpu, 1);
 	kvm_rdx_write(vcpu, cpuid_0x1 ? cpuid_0x1->eax : 0x600);
 
-	static_call(kvm_x86_vcpu_reset)(vcpu, init_event);
-
 	kvm_set_rflags(vcpu, X86_EFLAGS_FIXED);
 	kvm_rip_write(vcpu, 0xfff0);
 
@@ -12314,6 +12312,12 @@ void kvm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	static_call(kvm_x86_set_cr0)(vcpu, new_cr0);
 	static_call(kvm_x86_set_cr4)(vcpu, 0);
 	static_call(kvm_x86_set_efer)(vcpu, 0);
+
+	/*
+	 * XXX: This needs to be called after RIP and CR are set because
+	 * seam emulation may want to override them during reset.
+	 */
+	static_call(kvm_x86_vcpu_reset)(vcpu, init_event);
 	static_call(kvm_x86_update_exception_bitmap)(vcpu);
 
 	/*
