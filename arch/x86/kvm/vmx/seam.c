@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
+#include <linux/slab.h>
+
 bool __read_mostly boot_protected_mode = 1;
 module_param_named(pm, boot_protected_mode, bool, 0444);
 
@@ -61,6 +63,9 @@ struct vcpu_seam {
 	bool tdvmcall_exit;
 	u16 tdvmcall_regs;
 };
+
+extern struct kmem_cache *x86_emulator_cache;
+extern struct x86_emulate_ctxt *alloc_emulate_ctxt(struct kvm_vcpu *vcpu);
 
 static int (*kvm_vmx_exit_handlers[])(struct kvm_vcpu *vcpu);
 
@@ -220,12 +225,13 @@ static int seam_tdcreatevp(struct kvm_vcpu *vcpu)
 	ret = vmx_vcpu_create(vcpu);
 	if (ret)
 		return ret;
-//TODO
+
 	tdx_vcpu->kvm = vcpu->kvm;
 	tdx_vcpu->run = vcpu->run;
-	tdx_vcpu->arch.emulate_ctxt = vcpu->arch.emulate_ctxt;
 	tdx_vcpu->arch.pio_data = vcpu->arch.pio_data;
 	tdx_vcpu->arch.apic = vcpu->arch.apic;
+
+	alloc_emulate_ctxt(tdx_vcpu);
 
 	to_seam(vcpu)->tdx.tdvpr.va = (unsigned long)vcpu;
 	to_seam(vcpu)->tdx.tdvpr.pa = virt_to_phys(vcpu);
@@ -235,6 +241,10 @@ static int seam_tdcreatevp(struct kvm_vcpu *vcpu)
 
 static void seam_tdfreevp(struct kvm_vcpu *vcpu)
 {
+	struct kvm_vcpu *tdx_vcpu = to_tdx_vcpu(vcpu);
+
+	if (tdx_vcpu->arch.emulate_ctxt)
+		kmem_cache_free(x86_emulator_cache, tdx_vcpu->arch.emulate_ctxt);
 	vmx_vcpu_free(vcpu);
 }
 

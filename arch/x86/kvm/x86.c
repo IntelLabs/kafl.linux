@@ -309,7 +309,8 @@ const struct kvm_stats_header kvm_vcpu_stats_header = {
 
 u64 __read_mostly host_xcr0;
 
-static struct kmem_cache *x86_emulator_cache;
+struct kmem_cache *x86_emulator_cache;
+EXPORT_SYMBOL_GPL(x86_emulator_cache);
 
 /*
  * When called, it means the previous get/set msr reached an invalid msr.
@@ -8365,7 +8366,7 @@ static void inject_emulated_exception(struct kvm_vcpu *vcpu)
 		kvm_queue_exception(vcpu, ctxt->exception.vector);
 }
 
-static struct x86_emulate_ctxt *alloc_emulate_ctxt(struct kvm_vcpu *vcpu)
+struct x86_emulate_ctxt *alloc_emulate_ctxt(struct kvm_vcpu *vcpu)
 {
 	struct x86_emulate_ctxt *ctxt;
 
@@ -8381,6 +8382,7 @@ static struct x86_emulate_ctxt *alloc_emulate_ctxt(struct kvm_vcpu *vcpu)
 
 	return ctxt;
 }
+EXPORT_SYMBOL_GPL(alloc_emulate_ctxt);
 
 static void init_emulate_ctxt(struct kvm_vcpu *vcpu)
 {
