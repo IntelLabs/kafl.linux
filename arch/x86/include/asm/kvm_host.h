@@ -681,6 +681,7 @@ struct kvm_vcpu_arch {
 	struct kvm_lapic *apic;    /* kernel irqchip context */
 	bool guest_state_encrypted;
 	bool load_eoi_exitmap_pending;
+	bool guest_seamregs_valid;
 	DECLARE_BITMAP(ioapic_handled_vectors, 256);
 	unsigned long apic_attention;
 	int32_t apic_arb_prio;

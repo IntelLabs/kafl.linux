@@ -487,15 +487,15 @@ static fastpath_t seam_tdenter(struct kvm_vcpu *vcpu)
 	 * are exceptions as they are overwritten by TDX-SEAM.
 	 */
 	if (seam->tdvmcall_exit) {
-		//TODO if (!vcpu->arch.guest_seamregs_valid) {
-		if (0) {
-			WARN_ONCE(1, "SEAM regs invalid, skip seam_copy_regs\n");
-		} else {
+		if (vcpu->arch.guest_seamregs_valid) {
 			seam_copy_regs(vcpu, to_tdx_vcpu(vcpu), seam->tdvmcall_regs);
 
 			kvm_rax_write(vcpu, 0);
 			kvm_rcx_write(vcpu, 0);
 			kvm_r10_write(vcpu, 0);
+			vcpu->arch.guest_seamregs_valid = false;
+		} else {
+			WARN_ONCE(1, "SEAM regs invalid, skip seam_copy_regs\n");
 		}
 
 		seam->tdvmcall_exit = false;
@@ -541,7 +541,7 @@ static int seamret(struct kvm_vcpu *vcpu, u32 exit_reason)
 		seam->tdvmcall_exit = true;
 		seam->tdvmcall_regs = kvm_rcx_read(vcpu);
 		seam_copy_regs(to_tdx_vcpu(vcpu), vcpu, seam->tdvmcall_regs);
-		//TODO vcpu->arch.guest_seamregs_valid = true;
+		vcpu->arch.guest_seamregs_valid = true;
 	} else {
 		seam->tdvmcall_exit = false;
 		tdx_vcpu->arch.regs[VCPU_REGS_RCX] = vmcs_readl(EXIT_QUALIFICATION);
