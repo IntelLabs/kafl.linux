@@ -11742,7 +11742,14 @@ static int __set_sregs(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs)
 {
 	int pending_vec, max_bits;
 	int mmu_reset_needed = 0;
-	int ret = __set_sregs_common(vcpu, sregs, &mmu_reset_needed, true);
+	int ret;
+
+	if (vcpu->kvm->arch.vm_type == KVM_X86_TDX_VM) {
+		trace_printk("Refusing __set_sregs()\n");
+		return 0;
+	}
+
+	ret = __set_sregs_common(vcpu, sregs, &mmu_reset_needed, true);
 
 	if (ret)
 		return ret;
