@@ -252,7 +252,7 @@ static void seam_tdinitvp(struct kvm_vcpu *vcpu, bool init_event)
 	 * from overriding the CPU reset state.  For debugging, the bool will
 	 * be cleared by seam_vcpu_run(), i.e. post-reset.
 	 */
-//TODO	vcpu->arch.guest_state_encrypted = true;
+	vcpu->arch.guest_state_encrypted = true;
 
 	if (ve_injection)
 		seam_enable_ve_injection(vcpu);
@@ -468,9 +468,8 @@ static fastpath_t seam_tdenter(struct kvm_vcpu *vcpu)
 	 * Wait until the vCPU is run to enable debugging, so as to prevent
 	 * userspace from overriding the CPU reset state.
 	 */
-	//TODO
-	/* if (debug_mode) */
-	/* 	vcpu->arch.guest_state_encrypted = false; */
+	if (debug_mode)
+		vcpu->arch.guest_state_encrypted = false;
 	
 	//printk("SEAM: %s vcpu: %lx,%lx, tdx: %lx,%lx\n",
 	//	   	__func__,

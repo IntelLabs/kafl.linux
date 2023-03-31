@@ -5346,11 +5346,11 @@ static void kvm_vcpu_ioctl_x86_get_xsave2(struct kvm_vcpu *vcpu,
 static int kvm_vcpu_ioctl_x86_set_xsave(struct kvm_vcpu *vcpu,
 					struct kvm_xsave *guest_xsave)
 {
-	if (fpstate_is_confidential(&vcpu->arch.guest_fpu))
-		return 0;
 	if (vcpu->arch.guest_state_encrypted)
 		return -EINVAL;
 
+	if (fpstate_is_confidential(&vcpu->arch.guest_fpu))
+		return 0;
 	return fpu_copy_uabi_to_guest_fpstate(&vcpu->arch.guest_fpu,
 					      guest_xsave->region,
 					      kvm_caps.supported_xcr0,
@@ -11450,8 +11450,18 @@ static void __set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 
 int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
-	if (vcpu->arch.guest_state_encrypted)
+         /*
+          * SEAM: Prevent userspace from restoring to legacy x86 reset vector.
+          * Other RIPs are probably snapshot restore - allow them and globally
+          * disable guest_state_encrypted to allow other _set() ioctls.
+          */
+	if (vcpu->arch.guest_state_encrypted && regs->rip == 0xfff0) {
+		trace_printk("SEAM: %s: rejecting RIP reset to %llx\n", __func__, regs->rip);
+		printk(KERN_DEBUG "SEAM: %s: rejecting RIP reset to %llx\n", __func__, regs->rip);
 		return -EINVAL;
+	} else {
+		vcpu->arch.guest_state_encrypted = false;
+	}
 
 	vcpu_load(vcpu);
 	__set_regs(vcpu, regs);
