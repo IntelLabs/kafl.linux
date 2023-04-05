@@ -26,6 +26,8 @@ static u64 __read_mostly page_shared_mask;
 
 #define TDCALL_ENABLE_VE	100
 
+#define ATTR_SEPT_VE_DISABLE	BIT(28)
+
 /*
  * The architectural fields are defined in the SDM and must match exactly, this
  * struct this is used to reference the #VE info page!  Note, the order and
@@ -453,7 +455,7 @@ static void seam_get_tdinfo(struct kvm_vcpu *vcpu)
 
 	kvm_rax_write(vcpu, 0);
 	kvm_rcx_write(vcpu, __ilog2_u64(page_shared_mask) + 1);
-	kvm_rdx_write(vcpu, 0);
+	kvm_rdx_write(vcpu, ATTR_SEPT_VE_DISABLE);
 	kvm_r8_write(vcpu, (nr_vcpus << 32) | nr_vcpus);
 	kvm_r9_write(vcpu, vcpu->vcpu_id);
 	kvm_r10_write(vcpu, 0);
