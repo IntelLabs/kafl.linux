@@ -668,26 +668,20 @@ static int seam_handle_exception(struct kvm_vcpu *vcpu)
 
 static int seam_handle_cpuid(struct kvm_vcpu *vcpu)
 {
-	bool advertise_tdx = kvm_rax_read(vcpu) == 1;
+	u32 leaf = kvm_rax_read(vcpu);
 	int ret;
 
 	ret = kvm_emulate_cpuid(vcpu);
-/*
- * FIXME: This is incorrect, TDX_GUEST is a Linux defined bit, it wont be stable
- * across kernels.
- *
- * Instead expose:
- *	#define TDX_CPUID_LEAF_ID	0x21
- *	#define TDX_IDENT		"IntelTDX    "
- */
-#if 0
-	if (!is_td_vcpu(vcpu))
-		return ret;
 
-	if (advertise_tdx)
-		kvm_rdx_write(vcpu, kvm_rdx_read(vcpu) |
-				    feature_bit(TDX_GUEST));
-#endif
+	if (leaf == TDX_CPUID_LEAF_ID) {
+		u32 ident[3];
+
+		memcpy(ident, TDX_IDENT, sizeof(ident));
+		kvm_rbx_write(vcpu, ident[0]);
+		kvm_rdx_write(vcpu, ident[1]);
+		kvm_rcx_write(vcpu, ident[2]);
+	}
+
 	return ret;
 }
 
