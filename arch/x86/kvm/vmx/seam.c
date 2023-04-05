@@ -661,7 +661,14 @@ static int seam_handle_cpuid(struct kvm_vcpu *vcpu)
 	int ret;
 
 	ret = kvm_emulate_cpuid(vcpu);
-//TODO
+/*
+ * FIXME: This is incorrect, TDX_GUEST is a Linux defined bit, it wont be stable
+ * across kernels.
+ *
+ * Instead expose:
+ *	#define TDX_CPUID_LEAF_ID	0x21
+ *	#define TDX_IDENT		"IntelTDX    "
+ */
 #if 0
 	if (!is_td_vcpu(vcpu))
 		return ret;
@@ -669,7 +676,7 @@ static int seam_handle_cpuid(struct kvm_vcpu *vcpu)
 	if (advertise_tdx)
 		kvm_rdx_write(vcpu, kvm_rdx_read(vcpu) |
 				    feature_bit(TDX_GUEST));
-#endif	
+#endif
 	return ret;
 }
 
