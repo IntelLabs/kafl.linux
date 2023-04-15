@@ -385,23 +385,41 @@ static bool kafl_fuzz_filter(uintptr_t addr, enum tdx_fuzz_loc type)
 			return 0;
 #endif
 		case TDX_FUZZ_PORT_IN:
+		/* TDX port filter allows only a small set of ports for the guest
+		 * in a non-debug mode. However in the debug mode, any port access
+		 * is allowed. Fuzz here only the ports that are enabled in a
+		 * non-debug mode with exception of RTC that is always enabled, but
+		 * not hardened, so its fuzzing is pointless.
+		 */
 			switch (addr) {
+				/* i8237A DMA controller */
+				case 0x80 ... 0x8f:
+					return 1;
+				/* PCI */
+				case 0xcd8 ... 0xcdf:
+				case 0xcf8 ... 0xcfb:
+					return 0;
+				/* PCI config space generic read access */
+				case 0xcfc ... 0xcff:
+					return 1;
+				/* PCIE hotplug device state for Q35 machine type */
+				case 0xcc4:
+				case 0xcc8:
+					return 1;
 #ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_ACPI_PIO
-			/*
-			 * Multiple relevant PIO regions, may have to activate depending on target
-			 * e.g. https://qemu.readthedocs.io/en/latest/specs/acpi_pci_hotplug.html
-			 */
-				case 0xb000 ... 0xb006: // ACPI init?
-				case 0xafe0 ... 0xafe2: // ACPI PCI hotplug
+				/* ACPI ports list:
+				 * 0600-0603 : ACPI PM1a_EVT_BLK
+				 * 0604-0605 : ACPI PM1a_CNT_BLK
+				 * 0608-060b : ACPI PM_TMR
+				 * 0620-062f : ACPI GPE0_BLK
+				 */
+				case 0x600 ... 0x62f:
 					return 0;
-#endif
-#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_PCI_SCAN
-				case 0xcf8 ... 0xcff:
-				case 0xc000 ... 0xcfff:
-					return 0;
+#else
+					return 1;
 #endif
 				default:
-					return 1;
+					return 0;
 			}
 		case TDX_FUZZ_MMIO_READ:
 			switch (addr) {
