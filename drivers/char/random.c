@@ -59,10 +59,7 @@
 #include <asm/irq.h>
 #include <asm/irq_regs.h>
 #include <asm/io.h>
-
-#ifdef  CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC
 #include <asm/tdx.h>
-#endif
 
 /*********************************************************************
  *
@@ -387,17 +384,18 @@ static void _get_random_bytes(void *buf, size_t len)
 	memzero_explicit(chacha_state, sizeof(chacha_state));
 }
 
-#ifdef CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC
-static char _get_tdx_random_byte(char orig_val)
+#define BUILD_TIME_SEED	0x41
+static u8 _get_tdx_random_u8(void)
 {
-	static char rnd_seed = 0x0;
+	static u8 rnd_seed;
 	if (!rnd_seed)
-		rnd_seed = (char)tdx_fuzz(orig_val, -1, 1, TDX_FUZZ_RANDOM);
+		rnd_seed = (u8)tdx_fuzz(BUILD_TIME_SEED, -1, 1, TDX_FUZZ_RANDOM);
 	return rnd_seed;
 }
-#else
-static char _get_tdx_random_byte(char orig_val){return 0;}
-#endif
+
+#define _get_tdx_random_u16()	(_get_tdx_random_u8() << 8)
+#define _get_tdx_random_u32()	(_get_tdx_random_u8() << 24)
+#define _get_tdx_random_u64()	(_get_tdx_random_u8() << 56)
 
 /*
  * This function is the exported kernel interface.  It returns some
@@ -408,11 +406,15 @@ static char _get_tdx_random_byte(char orig_val){return 0;}
  */
 void get_random_bytes(void *buf, size_t len)
 {
-#ifndef CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC
+#ifdef CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC
+	u8 *_buf = buf;
+	int i;
+
+	for (i = 0; i < len; i++)
+		_buf[i] = _get_tdx_random_u8();
+#else
 	warn_unseeded_randomness();
 	_get_random_bytes(buf, len);
-#else
-	memset(buf, _get_tdx_random_byte(0x41), len);
 #endif
 }
 EXPORT_SYMBOL(get_random_bytes);
@@ -501,7 +503,7 @@ type get_random_ ##type(void)							\
 	unsigned long next_gen;							\
 										\
 	if (IS_ENABLED(CONFIG_TDX_FUZZ_KAFL_DETERMINISTIC))			\
-		return _get_tdx_random_byte(0x41);				\
+		return _get_tdx_random_ ##type();				\
 										\
 	warn_unseeded_randomness();						\
 										\
