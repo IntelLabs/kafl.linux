@@ -13,6 +13,9 @@
 #include <linux/memblock.h>
 #include <linux/kprobes.h>
 #include <linux/string.h>
+#include <linux/atomic.h>
+#include <linux/device.h>
+#include <linux/virtio.h>
 #include <asm/tdx.h>
 #include <asm/trace/tdx.h>
 #include <asm-generic/sections.h>
@@ -29,6 +32,7 @@
 #undef pr_fmt
 #define pr_fmt(fmt) "kAFL: " fmt
 
+#define ARRAY_LEN(X) (sizeof (X) / sizeof (*(X)))
 
 bool agent_initialized = false;
 bool fuzz_enabled = false;
@@ -512,7 +516,7 @@ size_t kafl_fuzz_buffer(void* fuzz_buf, const void *orig_buf,
 
 	num_fuzzed = _kafl_fuzz_buffer(fuzz_buf, num_bytes);
 
-	if (agent_flags.dump_observed) {
+	if (agent_flags.dump_observed && orig_buf) {
 		// record input seen/used on this execution
 		// with exit_at_eof=0, this should produce good seeds?
 		if (ob_pos + num_bytes > ob_num) {
@@ -549,6 +553,44 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 	return orig_var;
 }
 EXPORT_SYMBOL(tdx_fuzz);
+
+void tdx_fuzz_virtio_cache_init(struct virtio_device *vdev)
+{
+	size_t num_of_bytes;
+
+	pr_debug("virtio fuzz cache: updating.\n");
+
+	/* Original buffer context here doesn't make sense since we don't know where the reads will come from */
+	kafl_fuzz_buffer(vdev->tdx.fuzz_data, NULL, (uintptr_t)vdev->tdx.fuzz_data, sizeof(vdev->tdx.fuzz_data), TDX_FUZZ_VIRTIO);
+}
+EXPORT_SYMBOL(tdx_fuzz_virtio_cache_init);
+
+#define xstr(s) str(s)
+#define str(s) #s
+#define VIRTIO_CACHE_TO_OFFSET(fuzz_data, orig_var) (orig_var % ((sizeof(fuzz_data[0])/sizeof(orig_var)) * ARRAY_LEN(fuzz_data)))
+#define VIRTIO_CACHE_GET(fuzz_data, orig_var) ((typeof(orig_var) *)fuzz_data)[VIRTIO_CACHE_TO_OFFSET(fuzz_data, orig_var)];
+#define DEFINE_VIRTIO_CACHE_GET_FN(dtype) \
+	dtype tdx_fuzz_virtio_cache_get_##dtype(struct virtio_device *vdev, dtype orig_var) \
+	{ \
+		return VIRTIO_CACHE_GET(vdev->tdx.fuzz_data, orig_var); \
+	} \
+	EXPORT_SYMBOL(tdx_fuzz_virtio_cache_get_##dtype)
+
+DEFINE_VIRTIO_CACHE_GET_FN(u16);
+DEFINE_VIRTIO_CACHE_GET_FN(u32);
+DEFINE_VIRTIO_CACHE_GET_FN(u64);
+
+void tdx_fuzz_virtio_cache_refresh(struct device *dev)
+{
+	if (!is_virtio_device(dev)) {
+		pr_debug("virtio fuzz cache: skipping device.\n");
+		return;
+	}
+	pr_debug("virtio fuzz cache: refreshing cache.\n");
+
+	tdx_fuzz_virtio_cache_init(dev_to_virtio(dev));
+}
+EXPORT_SYMBOL(tdx_fuzz_virtio_cache_refresh);
 
 bool tdx_fuzz_err(enum tdx_fuzz_loc type)
 {

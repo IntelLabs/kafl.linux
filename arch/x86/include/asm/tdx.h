@@ -74,12 +74,36 @@ enum tdx_fuzz_loc {
 	TDX_FUZZ_MAX
 };
 
+/* forward declare to avoid dependence on virtio.h and ensuing cyclic dependency on device.h */
+struct virtio_device;
+
 #if defined(CONFIG_TDX_FUZZ) || defined(CONFIG_TDX_FUZZ_KAFL)
 u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc);
 bool tdx_fuzz_err(enum tdx_fuzz_loc loc);
+void tdx_fuzz_virtio_cache_init(struct virtio_device *vdev);
+u16 tdx_fuzz_virtio_cache_get_u16(struct virtio_device *vdev, u16 orig_var);
+u32 tdx_fuzz_virtio_cache_get_u32(struct virtio_device *vdev, u32 orig_var);
+u64 tdx_fuzz_virtio_cache_get_u64(struct virtio_device *vdev, u64 orig_var);
+void tdx_fuzz_virtio_cache_refresh(struct device *dev);
 #else
 static inline u64 tdx_fuzz(u64 var, uintptr_t addr, int size, enum tdx_fuzz_loc loc) { return var; };
 static inline bool tdx_fuzz_err(enum tdx_fuzz_loc loc) { return false; }
+static inline void tdx_fuzz_virtio_cache_init(struct virtio_device *vdev) { }
+static inline u16 tdx_fuzz_virtio_cache_get_u16(struct virtio_device *vdev, u16 orig_var)
+{
+	return orig_var;
+}
+
+static inline u32 tdx_fuzz_virtio_cache_get_u32(struct virtio_device *vdev, u32 orig_var)
+{
+	return orig_var;
+}
+
+static inline u64 tdx_fuzz_virtio_cache_get_u64(struct virtio_device *vdev, u64 orig_var)
+{
+	return orig_var;
+}
+static inline void tdx_fuzz_virtio_cache_refresh(struct device *dev) { }
 #endif
 
 #else

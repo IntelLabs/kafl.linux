@@ -16,14 +16,10 @@ static inline bool virtio_legacy_is_little_endian(void)
 
 static inline u16 __virtio16_to_cpu(bool little_endian, __virtio16 val)
 {
-	u16 ret;
-
 	if (little_endian)
-		ret = le16_to_cpu((__force __le16)val);
+		return le16_to_cpu((__force __le16)val);
 	else
-		ret = be16_to_cpu((__force __be16)val);
-
-	return tdx_fuzz(ret, 0, sizeof(u16), TDX_FUZZ_VIRTIO);
+		return be16_to_cpu((__force __be16)val);
 }
 
 static inline __virtio16 __cpu_to_virtio16(bool little_endian, u16 val)
@@ -36,14 +32,10 @@ static inline __virtio16 __cpu_to_virtio16(bool little_endian, u16 val)
 
 static inline u32 __virtio32_to_cpu(bool little_endian, __virtio32 val)
 {
-	u32 ret;
-
 	if (little_endian)
-		ret = le32_to_cpu((__force __le32)val);
+		return le32_to_cpu((__force __le32)val);
 	else
-		ret = be32_to_cpu((__force __be32)val);
-
-	return tdx_fuzz(ret, 0, sizeof(u32), TDX_FUZZ_VIRTIO);
+		return be32_to_cpu((__force __be32)val);
 }
 
 static inline __virtio32 __cpu_to_virtio32(bool little_endian, u32 val)
@@ -56,14 +48,10 @@ static inline __virtio32 __cpu_to_virtio32(bool little_endian, u32 val)
 
 static inline u64 __virtio64_to_cpu(bool little_endian, __virtio64 val)
 {
-	u64 ret;
-
 	if (little_endian)
-		ret = le64_to_cpu((__force __le64)val);
+		return le64_to_cpu((__force __le64)val);
 	else
-		ret = be64_to_cpu((__force __be64)val);
-
-	return tdx_fuzz(ret, 0, sizeof(u64), TDX_FUZZ_VIRTIO);
+		return be64_to_cpu((__force __be64)val);
 }
 
 static inline __virtio64 __cpu_to_virtio64(bool little_endian, u64 val)
