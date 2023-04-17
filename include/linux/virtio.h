@@ -117,6 +117,11 @@ struct virtio_device {
 	const struct vringh_config_ops *vringh_config;
 	struct list_head vqs;
 	u64 features;
+#ifdef CONFIG_TDX_FUZZ_KAFL_VIRTIO
+	struct {
+		atomic64_t fuzz_data;
+	} tdx;
+#endif
 	void *priv;
 };
 

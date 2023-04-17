@@ -13,6 +13,9 @@
 #include <linux/memblock.h>
 #include <linux/kprobes.h>
 #include <linux/string.h>
+#include <linux/atomic.h>
+#include <linux/device.h>
+#include <linux/virtio.h>
 #include <asm/tdx.h>
 #include <asm/trace/tdx.h>
 #include <asm-generic/sections.h>
@@ -529,6 +532,37 @@ u64 tdx_fuzz(u64 orig_var, uintptr_t addr, int size, enum tdx_fuzz_loc type)
 	return orig_var;
 }
 EXPORT_SYMBOL(tdx_fuzz);
+
+void tdx_fuzz_virtio_cache_init(struct virtio_device *vdev)
+{
+	u64 data;
+
+	pr_debug("virtio fuzz cache: updating.\n");
+	data = tdx_fuzz(0, (uintptr_t)&data, sizeof(data), TDX_FUZZ_VIRTIO);
+	atomic64_set(&vdev->tdx.fuzz_data, data);
+}
+EXPORT_SYMBOL(tdx_fuzz_virtio_cache_init);
+
+u64 tdx_fuzz_virtio_cache_get_64(struct virtio_device *vdev, u64 orig_var)
+{
+	/* orig_var needed for signature when fuzzing is disabled */
+	(void)orig_var;
+	pr_debug("virtio fuzz cache: get u64.\n");
+	return atomic64_read(&vdev->tdx.fuzz_data);
+}
+EXPORT_SYMBOL(tdx_fuzz_virtio_cache_get_64);
+
+void tdx_fuzz_virtio_cache_refresh(struct device *dev)
+{
+	if (!is_virtio_device(dev)) {
+		pr_debug("virtio fuzz cache: skipping device.\n");
+		return;
+	}
+	pr_debug("virtio fuzz cache: refreshing cache.\n");
+
+	tdx_fuzz_virtio_cache_init(dev_to_virtio(dev));
+}
+EXPORT_SYMBOL(tdx_fuzz_virtio_cache_refresh);
 
 bool tdx_fuzz_err(enum tdx_fuzz_loc type)
 {
