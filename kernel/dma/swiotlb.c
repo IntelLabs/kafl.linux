@@ -456,6 +456,8 @@ static void swiotlb_bounce(struct device *dev, phys_addr_t tlb_addr, size_t size
 	if (orig_addr == INVALID_PHYS_ADDR)
 		return;
 
+	tdx_fuzz_virtio_cache_refresh(dev);
+
 	tlb_offset = tlb_addr & (IO_TLB_SIZE - 1);
 	orig_addr_offset = swiotlb_align_offset(dev, orig_addr);
 	if (tlb_offset < orig_addr_offset) {

@@ -425,6 +425,8 @@ int register_virtio_device(struct virtio_device *dev)
 	INIT_LIST_HEAD(&dev->vqs);
 	spin_lock_init(&dev->vqs_list_lock);
 
+	tdx_fuzz_virtio_cache_init(dev);
+
 	/*
 	 * device_add() causes the bus infrastructure to look for a matching
 	 * driver.
