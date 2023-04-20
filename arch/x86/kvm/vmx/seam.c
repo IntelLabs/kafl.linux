@@ -198,8 +198,9 @@ static void seam_enable_ve_injection(struct kvm_vcpu *vcpu)
 
 	if (seam->ve_injection_enabled)
 		return;
-
+#if 0
 	vmcs_write64(VE_INFO_ADDRESS, virt_to_phys(&seam->ve_info));
+#endif
 	secondary_exec_controls_setbit(to_vmx(vcpu),
 				       SECONDARY_EXEC_EPT_VIOLATION_VE);
 
