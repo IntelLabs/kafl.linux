@@ -11,7 +11,7 @@ module_param_named(x2apic, boot_x2apic_mode, bool, 0444);
 bool __read_mostly debug_mode = 1;
 module_param_named(debug, debug_mode, bool, 0444);
 
-bool __read_mostly ve_injection = 0;
+bool __read_mostly ve_injection = 1;
 module_param(ve_injection, bool, 0444);
 
 static u64 __read_mostly page_shared_mask;
