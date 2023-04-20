@@ -11746,11 +11746,6 @@ static int __set_sregs(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs)
 	int mmu_reset_needed = 0;
 	int ret;
 
-	if (vcpu->kvm->arch.vm_type == KVM_X86_TDX_VM) {
-		trace_printk("Refusing __set_sregs()\n");
-		return 0;
-	}
-
 	ret = __set_sregs_common(vcpu, sregs, &mmu_reset_needed, true);
 
 	if (ret)
@@ -11808,8 +11803,10 @@ int kvm_arch_vcpu_ioctl_set_sregs(struct kvm_vcpu *vcpu,
 {
 	int ret;
 
-	if (vcpu->arch.guest_state_encrypted)
+	if (kvm_rip_read(vcpu) == 0xfffffff0) {
+		trace_printk("Refusing kvm_arch_vcpu_ioctl_set_sregs()\n");
 		return -EINVAL;
+	}
 
 	vcpu_load(vcpu);
 	ret = __set_sregs(vcpu, sregs);
