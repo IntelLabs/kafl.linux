@@ -7,14 +7,24 @@ on:
         description: 'branch name to build'
         required: true
         default: 'kvm-nyx-5.10.73'
+  push:
+    tags:
+      - '*'
 
 jobs:
   debian_package:
     runs-on: ubuntu-22.04
     steps:
+      # get the ref, either push event or workflow dispatch
+      - run: echo "ref=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
+        if: ${{ github.event_name == 'push' }}
+
+      - run: echo "ref=${{ inputs.branch }}" >> $GITHUB_ENV
+        if: ${{ github.event_name == 'workflow_dispatch'}}
+
       - uses: actions/checkout@v3
         with:
-          ref: ${{ inputs.branch }}
+          ref: ${{ env.ref }}
           path: sources
 
       # https://github.com/apache/flink/blob/02d30ace69dc18555a5085eccf70ee884e73a16e/tools/azure-pipelines/free_disk_space.sh
@@ -73,7 +83,7 @@ jobs:
         working-directory: sources
 
       - name: Configure SDV kernel
-        if: "contains('sdv', inputs.branch)"
+        if: "contains('sdv', env.ref)"
         run: |
           ./scripts/config --enable INTEL_TDX_HOST
           # tweak locaversion
@@ -87,9 +97,9 @@ jobs:
       - uses: actions/cache@v3
         with:
           path: ~/.cache/ccache
-          key: "${{ runner.os }}-${{ inputs.branch }}-${{ hashFiles('.config') }}"
+          key: "${{ runner.os }}-${{ env.ref }}-${{ hashFiles('.config') }}"
           restore-keys: |
-            "${{ runner.os }}-${{ inputs.branch }}"
+            "${{ runner.os }}-${{ env.ref }}"
             "${{ runner.os }}"
 
       - name: Build kernel
@@ -100,5 +110,34 @@ jobs:
 
       - uses: actions/upload-artifact@v3
         with:
-          name: linux-${{ inputs.branch }}
+          name: linux-${{ env.ref }}
           path: '*.deb'
+
+      - run: rm -rf *.deb
+
+  release:
+    # this job makes an official Github release
+    if: ${{ github.event_name == 'push' }} && startsWith(github.ref, 'refs/tags/')
+    needs: [debian_package]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Get the version
+        id: get_version
+        run: echo "version=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_OUTPUT
+
+      # download all artifacts to the current dir
+      - uses: actions/download-artifact@v3
+        with:
+          name: linux-${{ steps.get_version.outputs.version }}
+
+      - name: Create a Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: 'Prebuild host kernel package for ${{ steps.get_version.outputs.version }}'
+          tag_name: ${{ steps.get_version.outputs.version }}
+          with:
+            files: '*.deb'
