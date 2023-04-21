@@ -63,11 +63,21 @@ jobs:
           # compress debug info (otherwise might fail with 'no space left on device' on the runnner)
           ./scripts/config --enable DEBUG_INFO_COMPRESSED
           # enable KVM
-          ./scripts/config --module CONFIG_KVM
+          ./scripts/config --module KVM
+          # disable KVM_WERROR (otherwise compilation issues in modified KVM)
+          ./scripts/config --disable KVM_WERROR
           # enable Nyx
-          ./scripts/config --enable CONFIG_KVM_NYX
+          ./scripts/config --enable KVM_NYX
           # tweak locaversion
-          ./scripts/config --set-str CONFIG_LOCALVERSION -nyx
+          ./scripts/config --set-str LOCALVERSION -nyx
+        working-directory: sources
+
+      - name: Configure SDV kernel
+        if: "contains(inputs.branch, 'sdv')"
+        run: |
+          ./scripts/config --enable INTEL_TDX_HOST
+          # tweak locaversion
+          ./scripts/config --set-str LOCALVERSION -sdv
         working-directory: sources
         
       - name: make olddefconfig
