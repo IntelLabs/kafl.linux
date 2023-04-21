@@ -17,6 +17,8 @@
 #include <linux/numa.h>
 #include <uapi/linux/virtio_ring.h>
 
+#include <asm/kafl-agent.h>
+
 #define PART_BITS 4
 #define VQ_NAME_LEN 16
 #define MAX_DISCARD_SEGMENTS 256u
