@@ -132,5 +132,4 @@ jobs:
           name: 'Prebuild host kernel package for ${{ inputs.branch }}'
           tag_name: ${{ inputs.branch }}
           with:
-            files: |
-              *.deb
+            files: '*.deb'
