@@ -86,7 +86,7 @@ jobs:
         working-directory: sources
 
       - name: Configure SDV kernel
-        if: "contains('sdv', env.ref)"
+        if: "contains(env.ref, 'sdv')"
         run: |
           ./scripts/config --enable INTEL_TDX_HOST
           # tweak locaversion
