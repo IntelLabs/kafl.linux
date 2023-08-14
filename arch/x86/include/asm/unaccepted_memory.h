@@ -9,8 +9,7 @@ static inline void arch_accept_memory(phys_addr_t start, phys_addr_t end)
 {
 	/* Platform-specific memory-acceptance call goes here */
 	if (cpu_feature_enabled(X86_FEATURE_TDX_GUEST)) {
-		if (!tdx_accept_memory(start, end))
-			panic("TDX: Failed to accept memory\n");
+		tdx_accept_memory(start, end);
 	} else if (cc_platform_has(CC_ATTR_GUEST_SEV_SNP)) {
 		snp_accept_memory(start, end);
 	} else {
