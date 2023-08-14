@@ -1500,6 +1500,10 @@ static noinline void __init alt_reloc_selftest(void)
 
 void __init alternative_instructions(void)
 {
+#ifdef CONFIG_TDX_FUZZ_KAFL_SKIP_PARAVIRT_REWRITE
+	// conflicts with PT decode - add hypercall to flush tnt + page caches?
+	return;
+#endif
 	int3_selftest();
 
 	/*
