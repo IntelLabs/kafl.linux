@@ -41,8 +41,29 @@ static unsigned long try_accept_one(phys_addr_t start, unsigned long len,
 	return accept_size;
 }
 
-bool tdx_accept_memory(phys_addr_t start, phys_addr_t end)
+bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end, bool enc, bool fuzz_err)
 {
+	u64 ret;
+
+	if (!enc) {
+		/* Set the shared (decrypted) bits: */
+		start |= cc_mkdec(0);
+		end   |= cc_mkdec(0);
+	}
+
+	/*
+	 * Notify the VMM about page mapping conversion. More info about ABI
+	 * can be found in TDX Guest-Host-Communication Interface (GHCI),
+	 * section "TDG.VP.VMCALL<MapGPA>"
+	 */
+	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0);
+	if (ret || fuzz_err)
+		return false;
+
+	/* private->shared conversion  requires only MapGPA call */
+	if (!enc)
+		return true;
+
 	/*
 	 * For shared->private conversion, accept the page using
 	 * TDX_ACCEPT_PAGE TDX module call.
@@ -68,4 +89,10 @@ bool tdx_accept_memory(phys_addr_t start, phys_addr_t end)
 	}
 
 	return true;
+}
+
+void tdx_accept_memory(phys_addr_t start, phys_addr_t end)
+{
+	if (!tdx_enc_status_changed_phys(start, end, true, false))
+		panic("Accepting memory failed: %#llx-%#llx\n",  start, end);
 }
