@@ -65,7 +65,19 @@
 #define PAYLOAD_MAX_SIZE			        (256 << 10)    /* up to 256KB payloads */
 #define HPRINTF_MAX_SIZE					0x1000         /* up to 4KB hprintf strings */
 
+typedef union {
+	struct {
+		unsigned int dump_observed :1;
+		unsigned int dump_stats :1;
+		unsigned int dump_callers :1;
+	};
+	uint32_t raw_data;
+} __attribute__((packed)) agent_flags_t;
+
 typedef struct {
+#ifndef CONFIG_TDX_FUZZ_KAFL_VANILLA_PAYLOAD
+	agent_flags_t flags;
+#endif
 	int32_t size;
 	uint8_t data[];
 } kAFL_payload;
