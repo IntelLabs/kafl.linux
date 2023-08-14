@@ -36,7 +36,7 @@ void arch_accept_memory(phys_addr_t start, phys_addr_t end)
 {
 	/* Platform-specific memory-acceptance call goes here */
 	if (early_is_tdx_guest()) {
-		tdx_accept_memory(start, end)
+		tdx_accept_memory(start, end);
 	} else if (sev_snp_enabled()) {
 		snp_accept_memory(start, end);
 	} else {

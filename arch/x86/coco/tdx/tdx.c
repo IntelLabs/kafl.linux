@@ -60,20 +60,20 @@ int tdx_notify_irq = -1;
 EXPORT_SYMBOL_GPL(tdx_notify_irq);
 
 /* Traced version of __tdx_hypercall */
-static u64 __trace_tdx_hypercall(struct tdx_hypercall_args *args)
+static u64 __trace_tdx_hypercall(struct tdx_hypercall_args *args, unsigned long flags)
 {
 	u64 err;
 
 	trace_tdx_hypercall_enter_rcuidle(args->r11, args->r12, args->r13,
 			args->r14, args->r15);
-	err = __tdx_hypercall(args);
+	err = __tdx_hypercall(args, flags);
 	trace_tdx_hypercall_exit_rcuidle(err, args->r11, args->r12,
 			args->r13, args->r14, args->r15);
 
 	return err;
 }
 
-static u64 __trace_tdx_hypercall_ret(struct tdx_hypercall_args *args)
+static u64 __trace_tdx_hypercall_ret(struct tdx_hypercall_args *args, unsigned long flags)
 {
 	u64 err;
 
@@ -123,7 +123,7 @@ long tdx_kvm_hypercall(unsigned int nr, unsigned long p1, unsigned long p2,
 		.r14 = p4,
 	};
 
-	return __trace_tdx_hypercall(&args);
+	return __trace_tdx_hypercall(&args, 0);
 }
 EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
 #endif
@@ -203,7 +203,7 @@ static void __noreturn tdx_panic(const char *msg)
 	 * happens to return.
 	 */
 	while (1)
-		__tdx_hypercall(&args);
+		__tdx_hypercall(&args, 0);
 }
 
 /**
@@ -287,7 +287,7 @@ int tdx_hcall_get_quote(void *tdquote, int size)
 	 * call, hence completion of this request will be notified to
 	 * the TD guest via a callback interrupt.
 	 */
-	return __tdx_hypercall(&args);
+	return __tdx_hypercall(&args, 0);
 }
 EXPORT_SYMBOL_GPL(tdx_hcall_get_quote);
 
@@ -407,7 +407,7 @@ static u64 __cpuidle __halt(const bool irq_disabled)
 	 * can keep the vCPU in virtual HLT, even if an IRQ is
 	 * pending, without hanging/breaking the guest.
 	 */
-	return __trace_tdx_hypercall(&args);
+	return __trace_tdx_hypercall(&args, 0);
 }
 
 static int handle_halt(struct ve_info *ve)
@@ -626,7 +626,7 @@ static void notrace tdx_write_msr(unsigned int msr, u32 low, u32 high)
 	};
 
 	if (tdx_fast_tdcall_path_msr(msr))
-		__tdx_hypercall(&args);
+		__tdx_hypercall(&args, 0);
 	else
 		native_write_msr(msr, low, high);
 }
@@ -657,7 +657,7 @@ static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 	 * ABI can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), section titled "VP.VMCALL<Instruction.CPUID>".
 	 */
-	if (__trace_tdx_hypercall_ret(&args))
+	if (__trace_tdx_hypercall_ret(&args, TDX_HCALL_HAS_OUTPUT))
 		return -EIO;
 
 	/*
@@ -684,7 +684,7 @@ static bool mmio_read(int size, unsigned long addr, unsigned long *val)
 		.r15 = *val,
 	};
 
-	if (__trace_tdx_hypercall_ret(&args))
+	if (__trace_tdx_hypercall_ret(&args, TDX_HCALL_HAS_OUTPUT))
 		return false;
 	*val = tdx_fuzz(args.r11, addr, size, TDX_FUZZ_MMIO_READ);
 	return true;
@@ -1245,11 +1245,10 @@ void __init tdx_early_init(void)
 	 * which can result in a #VE.  But, there is never a private mapping to
 	 * a shared page.
 	 */
-	x86_platform.guest.enc_status_change_prepare = tdx_enc_status_change_prepare;
-	x86_platform.guest.enc_status_change_finish  = tdx_enc_status_change_finish;
 
 	x86_platform.guest.enc_cache_flush_required  = tdx_cache_flush_required;
 	x86_platform.guest.enc_tlb_flush_required    = tdx_tlb_flush_required;
+	x86_platform.guest.enc_status_change_finish  = tdx_enc_status_changed;
 
 	/*
 	 * TDX intercepts the RDMSR to read the X2APIC ID in the parallel
