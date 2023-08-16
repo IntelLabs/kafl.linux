@@ -463,7 +463,7 @@ static int acpi_ccel_data_init(void *th, struct acpi_data_attr *data_attr)
 	struct acpi_table_ccel *ccel = th;
 
 	if (ccel->header.length < sizeof(struct acpi_table_ccel) ||
-	    !(ccel->log_area_start_address) || !(ccel->log_area_minimum_length)) {
+	    !ccel->log_area_start_address || !ccel->log_area_minimum_length) {
 		kfree(data_attr);
 		return -EINVAL;
 	}
