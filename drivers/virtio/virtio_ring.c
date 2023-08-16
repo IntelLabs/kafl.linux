@@ -2827,6 +2827,7 @@ void vring_transport_features(struct virtio_device *vdev)
 			break;
 		case VIRTIO_F_NOTIFICATION_DATA:
 			break;
+clear:
 		default:
 			/* We don't understand this bit. */
 			__virtio_clear_bit(vdev, i);

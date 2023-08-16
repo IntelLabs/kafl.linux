@@ -65,7 +65,31 @@ static u64 __trace_tdx_hypercall(struct tdx_hypercall_args *args,
 {
 	u64 err;
 
-	return __tdx_hypercall(&args);
+	//trace_tdx_hypercall_enter_rcuidle(args->r11, args->r12, args->r13,
+	//		args->r14, args->r15);
+	err = __tdx_hypercall(args);
+	//trace_tdx_hypercall_exit_rcuidle(err, args->r11, args->r12,
+	//		args->r13, args->r14, args->r15);
+
+	return err;
+}
+
+/* Traced version of __tdx_module_call */
+static u64 __trace_tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8,
+		u64 r9, struct tdx_module_output *out)
+{
+	struct tdx_module_output dummy_out;
+	u64 err;
+
+	if (!out)
+		out = &dummy_out;
+
+	trace_tdx_module_call_enter_rcuidle(fn, rcx, rdx, r8, r9);
+	err = __tdx_module_call(fn, rcx, rdx, r8, r9, out);
+	trace_tdx_module_call_exit_rcuidle(err, out->rcx, out->rdx,
+			out->r8, out->r9, out->r10, out->r11);
+
+	return err;
 }
 
 /* Called from __tdx_hypercall() for unrecoverable failure */
@@ -262,7 +286,7 @@ int tdx_hcall_get_quote(void *tdquote, int size)
 	 * call, hence completion of this request will be notified to
 	 * the TD guest via a callback interrupt.
 	 */
-	return __tdx_hypercall(&args, 0);
+	return __tdx_hypercall(&args);
 }
 EXPORT_SYMBOL_GPL(tdx_hcall_get_quote);
 
@@ -599,7 +623,7 @@ static void notrace tdx_write_msr(unsigned int msr, u32 low, u32 high)
 	};
 
 	if (tdx_fast_tdcall_path_msr(msr))
-		__tdx_hypercall(&args, 0);
+		__tdx_hypercall(&args);
 	else
 		native_write_msr(msr, low, high);
 }

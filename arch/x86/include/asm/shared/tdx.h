@@ -70,7 +70,7 @@ static inline u64 _tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15)
 		.r15 = r15,
 	};
 
-	return __tdx_hypercall(&args, 0);
+	return __tdx_hypercall(&args);
 }
 
 
