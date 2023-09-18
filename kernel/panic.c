@@ -38,6 +38,8 @@
 #include <trace/events/error_report.h>
 #include <asm/sections.h>
 
+#include <asm/nyx_api.h>
+
 #define PANIC_TIMER_STEP 100
 #define PANIC_BLINK_SPD 18
 
@@ -642,6 +644,8 @@ void oops_exit(void)
 	do_oops_enter_exit();
 	print_oops_end_marker();
 	kmsg_dump(KMSG_DUMP_OOPS);
+
+	kAFL_hypercall(HYPERCALL_KAFL_PANIC, 0);
 }
 
 struct warn_args {
