@@ -558,6 +558,11 @@ void tdx_fuzz_virtio_cache_init(struct virtio_device *vdev)
 {
 	size_t num_of_bytes;
 
+	if (!fuzz_enabled)
+		return;
+
+	vdev->tdx.fuzz_enabled = true;
+
 	pr_debug("virtio fuzz cache: updating.\n");
 
 	/* Original buffer context here doesn't make sense since we don't know where the reads will come from */
@@ -572,6 +577,10 @@ EXPORT_SYMBOL(tdx_fuzz_virtio_cache_init);
 #define DEFINE_VIRTIO_CACHE_GET_FN(dtype) \
 	dtype tdx_fuzz_virtio_cache_get_##dtype(struct virtio_device *vdev, dtype orig_var) \
 	{ \
+		if (!fuzz_enabled) \
+			return orig_var; \
+		if (!vdev->tdx.fuzz_enabled) \
+	       		tdx_fuzz_virtio_cache_init(vdev); \
 		return VIRTIO_CACHE_GET(vdev->tdx.fuzz_data, orig_var); \
 	} \
 	EXPORT_SYMBOL(tdx_fuzz_virtio_cache_get_##dtype)
@@ -586,6 +595,10 @@ void tdx_fuzz_virtio_cache_refresh(struct device *dev)
 		pr_debug("virtio fuzz cache: skipping device.\n");
 		return;
 	}
+
+	if (!fuzz_enabled)
+		return;
+
 	pr_debug("virtio fuzz cache: refreshing cache.\n");
 
 	tdx_fuzz_virtio_cache_init(dev_to_virtio(dev));

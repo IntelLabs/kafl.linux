@@ -458,6 +458,9 @@ int register_virtio_device(struct virtio_device *dev)
 	/* Acknowledge that we've seen the device. */
 	virtio_add_status(dev, VIRTIO_CONFIG_S_ACKNOWLEDGE);
 
+#ifdef CONFIG_TDX_FUZZ_KAFL_VIRTIO
+        dev->tdx.fuzz_enabled = false;
+#endif
 	tdx_fuzz_virtio_cache_init(dev);
 
 	/*

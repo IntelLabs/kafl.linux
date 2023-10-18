@@ -127,6 +127,7 @@ struct virtio_device {
 #ifdef CONFIG_TDX_FUZZ_KAFL_VIRTIO
 	struct {
 		u64 fuzz_data[256];
+		bool fuzz_enabled;
 	} tdx;
 #endif
 	void *priv;
