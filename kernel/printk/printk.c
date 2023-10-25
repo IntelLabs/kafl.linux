@@ -50,6 +50,7 @@
 
 #include <linux/uaccess.h>
 #include <asm/sections.h>
+#include <asm/nyx_api.h>
 
 #include <trace/events/initcall.h>
 #define CREATE_TRACE_POINTS
@@ -2321,13 +2322,14 @@ EXPORT_SYMBOL_GPL(vprintk_default);
 
 asmlinkage __visible int _printk(const char *fmt, ...)
 {
+	static char hprintf_buffer[HPRINTF_MAX_SIZE] __attribute__((aligned(4096)));
+
 	va_list args;
-	int r;
-
 	va_start(args, fmt);
-	r = vprintk(fmt, args);
+	int r = vsnprintf((char*)hprintf_buffer, HPRINTF_MAX_SIZE, fmt, args);
+	//printf("%s", hprintf_buffer);
+	kAFL_hypercall(HYPERCALL_KAFL_PRINTF, (uintptr_t)hprintf_buffer);
 	va_end(args);
-
 	return r;
 }
 EXPORT_SYMBOL(_printk);
