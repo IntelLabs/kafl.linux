@@ -5484,7 +5484,7 @@ static int handle_desc(struct kvm_vcpu *vcpu)
 	return kvm_emulate_instruction(vcpu, 0);
 }
 
-#ifdef CONFIG_KVM_NYX
+#if 0
 
 void update_cr3_target_control_buffer(struct kvm_vcpu *vcpu, uint64_t val){
 

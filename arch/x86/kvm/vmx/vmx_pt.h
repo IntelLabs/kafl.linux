@@ -13,7 +13,7 @@ bool vmx_pt_multi_cr3_enabled(struct vcpu_vmx_pt *vmx_pt_config);
 
 int vmx_pt_create_fd(struct vcpu_vmx_pt *vmx_pt_config);
 
-bool vmx_pt_vmentry(struct vcpu_vmx_pt *vmx_pt);
+void vmx_pt_vmentry(struct vcpu_vmx_pt *vmx_pt);
 void vmx_pt_vmexit(struct vcpu_vmx_pt *vmx_pt);
 
 bool topa_full(struct vcpu_vmx_pt *vmx_pt);

@@ -32,6 +32,7 @@
 #include <linux/kvm.h>
 #include <linux/anon_inodes.h>
 #include <linux/spinlock.h>
+#include "vmx_pt.h"
 
 #define PRINT_FEATURE(msr_val, bit_val, str) \
 	if(msr_val & bit_val){ PRINT_INFO("\t [*] " str ":"); } \
@@ -247,7 +248,7 @@ static int vmx_pt_mmap(struct file *filp, struct vm_area_struct *vma)
 	if ((vma->vm_end-vma->vm_start) > (TOPA_MAIN_SIZE+TOPA_FALLBACK_SIZE)){
 		return -EINVAL;
 	}
-	vma->vm_flags = (VM_READ | VM_SHARED); 
+	vm_flags_set(vma, (VM_READ | VM_SHARED));
 	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 

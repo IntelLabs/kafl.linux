@@ -294,4 +294,7 @@ static inline bool nested_cr4_valid(struct kvm_vcpu *vcpu, unsigned long val)
 
 extern struct kvm_x86_nested_ops vmx_nested_ops;
 
+u64 g2va_to_g1pa(struct kvm_vcpu *vcpu, struct vmcs12* vmcs12, u64 addr);
+void prepare_nested(struct kvm_vcpu *vcpu, struct vmcs12* vmcs12);
+
 #endif /* __KVM_X86_VMX_NESTED_H */
