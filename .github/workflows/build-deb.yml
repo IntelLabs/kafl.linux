@@ -57,7 +57,7 @@ jobs:
         run: sudo apt-get install -y ccache
 
       - name: Install build deps
-        run: sudo apt-get install -y libelf-dev dwarves
+        run: sudo apt-get install -y libelf-dev dwarves debhelper-compat
 
       - name: Get ubuntu's 22.04 5.15.0-25-generic kernel config
         run: |
