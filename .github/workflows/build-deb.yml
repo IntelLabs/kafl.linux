@@ -81,6 +81,8 @@ jobs:
           ./scripts/config --disable KVM_WERROR
           # enable Nyx
           ./scripts/config --enable KVM_NYX
+          # disable KVM_HYPERV due to compilation issue
+          ./scripts/config --disable KVM_HYPERV
           # tweak locaversion
           ./scripts/config --set-str LOCALVERSION -nyx
         working-directory: sources
