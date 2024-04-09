@@ -73,8 +73,6 @@ jobs:
           # disable kernel signature
           ./scripts/config --disable SYSTEM_TRUSTED_KEYS
           ./scripts/config --disable SYSTEM_REVOCATION_KEYS
-          # compress debug info (otherwise might fail with 'no space left on device' on the runnner)
-          ./scripts/config --enable DEBUG_INFO_COMPRESSED
           # enable KVM
           ./scripts/config --module KVM
           # disable KVM_WERROR (otherwise compilation issues in modified KVM)
@@ -85,6 +83,10 @@ jobs:
           ./scripts/config --disable KVM_HYPERV
           # tweak locaversion
           ./scripts/config --set-str LOCALVERSION -nyx
+          # save space
+          ./scripts/config --disable DEBUG_INFO
+          ./scripts/config --enable MODULE_COMPRESS
+          ./scripts/config --enable MODULE_COMPRESS_ZSTD
         working-directory: sources
 
       - name: Configure SDV kernel
