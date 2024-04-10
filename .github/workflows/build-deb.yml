@@ -14,7 +14,9 @@ on:
 
 jobs:
   debian_package:
-    runs-on: ubuntu-22.04
+    runs-on: intellabs-01
+    container:
+      image: ubuntu:22.04
     steps:
       - run: |
           BRANCH=${{ inputs.branch }}
@@ -25,33 +27,10 @@ jobs:
           # env.ref_art = kaflsdv-6.1 (for artifact name)
           echo "ref_art=${BRANCH///}" >> $GITHUB_ENV
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           ref: ${{ env.ref }}
           path: sources
-
-      # https://github.com/apache/flink/blob/02d30ace69dc18555a5085eccf70ee884e73a16e/tools/azure-pipelines/free_disk_space.sh
-      - name: Free some disk space
-        run: |
-          echo "=============================================================================="
-          echo "Freeing up disk space on CI system"
-          echo "=============================================================================="
-
-          echo "Listing 100 largest packages"
-          dpkg-query -Wf '${Installed-Size}\t${Package}\n' | sort -n | tail -n 100
-          df -h
-          echo "Removing large packages"
-          sudo apt-get remove -y '^dotnet-.*'
-          sudo apt-get remove -y '^llvm-.*'
-          sudo apt-get remove -y 'php.*'
-          sudo apt-get remove -y azure-cli google-cloud-sdk google-chrome-stable firefox powershell mono-devel
-          sudo apt-get autoremove -y
-          sudo apt-get clean
-          df -h
-          echo "Removing large directories"
-          # deleting 15GB
-          sudo rm -rf /usr/share/dotnet/
-          df -h
 
       - name: Install ccache
         run: sudo apt-get install -y ccache
@@ -101,7 +80,7 @@ jobs:
         run: make olddefconfig
         working-directory: sources
 
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
           key: "${{ runner.os }}-${{ env.ref }}-${{ hashFiles('.config') }}"
@@ -115,7 +94,7 @@ jobs:
           make -j$(nproc) bindeb-pkg
         working-directory: sources
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: linux-${{ env.ref_art }}
           path: '*.deb'
@@ -129,7 +108,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - run: |
           BRANCH=${{ inputs.branch }}
@@ -139,7 +118,7 @@ jobs:
           echo "ref_art=${BRANCH///}" >> $GITHUB_ENV
 
       # download all artifacts to the current dir
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: linux-${{ env.ref_art }}
 
