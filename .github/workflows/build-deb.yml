@@ -16,11 +16,14 @@ jobs:
   debian_package:
     runs-on: intellabs-01
     container:
-      image: node:21-bullseye
+      image: ubuntu:22.04
     defaults:
       run:
         shell: bash
     steps:
+      - name: Ensure node
+        run: apt-get update && apt-get install -y nodejs
+
       - run: |
           BRANCH=${{ inputs.branch }}
           # remove / (forbidden character in upload-artifact name)
