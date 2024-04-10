@@ -35,6 +35,9 @@ jobs:
           ref: ${{ env.ref }}
           path: sources
 
+      - name: Ensure sudo
+        run: apt-get install -y sudo
+
       - name: Install ccache
         run: sudo apt-get install -y ccache
 
