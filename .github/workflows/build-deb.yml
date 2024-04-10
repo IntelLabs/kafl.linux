@@ -14,7 +14,7 @@ on:
 
 jobs:
   debian_package:
-    runs-on: ubuntu-22.04
+    runs-on: intellabs-01
     steps:
       - run: |
           BRANCH=${{ inputs.branch }}
