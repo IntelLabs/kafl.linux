@@ -36,7 +36,7 @@ jobs:
           path: sources
 
       - name: Ensure sudo
-        run: apt-get install -y sudo
+        run: apt-get update && apt-get install -y sudo
 
       - name: Install ccache
         run: sudo apt-get install -y ccache
