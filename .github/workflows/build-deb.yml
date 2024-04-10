@@ -16,12 +16,15 @@ jobs:
   debian_package:
     runs-on: intellabs-01
     container:
-      image: ubuntu:22.04
+      image: node:21-bullseye
+    defaults:
+      run:
+        shell: bash
     steps:
       - run: |
           BRANCH=${{ inputs.branch }}
           # remove / (forbidden character in upload-artifact name)
-          BRANCH=${BRANCH///}
+          BRANCH=${BRANCH//\//}
           # env.ref = kafl/sdv-6.1
           echo "ref=${{ inputs.branch }}" >> $GITHUB_ENV
           # env.ref_art = kaflsdv-6.1 (for artifact name)
