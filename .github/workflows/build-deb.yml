@@ -21,8 +21,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Ensure node
-        run: apt-get update && apt-get install -y nodejs
+      - name: Ensure node and git
+        run: apt-get update && apt-get install -y nodejs git
 
       - run: |
           BRANCH=${{ inputs.branch }}
