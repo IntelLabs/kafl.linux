@@ -45,7 +45,7 @@ jobs:
         run: sudo apt-get install -y ccache
 
       - name: Install build deps
-        run: sudo apt-get install -y libelf-dev dwarves debhelper-compat flex bison bc cpio kmod libssl-dev rsync
+        run: sudo apt-get install -y libelf-dev dwarves debhelper-compat flex bison bc cpio kmod libssl-dev rsync python3
 
       - name: Get ubuntu's 22.04 5.15.0-25-generic kernel config
         run: |
