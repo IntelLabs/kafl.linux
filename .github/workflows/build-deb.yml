@@ -112,7 +112,7 @@ jobs:
 
   release:
     # this job makes an official Github release
-    if: ${{ inputs.publish }}
+    if: ${{ inputs.publish == 'true' }}
     needs: [debian_package]
     runs-on: ubuntu-latest
 
