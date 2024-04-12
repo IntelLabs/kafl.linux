@@ -47,14 +47,14 @@ jobs:
       - name: Install build deps
         run: sudo apt-get install -y libelf-dev dwarves debhelper-compat flex bison bc cpio kmod libssl-dev rsync python3
 
-      - name: Get ubuntu's 22.04 5.15.0-25-generic kernel config
+      - name: Get ubuntu's 22.04 6.5.0-27-generic kernel config
         run: |
           sudo apt install -y zstd
-          apt download linux-modules-5.15.0-25-generic
-          ar x linux-modules-5.15.0-25-generic_5.15.0-25.25_amd64.deb data.tar.zst
-          tar -xvf data.tar.zst './boot/config-5.15.0-25-generic'
-          mv  boot/config-5.15.0-25-generic sources/.config
-          rm -r boot/ data.tar.zst linux-modules-5.15.0-25-generic_5.15.0-25.25_amd64.deb
+          apt download linux-modules-6.5.0-27-generic
+          ar x linux-modules-6.5.0-27-generic_6.5.0-27.28~22.04.1_amd64.deb data.tar.zst
+          tar -xvf data.tar.zst './boot/config-6.5.0-27-generic'
+          mv  boot/config-6.5.0-27-generic sources/.config
+          rm -r boot/ data.tar.zst *.deb
       
       - name: Configure kernel and enable Nyx
         run: |
