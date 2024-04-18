@@ -41,9 +41,6 @@ jobs:
       - name: Ensure sudo
         run: apt-get update && apt-get install -y sudo
 
-      - name: Install ccache
-        run: sudo apt-get install -y ccache
-
       - name: Install build deps
         run: sudo apt-get install -y libelf-dev dwarves debhelper-compat flex bison bc cpio kmod libssl-dev rsync python3 rpm
 
@@ -89,17 +86,8 @@ jobs:
         run: make olddefconfig
         working-directory: sources
 
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/ccache
-          key: "${{ runner.os }}-${{ env.ref }}-${{ hashFiles('.config') }}"
-          restore-keys: |
-            "${{ runner.os }}-${{ env.ref }}"
-            "${{ runner.os }}"
-
       - name: Build kernel
         run: |
-          export PATH="/usr/lib/ccache:$PATH"
           make -j$(nproc) bindeb-pkg binrpm-pkg
         working-directory: sources
 
