@@ -50,6 +50,10 @@ jobs:
           tar -xvf data.tar.zst './boot/config-5.15.0-25-generic'
           mv  boot/config-5.15.0-25-generic sources/.config
           rm -r boot/ data.tar.zst linux-modules-5.15.0-25-generic_5.15.0-25.25_amd64.deb
+
+      - name: make olddefconfig
+        run: make olddefconfig
+        working-directory: sources
       
       - name: Configure kernel and enable Nyx
         run: |
@@ -79,10 +83,6 @@ jobs:
           ./scripts/config --enable INTEL_TDX_HOST
           # tweak locaversion
           ./scripts/config --set-str LOCALVERSION -sdv
-        working-directory: sources
-        
-      - name: make olddefconfig
-        run: make olddefconfig
         working-directory: sources
 
       - uses: actions/cache@v3
