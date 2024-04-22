@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - '*'
+  push:
+    branches:
+      - 'ci/build_rpm'
   workflow_dispatch:
     inputs:
       branch:
