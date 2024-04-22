@@ -1,6 +1,9 @@
 name: Build
 
 on:
+  pull_request:
+    branches:
+      - '*'
   workflow_dispatch:
     inputs:
       branch:
@@ -17,11 +20,11 @@ jobs:
     runs-on: intellabs-01
     steps:
       - run: |
-          BRANCH=${{ inputs.branch }}
+          BRANCH=kvm-nyx-6.0
           # remove / (forbidden character in upload-artifact name)
           BRANCH=${BRANCH///}
           # env.ref = kafl/sdv-6.1
-          echo "ref=${{ inputs.branch }}" >> $GITHUB_ENV
+          echo "ref=kvm-nyx-6.0" >> $GITHUB_ENV
           # env.ref_art = kaflsdv-6.1 (for artifact name)
           echo "ref_art=${BRANCH///}" >> $GITHUB_ENV
 
