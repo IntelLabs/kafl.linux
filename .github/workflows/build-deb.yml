@@ -113,18 +113,24 @@ jobs:
             "${{ runner.os }}-${{ env.ref }}"
             "${{ runner.os }}"
 
-      - name: Build kernel
-        run: |
-          export PATH="/usr/lib/ccache:$PATH"
-          make -j$(nproc) bindeb-pkg
-        working-directory: sources
+      # - name: Build kernel
+      #   run: |
+      #     export PATH="/usr/lib/ccache:$PATH"
+      #     make -j$(nproc) bindeb-pkg
+      #   working-directory: sources
 
       - uses: actions/upload-artifact@v3
         with:
-          name: linux-${{ env.ref_art }}
-          path: '*.deb'
+          name: config
+          path: '.config'
 
-      - run: rm -rf *.deb
+
+      # - uses: actions/upload-artifact@v3
+      #   with:
+      #     name: linux-${{ env.ref_art }}
+      #     path: '*.deb'
+
+      # - run: rm -rf *.deb
 
   release:
     # this job makes an official Github release
