@@ -1,6 +1,9 @@
 name: Build
 
 on:
+  pull_request:
+    branches:
+      - '*'
   workflow_dispatch:
     inputs:
       branch:
@@ -25,11 +28,11 @@ jobs:
         run: apt-get update && apt-get install -y nodejs git
 
       - run: |
-          BRANCH=${{ inputs.branch }}
+          BRANCH=kvm-nyx-6.0
           # remove / (forbidden character in upload-artifact name)
           BRANCH=${BRANCH//\//}
           # env.ref = kafl/sdv-6.1
-          echo "ref=${{ inputs.branch }}" >> $GITHUB_ENV
+          echo "ref=kvm-nyx-6.0" >> $GITHUB_ENV
           # env.ref_art = kaflsdv-6.1 (for artifact name)
           echo "ref_art=${BRANCH///}" >> $GITHUB_ENV
 
@@ -58,6 +61,7 @@ jobs:
           # disable kernel signature
           ./scripts/config --disable SYSTEM_TRUSTED_KEYS
           ./scripts/config --disable SYSTEM_REVOCATION_KEYS
+          ./scripts/config --disable MODULE_SIG
           # enable KVM
           ./scripts/config --module KVM
           # disable KVM_WERROR (otherwise compilation issues in modified KVM)
