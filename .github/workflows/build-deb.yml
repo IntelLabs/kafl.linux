@@ -1,9 +1,7 @@
+
 name: Build
 
 on:
-  pull_request:
-    branches:
-      - '*'
   push:
     branches:
       - 'ci/build_rpm'
@@ -21,47 +19,51 @@ on:
 jobs:
   debian_package:
     runs-on: intellabs-01
+    container:
+      image: ubuntu:22.04
+    defaults:
+      run:
+        shell: bash
     steps:
+      - name: Ensure node and git
+        run: apt-get update && apt-get install -y nodejs git
+
       - run: |
-          BRANCH=kvm-nyx-6.0
+          BRANCH=kvm-nyx-6.8
           # remove / (forbidden character in upload-artifact name)
-          BRANCH=${BRANCH///}
+          BRANCH=${BRANCH//\//}
           # env.ref = kafl/sdv-6.1
-          echo "ref=kvm-nyx-6.0" >> $GITHUB_ENV
+          echo "ref=kvm-nyx-6.8" >> $GITHUB_ENV
           # env.ref_art = kaflsdv-6.1 (for artifact name)
           echo "ref_art=${BRANCH///}" >> $GITHUB_ENV
-
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           ref: ${{ env.ref }}
           path: sources
+
+      - name: Ensure sudo
+        run: apt-get update && apt-get install -y sudo
 
       - name: Install ccache
         run: sudo apt-get install -y ccache
 
       - name: Install build deps
-        run: sudo apt-get install -y libelf-dev dwarves debhelper-compat
+        run: sudo apt-get install -y libelf-dev dwarves debhelper-compat flex bison bc cpio kmod libssl-dev rsync python3
 
-      - name: Get ubuntu's 22.04 5.15.0-25-generic kernel config
+      - name: Get ubuntu's 22.04 6.5.0-27-generic kernel config
         run: |
           sudo apt install -y zstd
-          apt download linux-modules-5.15.0-25-generic
-          ar x linux-modules-5.15.0-25-generic_5.15.0-25.25_amd64.deb data.tar.zst
-          tar -xvf data.tar.zst './boot/config-5.15.0-25-generic'
-          mv  boot/config-5.15.0-25-generic sources/.config
-          rm -r boot/ data.tar.zst linux-modules-5.15.0-25-generic_5.15.0-25.25_amd64.deb
-
-      - name: make olddefconfig
-        run: make olddefconfig
-        working-directory: sources
+          apt download linux-modules-6.5.0-27-generic
+          ar x linux-modules-6.5.0-27-generic_6.5.0-27.28~22.04.1_amd64.deb data.tar.zst
+          tar -xvf data.tar.zst './boot/config-6.5.0-27-generic'
+          mv  boot/config-6.5.0-27-generic sources/.config
+          rm -r boot/ data.tar.zst *.deb
       
       - name: Configure kernel and enable Nyx
         run: |
           # disable kernel signature
           ./scripts/config --disable SYSTEM_TRUSTED_KEYS
           ./scripts/config --disable SYSTEM_REVOCATION_KEYS
-          ./scripts/config --disable MODULE_SIG
-          ./scripts/config --disable SECURITY_LOCKDOWN_LSM
           # enable KVM
           ./scripts/config --module KVM
           # disable KVM_WERROR (otherwise compilation issues in modified KVM)
@@ -85,28 +87,25 @@ jobs:
           # tweak locaversion
           ./scripts/config --set-str LOCALVERSION -sdv
         working-directory: sources
+        
+      - name: make olddefconfig
+        run: make olddefconfig
+        working-directory: sources
 
-      # debugging
-      - uses: actions/upload-artifact@v3
-        with:
-          name: config
-          path: 'sources/.config'
-
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
           key: "${{ runner.os }}-${{ env.ref }}-${{ hashFiles('.config') }}"
           restore-keys: |
             "${{ runner.os }}-${{ env.ref }}"
             "${{ runner.os }}"
-
       - name: Build kernel
         run: |
           export PATH="/usr/lib/ccache:$PATH"
           make -j$(nproc) bindeb-pkg
         working-directory: sources
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: linux-${{ env.ref_art }}
           path: '*.deb'
@@ -115,12 +114,12 @@ jobs:
 
   release:
     # this job makes an official Github release
-    if: ${{ inputs.publish }}
+    if: ${{ inputs.publish == 'true' }}
     needs: [debian_package]
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - run: |
           BRANCH=${{ inputs.branch }}
@@ -128,9 +127,8 @@ jobs:
           BRANCH=${BRANCH///}
           # env.ref_art = kaflsdv-6.1 (for artifact name)
           echo "ref_art=${BRANCH///}" >> $GITHUB_ENV
-
       # download all artifacts to the current dir
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: linux-${{ env.ref_art }}
 
