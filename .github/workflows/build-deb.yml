@@ -89,7 +89,7 @@ jobs:
 
       - name: Build kernel
         run: |
-          make -j$(nproc) bindeb-pkg binrpm-pkg
+          make -j$(nproc) bindeb-pkg
         working-directory: sources
 
       - uses: actions/upload-artifact@v4
